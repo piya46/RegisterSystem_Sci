@@ -2,7 +2,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL , // ระวังสะกด URL ให้ถูกใน .env
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 10000,
 });
 
@@ -33,10 +33,8 @@ export const updateAdmin = (id, data, token) =>
 export const deleteAdmin = (id, token) =>
   api.delete(`/admins/${id}`, { headers: { Authorization: `Bearer ${token}` } });
 
-// เดิมส่ง { userId, password } ต้องเปลี่ยนเป็น { userId, newPassword }
 export const resetPassword = (data, token) =>
   api.post('/admins/reset-password', data, { headers: { Authorization: `Bearer ${token}` } });
-
 
 export const changePassword = (data, token) =>
   api.post('/admins/change-password', data, { headers: { Authorization: `Bearer ${token}` } });
@@ -129,5 +127,11 @@ export const uploadAvatar = (file, token) => {
   });
 };
 
-// -- Export instance for custom use (optional) --
+// ==== Donation (การสนับสนุน) ====
+export const createDonation = (data) =>
+  api.post('/donations/create', data);
+
+export const getDonationSummary = (token) =>
+  api.get('/donations/summary', { headers: { Authorization: `Bearer ${token}` } });
+
 export default api;

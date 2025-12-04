@@ -3,7 +3,7 @@ import {
   Box, Container, Paper, Stack, Typography, TextField, MenuItem,
   Button, Avatar, Divider, Collapse, FormControlLabel, Switch,
   Alert, CircularProgress, Tooltip, Chip, LinearProgress, Card, CardContent, Checkbox,
-  Dialog, DialogContent
+  Dialog, DialogContent, Grid
 } from "@mui/material";
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
@@ -14,11 +14,13 @@ import QrCode2Icon from "@mui/icons-material/QrCode2";
 import InfoIcon from "@mui/icons-material/Info";
 import SecurityIcon from "@mui/icons-material/Security";
 import WarningIcon from "@mui/icons-material/Warning";
+import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism'; // Icon หัวใจ/บริจาค
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
-import { listParticipantFields, createParticipant } from "../utils/api";
+import { listParticipantFields, createParticipant, createDonation } from "../utils/api";
 import Turnstile, { executeTurnstile } from "../components/Turnstile";
+import dayjs from "dayjs";
 
 export default function PreRegistrationPage() {
   const [fields, setFields] = useState([]);
@@ -36,6 +38,12 @@ export default function PreRegistrationPage() {
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [errors, setErrors] = useState({});
   const [errorDialog, setErrorDialog] = useState({ open: false, title: "", msg: "", type: "error" });
+
+  // Donation States
+  const [wantToDonate, setWantToDonate] = useState(false);
+  const [donationAmount, setDonationAmount] = useState("");
+  const [donationDate, setDonationDate] = useState(dayjs().format("YYYY-MM-DD"));
+  const [donationTime, setDonationTime] = useState(dayjs().format("HH:mm"));
 
   const ticketRef = useRef();
 
@@ -90,14 +98,49 @@ export default function PreRegistrationPage() {
       setResult(null);
       setRegisteredParticipant(null);
       try {
+        // 1. Register Participant
         const count = bringFollowers ? Math.max(0, parseInt(followersCount || 0, 10)) : 0;
         const payload = { ...form, followers: count, cfToken, consent };
         const participant = await createParticipant(payload);
-        setResult({ success: true, message: "ลงทะเบียนล่วงหน้าสำเร็จ!" });
+        
+        let successMessage = "ลงทะเบียนล่วงหน้าสำเร็จ!";
+
+        // 2. Handle Donation (ถ้าเลือก)
+        if (wantToDonate && donationAmount && parseFloat(donationAmount) > 0) {
+          try {
+            // พยายามแยกชื่อ-นามสกุลจากฟอร์ม (ถ้ามี field 'name')
+            // ถ้าไม่มีให้ใช้ "-" เพื่อกัน error backend
+            const fullName = form.name || form.fullName || "- -";
+            const nameParts = fullName.trim().split(" ");
+            const firstName = nameParts[0] || "-";
+            const lastName = nameParts.slice(1).join(" ") || "-";
+
+            const transferDateTime = new Date(`${donationDate}T${donationTime}`);
+
+            await createDonation({
+              userId: null, // Guest
+              firstName,
+              lastName,
+              amount: parseFloat(donationAmount),
+              transferDateTime,
+              source: "PRE_REGISTER"
+            });
+            successMessage += " และบันทึกข้อมูลการสนับสนุนเรียบร้อยแล้ว";
+          } catch (donateErr) {
+            console.error("Donation Error:", donateErr);
+            successMessage += " (แต่บันทึกข้อมูลการสนับสนุนไม่สำเร็จ กรุณาติดต่อเจ้าหน้าที่)";
+          }
+        }
+
+        setResult({ success: true, message: successMessage });
         setRegisteredParticipant(participant.data || participant);
+        
+        // Reset form but keep result
         setForm({});
         setBringFollowers(false);
         setFollowersCount(0);
+        setWantToDonate(false);
+        setDonationAmount("");
         setConsent(null);
         setErrors({});
       } catch (err) {
@@ -129,11 +172,23 @@ export default function PreRegistrationPage() {
     e.preventDefault();
     if (Object.keys(errors).length > 0) return;
     if (!consent) return;
+    
+    // Donation Validation (ถ้าเลือกบริจาค ต้องกรอกจำนวนเงิน)
+    if (wantToDonate) {
+      if (!donationAmount || parseFloat(donationAmount) <= 0) {
+        setErrorDialog({
+          open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", 
+          msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน"
+        });
+        return;
+      }
+    }
+
     setPendingSubmit(true);
     executeTurnstile();
   };
 
-  const savePdf = async () => { /* ... same as before ... */ 
+  const savePdf = async () => { 
     if (!ticketRef.current) return;
     const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true });
     const imgData = canvas.toDataURL("image/png");
@@ -147,7 +202,7 @@ export default function PreRegistrationPage() {
     pdf.save("E-Ticket.pdf");
   };
 
-  const savePng = async () => { /* ... same as before ... */
+  const savePng = async () => {
     if (!ticketRef.current) return;
     const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true });
     const link = document.createElement("a");
@@ -162,6 +217,8 @@ export default function PreRegistrationPage() {
     setRegisteredParticipant(null);
     setBringFollowers(false);
     setFollowersCount(0);
+    setWantToDonate(false);
+    setDonationAmount("");
     setConsent(null);
     setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -200,6 +257,85 @@ export default function PreRegistrationPage() {
                   <FormControlLabel sx={{ mt: 1 }} control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />} label={bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"} />
                   <Collapse in={bringFollowers}>
                     <TextField type="text" inputMode="numeric" label="จำนวนผู้ติดตาม" value={String(followersCount ?? "")} onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setFollowersCount(raw === "" ? 0 : parseInt(raw, 10)); }} fullWidth sx={{ mt: 1.5 }} />
+                  </Collapse>
+                </Paper>
+
+                {/* --- Donation Section --- */}
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, bgcolor: wantToDonate ? "#e8f5e9" : "#f1f8e9", borderColor: wantToDonate ? "#66bb6a" : "#c5e1a5", transition: "all 0.3s" }}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <VolunteerActivismIcon color="success" />
+                    <Typography fontWeight={700} color="success.dark">ร่วมสนับสนุนกิจกรรม</Typography>
+                    <Chip label="Optional" size="small" color="success" variant="outlined" sx={{ ml: "auto" }} />
+                  </Stack>
+                  <FormControlLabel 
+                    sx={{ mt: 1 }} 
+                    control={<Switch checked={wantToDonate} onChange={(e) => setWantToDonate(e.target.checked)} color="success" />} 
+                    label={wantToDonate ? "ต้องการสนับสนุน" : "ไม่ประสงค์จะสนับสนุน"} 
+                  />
+                  <Collapse in={wantToDonate}>
+                    <Box sx={{ mt: 2, p: 2, bgcolor: "#fff", borderRadius: 2, border: "1px dashed #81c784" }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom align="center">
+                        สแกน QR Code ด้านล่างเพื่อโอนเงินสนับสนุน
+                      </Typography>
+                      {/* Placeholder QR PromptPay */}
+                      <Stack alignItems="center" sx={{ mb: 2 }}>
+                        <Box sx={{ width: 180, height: 180, bgcolor: "#eee", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 2 }}>
+                          {/* ใส่รูป QR จริงที่นี่ <img src="/promptpay-qr.jpg" ... /> */}
+                          <img src="/donate.png" alt="PromptPay QR Code" style={{ width: "100%", height: "100%", borderRadius: 8 }} />
+                          <Typography variant="captijpgon" color="text.disabled"><br/></Typography>
+                        </Box>
+                        <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>
+                          ชื่อบัญชี: น.ส.เสาวดี อิสริยะโอภาส และ นางนภาภรรื ลาชโรจน์
+                        </Typography>
+                        <Typography variant="caption">
+                          ธนาคารกสิกรไทย <br/>
+                          เลขที่บัญชี: 211-8-76814-3
+                        </Typography>
+                      </Stack>
+
+                      <Grid container spacing={2}>
+                        <Grid item xs={12}>
+                          <TextField
+                            label="จำนวนเงินที่โอน (บาท)"
+                            type="number"
+                            fullWidth
+                            value={donationAmount}
+                            onChange={(e) => setDonationAmount(e.target.value)}
+                            InputProps={{ inputProps: { min: 0 } }}
+                            placeholder="เช่น 100, 500"
+                            size="small"
+                            sx={{ bgcolor: "#fff" }}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            label="วันที่โอน"
+                            type="date"
+                            fullWidth
+                            value={donationDate}
+                            onChange={(e) => setDonationDate(e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            size="small"
+                            sx={{ bgcolor: "#fff" }}
+                          />
+                        </Grid>
+                        <Grid item xs={6}>
+                          <TextField
+                            label="เวลาที่โอน"
+                            type="time"
+                            fullWidth
+                            value={donationTime}
+                            onChange={(e) => setDonationTime(e.target.value)}
+                            InputLabelProps={{ shrink: true }}
+                            size="small"
+                            sx={{ bgcolor: "#fff" }}
+                          />
+                        </Grid>
+                      </Grid>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                        * ระบบจะบันทึกข้อมูลการสนับสนุนและแจ้งเตือนไปยังเจ้าหน้าที่
+                      </Typography>
+                    </Box>
                   </Collapse>
                 </Paper>
 

@@ -4,14 +4,26 @@ exports.sendLineDonationAlert = async (donationData) => {
   try {
     const { firstName, lastName, amount, transferDateTime, source } = donationData;
     
-    
+    // แปลงวันที่เป็น format ไทย
     const dateStr = new Date(transferDateTime).toLocaleString('th-TH', { 
       timeZone: 'Asia/Bangkok',
       dateStyle: 'medium', 
       timeStyle: 'short' 
     });
 
-    
+    // [ปรับปรุง] แปลง source เป็นคำที่เข้าใจง่าย
+    let sourceText = source;
+    switch (source) {
+      case 'PRE_REGISTER':
+        sourceText = 'ระบบลงทะเบียน';
+        break;
+      case 'SUPPORT_SYSTEM':
+        sourceText = 'ระบบสนับสนุน';
+        break;
+      default:
+        sourceText = source || 'ไม่ระบุ';
+    }
+
     const messagePayload = {
       to: process.env.LINE_GROUP_ID, 
       messages: [
@@ -57,7 +69,7 @@ exports.sendLineDonationAlert = async (donationData) => {
                       spacing: "sm",
                       contents: [
                         { type: "text", text: "ช่องทาง:", color: "#aaaaaa", size: "sm", flex: 2 },
-                        { type: "text", text: source, wrap: true, color: "#666666", size: "sm", flex: 4 }
+                        { type: "text", text: sourceText, wrap: true, color: "#666666", size: "sm", flex: 4 } // ใช้ sourceText ที่แปลงแล้ว
                       ]
                     }
                   ]
@@ -69,7 +81,6 @@ exports.sendLineDonationAlert = async (donationData) => {
       ]
     };
 
-   
     await axios.post('https://api.line.me/v2/bot/message/push', messagePayload, {
       headers: {
         'Content-Type': 'application/json',
@@ -80,6 +91,5 @@ exports.sendLineDonationAlert = async (donationData) => {
     console.log('Line message sent successfully');
   } catch (error) {
     console.error('Line message error:', error.response ? error.response.data : error.message);
-    
   }
 };

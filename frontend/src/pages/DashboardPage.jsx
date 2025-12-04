@@ -18,9 +18,13 @@ import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
 import PeopleIcon from "@mui/icons-material/People";
+import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
+import PaymentsIcon from '@mui/icons-material/Payments';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
+import { getDonationSummary } from "../utils/api";
 
 import { PieChart, Pie, Cell, Legend } from "recharts";
 import {
@@ -28,7 +32,6 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, LineChart, Line
 } from "recharts";
 
-/* ====== NEW: Error Boundary ป้องกันกราฟพังทั้งหน้า ====== */
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -38,7 +41,6 @@ class ChartErrorBoundary extends React.Component {
     return { hasError: true };
   }
   componentDidCatch(err, info) {
-    // คุณอาจส่ง log ไปบริการภายนอกได้ที่นี่
     // console.error("Chart error:", err, info);
   }
   render() {
@@ -83,7 +85,8 @@ const getTheme = (mode = "light") =>
               default: "linear-gradient(120deg,#fff8e1 0%,#fffde7 100%)",
               paper: "#fff",
             },
-            info: { main: "#64b5f6" }
+            info: { main: "#64b5f6" },
+            success: { main: "#4caf50", light: "#81c784", dark: "#388e3c" }
           }
         : {
             primary: { main: "#ffc107", light: "#fff350", dark: "#c79100" },
@@ -136,12 +139,10 @@ export default function DashboardPage() {
   const openProfile = Boolean(profileAnchorEl);
 
   const [summary, setSummary] = useState(null);
+  const [donationStats, setDonationStats] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
 
-  // toggle: รวมผู้ติดตามในกราฟ
   const [withFollowers, setWithFollowers] = useState(true);
-
-  // Refresh Countdown
   const [refreshCountdown, setRefreshCountdown] = useState(60);
   const countdownRef = useRef(null);
   const fetchSummaryRef = useRef(null);
@@ -154,8 +155,11 @@ export default function DashboardPage() {
       });
       const data = await res.json();
       setSummary(data);
+
+      const donRes = await getDonationSummary(token);
+      setDonationStats(donRes.data);
+
     } catch (err) {
-      setSummary(null);
       console.error("Failed to fetch summary", err);
     }
     setLoadingSummary(false);
@@ -167,10 +171,7 @@ export default function DashboardPage() {
       const res = await fetch("/api/participants/export", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `Export failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error("Export failed");
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -181,8 +182,7 @@ export default function DashboardPage() {
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (e) {
-      console.error("Export CSV failed:", e);
-      alert("ดาวน์โหลดไม่สำเร็จ: " + (e?.message || "unknown error"));
+      alert("ดาวน์โหลดไม่สำเร็จ: " + e?.message);
     }
   }
 
@@ -202,7 +202,6 @@ export default function DashboardPage() {
     return () => {
       clearInterval(countdownRef.current);
     };
-    // eslint-disable-next-line
   }, [token]);
 
   const mainMenuFiltered = MAIN_MENU.filter(item => item.roles.some(r => roles.includes(r)));
@@ -211,10 +210,8 @@ export default function DashboardPage() {
   const displayName = user?.fullName || user?.username || "";
   const displayShort = displayName.length > 5 ? displayName.slice(0, 5) + "..." : displayName;
 
-  // Skeleton utility
   function skel(h = 48, w = 100) { return <Skeleton variant="rectangular" height={h} width={w} animation="wave" />; }
 
-  /* ====== NEW: เตรียมข้อมูลกราฟด้วย useMemo เพื่อลด re-render ====== */
   const statusPieData = useMemo(() => {
     if (!summary) return [];
     return withFollowers
@@ -238,18 +235,17 @@ export default function DashboardPage() {
   const registrationByDayData = useMemo(() => summary?.registrationByDay ?? [], [summary]);
   const checkinByHourData   = useMemo(() => summary?.checkinByHour ?? [], [summary]);
 
-  // === สถิติผู้ติดตาม (memo คำนวณใน view เพื่อให้อ่านง่าย) ===
   const fStat = summary?.statusBreakdown?.followers || {};
-  const followersRegisteredTotal =
-    typeof fStat.total === "number" ? fStat.total : (typeof summary?.totalFollowers === "number" ? summary.totalFollowers : 0);
-  const followersCheckedInTotal =
-    typeof fStat.checkedIn === "number" ? fStat.checkedIn : (typeof summary?.checkedInFollowers === "number" ? summary.checkedInFollowers : 0);
+  const followersRegisteredTotal = typeof fStat.total === "number" ? fStat.total : (summary?.totalFollowers || 0);
+  const followersCheckedInTotal = typeof fStat.checkedIn === "number" ? fStat.checkedIn : (summary?.checkedInFollowers || 0);
 
-  // dataKey สำหรับกราฟแนวโน้ม/รายชั่วโมง
   const regByDayKey = withFollowers ? "totalCount" : "count";
   const checkinHourKey = withFollowers ? "totalCount" : "participantCount";
 
-  // === Staff contributions ===
+  const totalDonationAmount = donationStats?.stats?.totalAmount || 0;
+  const totalDonationCount = donationStats?.stats?.totalCount || 0;
+  const recentDonations = donationStats?.transactions?.slice(0, 5) || [];
+
   const checkedInByStaff = Array.isArray(summary?.checkedInUsers) ? summary.checkedInUsers : [];
   const registeredByStaff = Array.isArray(summary?.registeredByUsers) ? summary.registeredByUsers : [];
 
@@ -289,189 +285,27 @@ export default function DashboardPage() {
         pb: 3
       }}>
         <AppBar position="static" color="default" elevation={2}>
-          <Toolbar
-            sx={{
-              px: { xs: 1, md: 3 },
-              minHeight: 66,
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              flexWrap: "nowrap"
-            }}
-          >
+          <Toolbar sx={{ px: { xs: 1, md: 3 }, minHeight: 66, display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
-              <Avatar
-                src={getAvatarUrl(user)}
-                sx={{
-                  bgcolor: "primary.main",
-                  width: 38,
-                  height: 38,
-                  fontWeight: 700,
-                  fontSize: 18,
-                  border: user?.avatar ? "2px solid #ffb300" : undefined,
-                }}
-              >
+              <Avatar src={getAvatarUrl(user)} sx={{ bgcolor: "primary.main", width: 38, height: 38, border: user?.avatar ? "2px solid #ffb300" : undefined }}>
                 {!user?.avatar && getInitial(displayName)}
               </Avatar>
-              <Typography
-                variant="h6"
-                fontWeight="bold"
-                color="primary"
-                sx={{
-                  fontSize: { xs: "1.05rem", sm: "1.15rem", md: "1.25rem" },
-                  whiteSpace: "nowrap",
-                  textShadow: "0 1px 0 #fff5"
-                }}
-              >
+              <Typography variant="h6" fontWeight="bold" color="primary" sx={{ fontSize: { xs: "1.05rem", sm: "1.15rem", md: "1.25rem" }, whiteSpace: "nowrap", textShadow: "0 1px 0 #fff5" }}>
                 Event Dashboard
               </Typography>
             </Stack>
-
-            {/* เมนูหลักแบบปุ่ม pill */}
             <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: 1, ml: { xs: 0.5, md: 2 } }}>
               {mainMenuFiltered.map(item => (
-                <Button
-                  key={item.label}
-                  component={Link}
-                  to={item.path}
-                  startIcon={item.icon}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 600,
-                    borderRadius: 999,
-                    px: 1.6,
-                    py: 1.0,
-                    fontSize: { xs: 13, md: 15 },
-                    color: "primary.dark",
-                    bgcolor: "rgba(255,193,7,0.12)",
-                    "&:hover": { bgcolor: "rgba(255,193,7,0.22)" },
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {item.label}
-                </Button>
+                <Button key={item.label} component={Link} to={item.path} startIcon={item.icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "primary.dark", bgcolor: "rgba(255,193,7,0.12)", "&:hover": { bgcolor: "rgba(255,193,7,0.22)" }, whiteSpace: "nowrap" }}>{item.label}</Button>
               ))}
               {manageMenuFiltered.length === 1 ? (
-                <Button
-                  key={manageMenuFiltered[0].label}
-                  component={Link}
-                  to={manageMenuFiltered[0].path}
-                  startIcon={manageMenuFiltered[0].icon}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 600,
-                    borderRadius: 999,
-                    px: 1.6,
-                    py: 1.0,
-                    fontSize: { xs: 13, md: 15 },
-                    color: "secondary.dark",
-                    bgcolor: "rgba(255,179,0,0.12)",
-                    "&:hover": { bgcolor: "rgba(255,179,0,0.22)" },
-                    whiteSpace: "nowrap"
-                  }}
-                >
-                  {manageMenuFiltered[0].label}
-                </Button>
-              ) : (
-                manageMenuFiltered.length > 1 &&
-                  <MenuItemDropdown label="จัดการ" icon={<SettingsIcon />} menuItems={manageMenuFiltered} />
-              )}
+                <Button key={manageMenuFiltered[0].label} component={Link} to={manageMenuFiltered[0].path} startIcon={manageMenuFiltered[0].icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "secondary.dark", bgcolor: "rgba(255,179,0,0.12)", "&:hover": { bgcolor: "rgba(255,179,0,0.22)" }, whiteSpace: "nowrap" }}>{manageMenuFiltered[0].label}</Button>
+              ) : (manageMenuFiltered.length > 1 && <MenuItemDropdown label="จัดการ" icon={<SettingsIcon />} menuItems={manageMenuFiltered} />)}
             </Stack>
-
             <Stack direction="row" alignItems="center" spacing={0}>
-              <Tooltip title={displayName}>
-                <Button
-                  color="inherit"
-                  sx={{
-                    px: 1.6,
-                    py: 0.7,
-                    fontWeight: "bold",
-                    borderRadius: 3,
-                    color: "primary.dark",
-                    fontSize: { xs: 15, md: 16 }
-                  }}
-                  startIcon={
-                    <Avatar
-                      src={getAvatarUrl(user)}
-                      sx={{
-                        width: 32,
-                        height: 32,
-                        bgcolor: "primary.main",
-                        fontSize: 17,
-                        fontWeight: 700,
-                        border: user?.avatar ? "2px solid #ffb300" : undefined,
-                      }}
-                    >
-                      {!user?.avatar && getInitial(displayName)}
-                    </Avatar>
-                  }
-                  endIcon={<ExpandMoreIcon />}
-                  onClick={e => setProfileAnchorEl(e.currentTarget)}
-                >
-                  <Box sx={{
-                    textAlign: "left",
-                    maxWidth: 68,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    fontWeight: 700,
-                    fontSize: { xs: 15, sm: 16 },
-                    letterSpacing: 0.5
-                  }}>
-                    {displayShort}
-                  </Box>
-                </Button>
-              </Tooltip>
-              <Menu
-                anchorEl={profileAnchorEl}
-                open={openProfile}
-                onClose={() => setProfileAnchorEl(null)}
-                PaperProps={{
-                  elevation: 4,
-                  sx: {
-                    mt: 1,
-                    minWidth: 230,
-                    borderRadius: 2,
-                    boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)"
-                  }
-                }}
-              >
-                <Box sx={{ p: 1, pb: 0, display: "flex", alignItems: "center" }}>
-                  <Avatar
-                    src={getAvatarUrl(user)}
-                    sx={{ width: 36, height: 36, bgcolor: "primary.main", mr: 1, border: user?.avatar ? "2px solid #ffb300" : undefined }}
-                  >
-                    {!user?.avatar && getInitial(displayName)}
-                  </Avatar>
-                  <Box>
-                    <Typography sx={{ fontWeight: 500 }}>
-                      {displayName}
-                    </Typography>
-                    <Chip
-                      label={(Array.isArray(user?.role) ? user.role : [user?.role]).filter(Boolean).map(r => String(r).toUpperCase()).join(", ")}
-                      color="secondary"
-                      size="small"
-                      sx={{ fontWeight: "bold", letterSpacing: 1, mt: 0.3 }}
-                    />
-                  </Box>
-                </Box>
-                <Divider sx={{ my: 1 }} />
-                <MenuItem component={Link} to="/profile" onClick={() => setProfileAnchorEl(null)}>
-                  <PersonIcon sx={{ mr: 1 }} /> จัดการโปรไฟล์
-                </MenuItem>
-                <MenuItem onClick={() => { setProfileAnchorEl(null); setDialogOpen(true); }}>
-                  <VpnKeyIcon sx={{ mr: 1 }} /> เปลี่ยนรหัสผ่าน
-                </MenuItem>
-                <MenuItem onClick={() => { setProfileAnchorEl(null); logout(); }}>
-                  <LogoutIcon sx={{ mr: 1 }} /> Logout
-                </MenuItem>
-                <Divider sx={{ my: 1 }} />
-                <MenuItem onClick={() => setDarkMode(v => !v)}>
-                  <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
-                    {darkMode ? <Brightness7Icon sx={{ mr: 1 }} /> : <Brightness4Icon sx={{ mr: 1 }} />}
-                    {darkMode ? "Light Mode" : "Dark Mode"}
-                    <Switch checked={darkMode} onChange={e => setDarkMode(e.target.checked)} sx={{ ml: "auto" }} />
-                  </Box>
-                </MenuItem>
+              <Tooltip title={displayName}><Button color="inherit" sx={{ px: 1.6, py: 0.7, fontWeight: "bold", borderRadius: 3, color: "primary.dark", fontSize: { xs: 15, md: 16 } }} startIcon={<Avatar src={getAvatarUrl(user)} sx={{ width: 32, height: 32, bgcolor: "primary.main", fontSize: 17, fontWeight: 700, border: user?.avatar ? "2px solid #ffb300" : undefined }}>{!user?.avatar && getInitial(displayName)}</Avatar>} endIcon={<ExpandMoreIcon />} onClick={e => setProfileAnchorEl(e.currentTarget)}><Box sx={{ textAlign: "left", maxWidth: 68, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 700, fontSize: { xs: 15, sm: 16 }, letterSpacing: 0.5 }}>{displayShort}</Box></Button></Tooltip>
+              <Menu anchorEl={profileAnchorEl} open={openProfile} onClose={() => setProfileAnchorEl(null)} PaperProps={{ elevation: 4, sx: { mt: 1, minWidth: 230, borderRadius: 2, boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)" } }}>
+                <Box sx={{ p: 1, pb: 0, display: "flex", alignItems: "center" }}><Avatar src={getAvatarUrl(user)} sx={{ width: 36, height: 36, bgcolor: "primary.main", mr: 1, border: user?.avatar ? "2px solid #ffb300" : undefined }}>{!user?.avatar && getInitial(displayName)}</Avatar><Box><Typography sx={{ fontWeight: 500 }}>{displayName}</Typography><Chip label={(Array.isArray(user?.role) ? user.role : [user?.role]).filter(Boolean).map(r => String(r).toUpperCase()).join(", ")} color="secondary" size="small" sx={{ fontWeight: "bold", letterSpacing: 1, mt: 0.3 }} /></Box></Box><Divider sx={{ my: 1 }} /><MenuItem component={Link} to="/profile" onClick={() => setProfileAnchorEl(null)}><PersonIcon sx={{ mr: 1 }} /> จัดการโปรไฟล์</MenuItem><MenuItem onClick={() => { setProfileAnchorEl(null); setDialogOpen(true); }}><VpnKeyIcon sx={{ mr: 1 }} /> เปลี่ยนรหัสผ่าน</MenuItem><MenuItem onClick={() => { setProfileAnchorEl(null); logout(); }}><LogoutIcon sx={{ mr: 1 }} /> Logout</MenuItem><Divider sx={{ my: 1 }} /><MenuItem onClick={() => setDarkMode(v => !v)}><Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>{darkMode ? <Brightness7Icon sx={{ mr: 1 }} /> : <Brightness4Icon sx={{ mr: 1 }} />}{darkMode ? "Light Mode" : "Dark Mode"}<Switch checked={darkMode} onChange={e => setDarkMode(e.target.checked)} sx={{ ml: "auto" }} /></Box></MenuItem>
               </Menu>
             </Stack>
           </Toolbar>
@@ -480,34 +314,27 @@ export default function DashboardPage() {
         <Container maxWidth="md" sx={{ mt: 4, mb: 5 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
             <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-              รายงานสรุปข้อมูลผู้เข้าร่วม
+              รายงานสรุปข้อมูล
             </Typography>
             <Stack direction="row" alignItems="center" spacing={2}>
               <FormControlLabel
                 control={<Switch checked={withFollowers} onChange={e => setWithFollowers(e.target.checked)} />}
-                label="นับรวมผู้ติดตามในกราฟ"
+                label="นับรวมผู้ติดตาม"
               />
               <Typography variant="body2" color="text.secondary">
-                รีเฟรชอัตโนมัติใน {refreshCountdown} วินาที
+                รีเฟรชใน {refreshCountdown}s
               </Typography>
               <Button
-                variant="outlined"
-                color="primary"
-                size="small"
-                onClick={() => {
-                  fetchSummary();
-                }}
-                disabled={loadingSummary}
-                sx={{ minWidth: 40 }}
+                variant="outlined" color="primary" size="small"
+                onClick={() => fetchSummary()}
+                disabled={loadingSummary} sx={{ minWidth: 40 }}
               >
                 {loadingSummary ? <span>...</span> : "รีเฟรช"}
               </Button>
             </Stack>
           </Stack>
 
-          {/* ====== VIEW หลัก: ครอบด้วย ErrorBoundary และลด re-render ด้วย useMemo ข้อมูลกราฟ ====== */}
           <ChartErrorBoundary>
-            {/* KPI Cards — หลัก */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={3} mb={4}>
               <Card sx={{ flex: 1, bgcolor: "primary.light", color: "#4a2c00" }}>
                 <CardContent sx={{ textAlign: "center" }}>
@@ -535,7 +362,80 @@ export default function DashboardPage() {
               </Card>
             </Stack>
 
-            {/* KPI — ผู้ติดตาม */}
+            {donationStats && (
+              <Box sx={{ mb: 4 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+                  <Typography variant="h5" fontWeight="bold" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
+                    <VolunteerActivismIcon sx={{ mr: 1 }} /> ข้อมูลการสนับสนุน (Donations)
+                  </Typography>
+                  <Button 
+                    component={Link} 
+                    to="/admin/donations" 
+                    endIcon={<ArrowForwardIcon />}
+                    size="small"
+                    color="success"
+                  >
+                    ดูรายชื่อทั้งหมด
+                  </Button>
+                </Stack>
+                
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={3}>
+                  <Card sx={{ flex: 1, bgcolor: "#e8f5e9", color: "#1b5e20", border: '1px solid #c8e6c9' }}>
+                    <CardContent sx={{ textAlign: "center" }}>
+                      <Typography variant="h6">ยอดเงินสนับสนุนรวม</Typography>
+                      <Typography variant="h3" sx={{ fontWeight: 800 }}>
+                        ฿{totalDonationAmount.toLocaleString()}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                  <Card sx={{ flex: 1, bgcolor: "#f1f8e9", color: "#33691e", border: '1px solid #dcedc8' }}>
+                    <CardContent sx={{ textAlign: "center" }}>
+                      <Typography variant="h6">จำนวนรายการโอน</Typography>
+                      <Typography variant="h3">
+                        {totalDonationCount}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Stack>
+                
+                {recentDonations.length > 0 && (
+                  <Card sx={{ mt: 2, border: '1px solid #eee' }}>
+                    <CardContent sx={{ pb: 1 }}>
+                      <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
+                        <PaymentsIcon sx={{ mr: 1, fontSize: 20 }} color="success" /> รายการล่าสุด
+                      </Typography>
+                      <Box sx={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+                          <thead>
+                            <tr style={{ borderBottom: "2px solid #eee", color: "#666" }}>
+                              <th style={{ textAlign: "left", padding: "8px" }}>เวลา</th>
+                              <th style={{ textAlign: "left", padding: "8px" }}>ชื่อผู้บริจาค</th>
+                              <th style={{ textAlign: "right", padding: "8px" }}>ยอดเงิน</th>
+                              <th style={{ textAlign: "right", padding: "8px" }}>ช่องทาง</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {recentDonations.map((d) => (
+                              <tr key={d._id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                                <td style={{ padding: "8px" }}>{new Date(d.createdAt).toLocaleString("th-TH")}</td>
+                                <td style={{ padding: "8px" }}>{d.firstName} {d.lastName}</td>
+                                <td style={{ padding: "8px", textAlign: "right", fontWeight: "bold", color: "#2e7d32" }}>
+                                  +{d.amount.toLocaleString()}
+                                </td>
+                                <td style={{ padding: "8px", textAlign: "right" }}>
+                                  <Chip label={d.source === 'PRE_REGISTER' ? 'ลงทะเบียน' : 'อื่นๆ'} size="small" color="success" variant="outlined" />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                )}
+              </Box>
+            )}
+
             <Stack direction={{ xs: "column", sm: "row" }} spacing={3} mb={4}>
               <Card sx={{ flex: 1, bgcolor: "#e3f2fd", color: "#0d47a1" }}>
                 <CardContent sx={{ textAlign: "center" }}>
@@ -551,7 +451,6 @@ export default function DashboardPage() {
               </Card>
             </Stack>
 
-            {/* Donut — สถานะรวม */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">
@@ -563,7 +462,7 @@ export default function DashboardPage() {
                       data={statusPieData}
                       cx="50%" cy="50%" innerRadius={60} outerRadius={90}
                       label={({ name, percent }) => `${name} - ${(percent * 100).toFixed(1)}%`}
-                      isAnimationActive={false}   // กันกระตุก/รีเพนต์ถี่
+                      isAnimationActive={false}
                       dataKey="value"
                     >
                       <Cell fill="#4caf50" />
@@ -576,7 +475,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* ช่องทางลงทะเบียน */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">ช่องทางลงทะเบียน (รายการ)</Typography>
@@ -600,7 +498,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Peak */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">Peak</Typography>
@@ -615,7 +512,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* ผู้ลงทะเบียนใหม่ 7 วัน */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">ผู้ลงทะเบียนใหม่ 7 วันล่าสุด (รายการ)</Typography>
@@ -626,7 +522,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* แนวโน้มลงทะเบียนรายวัน */}
             {(registrationByDayData || []).length > 0 && (
               <Card sx={{ mb: 4 }}>
                 <CardContent>
@@ -646,7 +541,6 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* เช็คอินรายชั่วโมง */}
             {(checkinByHourData || []).length > 0 && (
               <Card sx={{ mb: 4 }}>
                 <CardContent>
@@ -666,13 +560,11 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* === สรุปตามเจ้าหน้าที่ === */}
             {(checkedInByStaffView.length > 0 || registeredByStaffView.length > 0) && (
               <Card sx={{ mb: 4 }}>
                 <CardContent>
                   <Typography variant="h6" fontWeight="bold">สรุปตามเจ้าหน้าที่ (Staff Contribution)</Typography>
 
-                  {/* เจ้าหน้าที่ช่วยเช็คอิน */}
                   {checkedInByStaffView.length > 0 && (
                     <Box sx={{ mt: 2 }}>
                       <Typography sx={{ fontWeight: 600, mb: 1 }}>
@@ -701,7 +593,6 @@ export default function DashboardPage() {
                         </table>
                       </Box>
 
-                      {/* กราฟแท่ง: เช็คอินตามเจ้าหน้าที่ */}
                       <Box sx={{ mt: 2 }}>
                         <ResponsiveContainer width="100%" height={250}>
                           <BarChart data={checkedInByStaffView}>
@@ -716,7 +607,6 @@ export default function DashboardPage() {
                     </Box>
                   )}
 
-                  {/* เจ้าหน้าที่ช่วยลงทะเบียน */}
                   {registeredByStaffView.length > 0 && (
                     <Box sx={{ mt: 4 }}>
                       <Typography sx={{ fontWeight: 600, mb: 1 }}>
@@ -745,7 +635,6 @@ export default function DashboardPage() {
                         </table>
                       </Box>
 
-                      {/* กราฟแท่ง: ลงทะเบียนตามเจ้าหน้าที่ */}
                       <Box sx={{ mt: 2 }}>
                         <ResponsiveContainer width="100%" height={250}>
                           <BarChart data={registeredByStaffView}>
@@ -763,7 +652,6 @@ export default function DashboardPage() {
               </Card>
             )}
 
-            {/* ตาราง: ภาควิชา */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">สถิติแยกตามภาควิชา</Typography>
@@ -800,7 +688,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* ตาราง: ปีการศึกษา */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">สถิติแยกตามปีการศึกษา</Typography>
@@ -837,7 +724,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* ตาราง: จุดลงทะเบียน */}
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight="bold">สถิติแต่ละจุดลงทะเบียน</Typography>
@@ -874,7 +760,6 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* ผู้ที่เช็คอินล่าสุด */}
             {summary?.lastCheckedIn && (
               <Card sx={{ mb: 4 }}>
                 <CardContent>
@@ -934,47 +819,12 @@ function MenuItemDropdown({ label, icon, menuItems }) {
   const [anchorEl, setAnchorEl] = React.useState(null);
   return (
     <>
-      <Button
-        onClick={e => setAnchorEl(e.currentTarget)}
-        endIcon={<ExpandMoreIcon />}
-        startIcon={icon}
-        sx={{
-          textTransform: "none",
-          fontWeight: 600,
-          borderRadius: 999,
-          px: 1.6,
-          py: 1.0,
-          fontSize: { xs: 13, md: 15 },
-          color: "secondary.dark",
-          bgcolor: "rgba(255,179,0,0.12)",
-          "&:hover": { bgcolor: "rgba(255,179,0,0.22)" },
-          whiteSpace: "nowrap"
-        }}
-      >
+      <Button onClick={e => setAnchorEl(e.currentTarget)} endIcon={<ExpandMoreIcon />} startIcon={icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "secondary.dark", bgcolor: "rgba(255,179,0,0.12)", "&:hover": { bgcolor: "rgba(255,179,0,0.22)" }, whiteSpace: "nowrap" }}>
         {label}
       </Button>
-      <Menu
-        anchorEl={anchorEl}
-        open={Boolean(anchorEl)}
-        onClose={() => setAnchorEl(null)}
-        PaperProps={{
-          elevation: 4,
-          sx: {
-            mt: 1,
-            minWidth: 220,
-            borderRadius: 2,
-            boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)",
-          }
-        }}
-      >
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)} PaperProps={{ elevation: 4, sx: { mt: 1, minWidth: 220, borderRadius: 2, boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)", } }}>
         {menuItems.map(item => (
-          <MenuItem
-            key={item.label}
-            component={Link}
-            to={item.path}
-            onClick={() => setAnchorEl(null)}
-            sx={{ py: 1.3, px: 2, fontWeight: 500, fontSize: 15 }}
-          >
+          <MenuItem key={item.label} component={Link} to={item.path} onClick={() => setAnchorEl(null)} sx={{ py: 1.3, px: 2, fontWeight: 500, fontSize: 15 }}>
             <Stack direction="row" alignItems="center" spacing={1}>
               {item.icon}
               <span>{item.label}</span>

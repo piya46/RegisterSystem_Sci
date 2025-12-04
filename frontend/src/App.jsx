@@ -13,10 +13,9 @@ import KioskPage from "./pages/KioskPage";
 import SelectPointPage from './pages/SelectPointPage';
 import AdminParticipantsPage from './pages/AdminParticipantsPage';
 import PreRegistrationPage from './pages/PreRegistrationPage';
+import DonationListPage from './pages/DonationListPage';
 
 export default function App() {
-
-
   return (
     <Router>
       <Routes>
@@ -100,16 +99,23 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/admin/donations"
+          element={
+            <ProtectedRoute roles={["admin"]}>
+              <DonationListPage />
+            </ProtectedRoute>
+          }
+        />
+
         <Route path="/staff/select-point" element={
          <ProtectedRoute roles={["admin", "staff"]}>
          <SelectPointPage mode="staff" />
           </ProtectedRoute>
         } />
 
-        {/* Unauthorized (optional) */}
         <Route path="/unauthorized" element={<div>คุณไม่มีสิทธิ์เข้าถึงหน้านี้</div>} />
-
-        {/* Not found */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </Router>
