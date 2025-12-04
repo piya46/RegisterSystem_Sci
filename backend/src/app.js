@@ -19,14 +19,15 @@ app.set('trust proxy', 1);
 
 app.use(express.json());
 
-// --- [เริ่มส่วนที่แก้ไข] จัดการ CORS ให้รองรับหลาย Domain ---
+// --- [ส่วนที่แก้ไข] จัดการ CORS ให้รองรับหลายโดเมน ---
 const rawOrigin = process.env.CORS_ORIGIN || '*';
 let originOption;
 
 if (rawOrigin === '*') {
-  originOption = true; // อนุญาตทั้งหมด (หรือจะใช้ '*' ก็ได้)
+  originOption = true; // อนุญาตทั้งหมด
 } else {
   // ถ้ามีเครื่องหมายจุลภาค (,) ให้แยกเป็น Array
+  // ตัวอย่าง: 'domain1.com,domain2.com' -> ['domain1.com', 'domain2.com']
   originOption = rawOrigin.split(',').map(o => o.trim());
 }
 
@@ -37,7 +38,7 @@ const corsOptions = {
   credentials: true // แนะนำให้เปิดเพื่อรองรับ Cookie/Auth Header ข้ามโดเมน
 };
 app.use(cors(corsOptions));
-// --- [จบส่วนที่แก้ไข] ---
+// --------------------------------------------------
 
 // 3. Rate Limiting: จำกัดการยิง API
 const limiter = rateLimit({
