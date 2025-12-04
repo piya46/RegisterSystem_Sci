@@ -10,30 +10,42 @@ const participantRoutes = require('./routes/participants');
 const registrationPointRoutes = require('./routes/registrationPoints');
 const donationsRoutes = require('./routes/donationRoutes')
 const path = require('path');
-const rateLimit = require('express-rate-limit'); // เพิ่ม import
+const rateLimit = require('express-rate-limit'); 
 
 const app = express();
 
-// 1. Trust Proxy: จำเป็นสำหรับ Production ที่อยู่หลัง Load Balancer/Proxy (เช่น Heroku, Render, Nginx)
+// 1. Trust Proxy: จำเป็นสำหรับ Production ที่อยู่หลัง Load Balancer/Proxy
 app.set('trust proxy', 1);
 
 app.use(express.json());
 
+// --- [เริ่มส่วนที่แก้ไข] จัดการ CORS ให้รองรับหลาย Domain ---
+const rawOrigin = process.env.CORS_ORIGIN || '*';
+let originOption;
+
+if (rawOrigin === '*') {
+  originOption = true; // อนุญาตทั้งหมด (หรือจะใช้ '*' ก็ได้)
+} else {
+  // ถ้ามีเครื่องหมายจุลภาค (,) ให้แยกเป็น Array
+  originOption = rawOrigin.split(',').map(o => o.trim());
+}
 
 const corsOptions = {
-  origin: process.env.CORS_ORIGIN || '*', 
+  origin: originOption, 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true // แนะนำให้เปิดเพื่อรองรับ Cookie/Auth Header ข้ามโดเมน
 };
 app.use(cors(corsOptions));
+// --- [จบส่วนที่แก้ไข] ---
 
-// 3. Rate Limiting: จำกัดการยิง API (ตัวอย่าง: 300 request / 15 นาที)
+// 3. Rate Limiting: จำกัดการยิง API
 const limiter = rateLimit({
-	windowMs: 15 * 60 * 1000, 
-	max: 300, // ปรับจำนวนตามความเหมาะสมของงาน
-	standardHeaders: true, 
-	legacyHeaders: false, 
-    message: "Too many requests from this IP, please try again after 15 minutes"
+  windowMs: 15 * 60 * 1000, 
+  max: 300, 
+  standardHeaders: true, 
+  legacyHeaders: false, 
+  message: "Too many requests from this IP, please try again after 15 minutes"
 });
 app.use(limiter);
 
@@ -58,7 +70,7 @@ app.use((err, req, res, next) => {
     status: 500,
     error: err.stack || String(err)
   });
-  console.error(err.stack); // Log error ลง console ด้วยเพื่อ debug
+  console.error(err.stack); 
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
