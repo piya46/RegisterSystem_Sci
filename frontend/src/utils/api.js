@@ -116,6 +116,9 @@ export const getDashboardStats = (token) =>
 export const getCheckinSummary = (params, token) =>
   api.get('/dashboard/checkin-summary', { params, headers: { Authorization: `Bearer ${token}` } });
 
+export const getDashboardSummary = (token) =>
+  api.get('/dashboard/summary', { headers: { Authorization: `Bearer ${token}` } });
+
 export const uploadAvatar = (file, token) => {
   const formData = new FormData();
   formData.append("avatar", file);

@@ -24,7 +24,7 @@ import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
-import { getDonationSummary } from "../utils/api";
+import { getDonationSummary, getDashboardSummary } from "../utils/api";
 
 import { PieChart, Pie, Cell, Legend } from "recharts";
 import {
@@ -150,12 +150,13 @@ export default function DashboardPage() {
   async function fetchSummary() {
     setLoadingSummary(true);
     try {
-      const res = await fetch("/api/dashboard/summary", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setSummary(data);
+      // ✅ [แก้ไขจุดที่ 2] ใช้ฟังก์ชันจาก api.js แทน fetch ดิบๆ
+      // ของเดิม: const res = await fetch("/api/dashboard/summary", ...);
+      
+      const res = await getDashboardSummary(token);
+      setSummary(res.data); // Axios เก็บ response body ใน .data
 
+      // ส่วน Donation เรียกผ่าน api.js อยู่แล้ว (ถูกต้องแล้ว)
       const donRes = await getDonationSummary(token);
       setDonationStats(donRes.data);
 
