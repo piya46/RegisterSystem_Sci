@@ -1,9 +1,8 @@
-// src/pages/KioskPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import {
   Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider,
   TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle,
-  DialogContent, DialogActions, CircularProgress
+  DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup, FormControlLabel, Radio, Collapse
 } from "@mui/material";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import LockIcon from "@mui/icons-material/Lock";
@@ -25,6 +24,9 @@ function KioskPage() {
   const [form, setForm] = useState({});
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // State สำหรับตัวเลือกสมาชิก
+  const [membershipOption, setMembershipOption] = useState(null);
 
   // Followers popup
   const [followersDialogOpen, setFollowersDialogOpen] = useState(false);
@@ -54,6 +56,15 @@ function KioskPage() {
       .then((res) => setFields(res.data || res))
       .catch(() => {});
   }, [token, selectedPoint, navigate]);
+
+  // แยกฟิลด์เป็น 2 ส่วนเหมือน Pre-register
+  const { generalFields, addressFields } = useMemo(() => {
+    const all = (fields || []);
+    return {
+      generalFields: all.filter(f => !['usr_add', 'usr_add_post'].includes(f.name)),
+      addressFields: all.filter(f => ['usr_add', 'usr_add_post'].includes(f.name))
+    };
+  }, [fields]);
 
   /* ===== Kiosk mode (full screen + block menu/keys) ===== */
   function openFullscreen() {
@@ -97,24 +108,49 @@ function KioskPage() {
 
   const handleOnsiteSubmit = (e) => {
     e.preventDefault();
+    if (!membershipOption) {
+      alert("กรุณาเลือกสถานะสมาชิก");
+      return;
+    }
+    // Check address if required
+    if (membershipOption !== 'none') {
+        if (!form['usr_add'] || !form['usr_add_post']) {
+            alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์");
+            return;
+        }
+    }
+
     setResult(null);
     setPendingSubmitForm({ ...form });
-    setFollowersDialogOpen(true); // เปิดถามจำนวนผู้ติดตามก่อน
+    setFollowersDialogOpen(true);
   };
 
   const handleConfirmFollowers = async (followers) => {
     setFollowersDialogOpen(false);
     setLoading(true);
     try {
+      // Logic การส่งค่า
+      const finalForm = { ...pendingSubmitForm };
+      // ถ้าเลือกไม่สมัคร ให้ยัดค่า "-" ลงในฟิลด์ที่อยู่
+      if (membershipOption === 'none') {
+        finalForm['usr_add'] = "-";
+        finalForm['usr_add_post'] = "-";
+      }
+      // เพิ่ม Consent field ให้สอดคล้องกัน
+      const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
+      finalForm['consent'] = finalConsent;
+
       const res = await registerOnsiteByKiosk(
-        { ...pendingSubmitForm, registrationPoint: selectedPoint, followers },
+        { ...finalForm, registrationPoint: selectedPoint, followers },
         token
       );
       setResult({
         success: true,
         message: `ลงทะเบียนสำเร็จ: ${res.data?.fields?.name || res.fields?.name || ""}`,
       });
+      // Reset
       setForm({});
+      setMembershipOption(null);
     } catch (err) {
       setResult({
         success: false,
@@ -146,7 +182,6 @@ function KioskPage() {
       setExitError("กรุณากรอกรหัสผ่าน");
       return;
     }
-    // เดโม: ใช้ username เป็นรหัสผ่านออก (สามารถเปลี่ยนเป็น API verify จริง)
     if (exitPassword === me?.username) {
       setKioskMode(false);
       closeExitDialog();
@@ -160,6 +195,24 @@ function KioskPage() {
   const blockWheel = (e) => (e.target instanceof HTMLElement) && e.target.blur();
   const blockInvalidNumberKeys = (e) => {
     if (["e", "E", "+", "-", ".", " "].includes(e.key)) e.preventDefault();
+  };
+
+  // Helper render field
+  const renderField = (f, requiredOverride = null) => {
+    const isRequired = requiredOverride !== null ? requiredOverride : f.required;
+    if (f.type === "select") {
+        const options = Array.isArray(f.options) ? f.options.map((o) => typeof o === "string" ? { label: o, value: o } : { label: o.label, value: o.value }) : [];
+        return (
+            <TextField key={f.name} select name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth SelectProps={{ displayEmpty: true }} helperText={isRequired ? "จำเป็นต้องกรอก" : "ไม่บังคับ"} sx={tfStyle}>
+                <MenuItem value=""><em>— เลือก {f.label} —</em></MenuItem>
+                {options.map((opt) => (<MenuItem key={`${f.name}-${opt.value}`} value={opt.value}>{opt.label}</MenuItem>))}
+            </TextField>
+        );
+    }
+    const inputType = f.type === "email" ? "email" : f.type === "number" ? "number" : "text";
+    return (
+        <TextField key={f.name} name={f.name} type={inputType} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth helperText={isRequired ? "จำเป็นต้องกรอก" : "ไม่บังคับ"} sx={tfStyle} InputLabelProps={inputType === "date" ? { shrink: true } : undefined} autoComplete="off" onWheel={inputType === "number" ? blockWheel : undefined} onKeyDown={inputType === "number" ? blockInvalidNumberKeys : undefined} inputProps={inputType === "number" ? { inputMode: "numeric", pattern: "[0-9]*" } : undefined} />
+    );
   };
 
   return (
@@ -249,78 +302,33 @@ function KioskPage() {
           {/* Form */}
           <Box component="form" onSubmit={handleOnsiteSubmit}>
             <Stack spacing={2}>
-              {fields.map((f) => {
-                if (f.type === "select") {
-                  const options = Array.isArray(f.options)
-                    ? f.options.map((o) =>
-                        typeof o === "string"
-                          ? { label: o, value: o }
-                          : { label: o.label ?? String(o.value ?? ""), value: o.value ?? o.label ?? "" }
-                      )
-                    : [];
-                  return (
-                    <TextField
-                      key={f.name}
-                      select
-                      name={f.name}
-                      label={f.label}
-                      value={form[f.name] || ""}
-                      onChange={handleInput}
-                      required={!!f.required}
-                      fullWidth
-                      SelectProps={{ displayEmpty: true }}
-                      helperText={f.required ? "จำเป็นต้องกรอก" : "ไม่บังคับ"}
-                      sx={tfStyle}
-                    >
-                      <MenuItem value="">
-                        <em>— เลือก {f.label} —</em>
-                      </MenuItem>
-                      {options.map((opt) => (
-                        <MenuItem key={`${f.name}-${opt.value}`} value={opt.value}>
-                          {opt.label}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  );
-                }
+              {/* 1. General Fields */}
+              {generalFields.map(f => renderField(f))}
 
-                const inputType =
-                  f.type === "email" ? "email" : f.type === "number" ? "number" : "text";
+              {/* 2. Membership Option (Moved to Bottom) */}
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#f4f9ff", borderColor: membershipOption ? "#cce0ff" : "#ef9a9a" }}>
+                <Typography fontWeight={700} sx={{ mb: 1, color: "#1565c0" }}>สมาชิกสมาคมนิสิตเก่าฯ <span style={{ color: "red" }}>*</span></Typography>
+                <FormControl component="fieldset">
+                  <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
+                    <FormControlLabel value="existing" control={<Radio />} label="เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ" sx={{ mb: 1, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.3 } }} />
+                    <FormControlLabel value="new" control={<Radio />} label={<span>สมัครสมาชิกสมาคมฯ <br/><span style={{ fontSize: '0.85em', color: '#666' }}>(สมัครฟรีไม่มีค่าใช้จ่าย กรุณากรอกที่อยู่ให้ครบถ้วน ทีมงานจะบันทึกข้อมูลหลังจบงาน)</span></span>} sx={{ mb: 1, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.3 } }} />
+                    <FormControlLabel value="none" control={<Radio />} label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" sx={{ alignItems: 'flex-start', '& .MuiFormControlLabel-label': { mt: 0.3 } }} />
+                  </RadioGroup>
+                </FormControl>
 
-                return (
-                  <TextField
-                    key={f.name}
-                    name={f.name}
-                    type={inputType}
-                    label={f.label}
-                    value={form[f.name] || ""}
-                    onChange={handleInput}
-                    required={!!f.required}
-                    fullWidth
-                    helperText={f.required ? "จำเป็นต้องกรอก" : "ไม่บังคับ"}
-                    sx={tfStyle}
-                    InputLabelProps={inputType === "date" ? { shrink: true } : undefined}
-                    autoComplete="off"
-                    onWheel={inputType === "number" ? blockWheel : undefined}
-                    onKeyDown={inputType === "number" ? blockInvalidNumberKeys : undefined}
-                    inputProps={
-                      inputType === "number"
-                        ? { inputMode: "numeric", pattern: "[0-9]*" }
-                        : undefined
-                    }
-                  />
-                );
-              })}
+                {/* 3. Address Fields (Conditional show) */}
+                <Collapse in={membershipOption === 'existing' || membershipOption === 'new'}>
+                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #cce0ff' }}>
+                        <Typography variant="subtitle2" sx={{ mb: 2, color: "#1565c0", fontWeight: 700 }}>ข้อมูลการติดต่อ (สำหรับสมาชิก)</Typography>
+                        <Stack spacing={2}>
+                            {/* Override required=true manually here */}
+                            {addressFields.map(f => renderField(f, true))} 
+                        </Stack>
+                    </Box>
+                </Collapse>
+              </Paper>
 
-              {result && (
-                <Alert
-                  severity={result.success ? "success" : "error"}
-                  icon={<CheckCircleIcon />}
-                  sx={{ fontWeight: 600 }}
-                >
-                  {result.message}
-                </Alert>
-              )}
+              {result && <Alert severity={result.success ? "success" : "error"} icon={<CheckCircleIcon />} sx={{ fontWeight: 600 }}>{result.message}</Alert>}
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
                 <Button
@@ -344,6 +352,10 @@ function KioskPage() {
                   color="inherit"
                   startIcon={<GroupAddIcon />}
                   onClick={() => {
+                    if (!membershipOption) {
+                        alert("กรุณาเลือกสถานะสมาชิก");
+                        return;
+                    }
                     setPendingSubmitForm({ ...form });
                     setFollowersDialogOpen(true);
                   }}
@@ -358,7 +370,7 @@ function KioskPage() {
         </Paper>
       </Container>
 
-      {/* Floating FAB: Enter/Exit Kiosk */}
+      {/* Floating FAB */}
       {!kioskMode ? (
         <Tooltip title="เปิดโหมด Kiosk">
           <Fab
