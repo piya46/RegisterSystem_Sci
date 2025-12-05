@@ -321,7 +321,6 @@ function KioskPage() {
                     <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #cce0ff' }}>
                         <Typography variant="subtitle2" sx={{ mb: 2, color: "#1565c0", fontWeight: 700 }}>ข้อมูลการติดต่อ (สำหรับสมาชิก)</Typography>
                         <Stack spacing={2}>
-                            {/* Override required=true manually here */}
                             {addressFields.map(f => renderField(f, true))} 
                         </Stack>
                     </Box>
