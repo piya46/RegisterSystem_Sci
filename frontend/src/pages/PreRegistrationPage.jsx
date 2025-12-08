@@ -3,7 +3,7 @@ import {
   Box, Container, Paper, Stack, Typography, TextField, MenuItem,
   Button, Avatar, Divider, Collapse, FormControlLabel, Switch,
   Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
-  Dialog, DialogContent, Grid, Radio, RadioGroup, FormControl, InputAdornment
+  Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment
 } from "@mui/material";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
@@ -16,10 +16,11 @@ import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import HomeIcon from '@mui/icons-material/Home';
-import EventIcon from '@mui/icons-material/Event'; // ไอคอนปี
-import SchoolIcon from '@mui/icons-material/School'; // ไอคอนคณะ/ภาควิชา
+import EventIcon from '@mui/icons-material/Event';
+import SchoolIcon from '@mui/icons-material/School';
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
@@ -28,7 +29,7 @@ import { listParticipantFields, createParticipant, createDonation } from "../uti
 import Turnstile, { executeTurnstile } from "../components/Turnstile";
 import dayjs from "dayjs";
 
-// --- Component โบว์สีดำ (SVG) มุมซ้ายบน ---
+// --- Component โบว์สีดำ (SVG) ---
 const MourningRibbon = () => (
   <Box
     sx={{
@@ -37,15 +38,11 @@ const MourningRibbon = () => (
       left: 0,
       zIndex: 9999,
       pointerEvents: "none",
-      filter: "drop-shadow(2px 2px 3px rgba(0,0,0,0.5))",
-      width: { xs: 70, md: 100 },
-      height: { xs: 70, md: 100 }
+      width: { xs: 80, md: 120 },
+      height: { xs: 80, md: 120 }
     }}
   >
-    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ width: '100%', height: '100%' }}>
-      <path d="M0 0 L50 0 L0 50 Z" fill="black" />
-      <path d="M0 0 L0 50 L20 30 L40 50 L50 0 Z" fill="#1a1a1a" />
-    </svg>
+    <img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(2px 2px 3px rgba(0,0,0,0.5))" }} />
   </Box>
 );
 
@@ -65,6 +62,9 @@ export default function PreRegistrationPage() {
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [errors, setErrors] = useState({});
   const [errorDialog, setErrorDialog] = useState({ open: false, title: "", msg: "", type: "error" });
+  
+  // Review Dialog State
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   // Donation States
   const [wantToDonate, setWantToDonate] = useState(false);
@@ -99,17 +99,22 @@ export default function PreRegistrationPage() {
         : []
     }));
 
-    return {
-      personal: processed.filter(f => ['name', 'dept', 'date_year'].includes(f.name)),
-      contact: processed.filter(f => ['phone', 'email'].includes(f.name)),
-      address: processed.filter(f => ['usr_add', 'usr_add_post'].includes(f.name)),
-      others: processed.filter(f => !['name', 'dept', 'date_year', 'phone', 'email', 'usr_add', 'usr_add_post'].includes(f.name))
-    };
+    // เรียงลำดับ: ชื่อ -> ชื่อเล่น -> ภาควิชา -> ปี
+    const personalOrder = ['name', 'nickname', 'dept', 'date_year'];
+    const personal = processed
+        .filter(f => personalOrder.includes(f.name))
+        .sort((a, b) => personalOrder.indexOf(a.name) - personalOrder.indexOf(b.name));
+    
+    const contact = processed.filter(f => ['phone', 'email'].includes(f.name));
+    const address = processed.filter(f => ['usr_add', 'usr_add_post'].includes(f.name));
+    const specifiedKeys = [...personalOrder, 'phone', 'email', 'usr_add', 'usr_add_post'];
+    const others = processed.filter(f => !specifiedKeys.includes(f.name));
+
+    return { personal, contact, address, others };
   }, [fields]);
 
   const handleInput = (e) => {
     const { name, value } = e.target;
-    // Special validation for Year
     if (name === 'date_year') {
       const nums = value.replace(/[^\d]/g, '').slice(0, 4); 
       if (nums.length === 4 && parseInt(nums, 10) < 2400) {
@@ -123,6 +128,41 @@ export default function PreRegistrationPage() {
     setForm((f) => ({ ...f, [name]: value }));
   };
 
+  // --- Step 1: ตรวจสอบข้อมูลเบื้องต้น ---
+  const handleCheckInfo = (e) => {
+    e.preventDefault();
+    if (Object.keys(errors).length > 0) return;
+
+    if (!membershipOption) {
+      setErrorDialog({ open: true, type: "warning", title: "กรุณาระบุข้อมูล", msg: "กรุณาเลือกสมาชิกสมาคมฯ ของท่าน" });
+      return;
+    }
+
+    // ตรวจสอบที่อยู่เฉพาะเมื่อเลือกสมัคร (1 หรือ 2)
+    if (membershipOption !== 'none') {
+        if (!form['usr_add'] || !form['usr_add_post']) {
+             setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณากรอกที่อยู่และรหัสไปรษณีย์เพื่อประกอบการสมัครสมาชิก" });
+             return;
+        }
+    }
+
+    if (wantToDonate) {
+      if (!donationAmount || parseFloat(donationAmount) <= 0) {
+        setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
+        return;
+      }
+    }
+
+    setReviewOpen(true);
+  };
+
+  // --- Step 2: ยืนยันการลงทะเบียน ---
+  const handleConfirmSubmit = () => {
+    setReviewOpen(false);
+    setPendingSubmit(true);
+    executeTurnstile();
+  };
+
   useEffect(() => {
     const go = async () => {
       if (!pendingSubmit || !cfToken) return;
@@ -134,6 +174,7 @@ export default function PreRegistrationPage() {
         const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
 
         const finalForm = { ...form };
+        // ✅ [Fix] ถ้าไม่สมัคร ให้ใส่ "-" อัตโนมัติ เพื่อไม่ให้ติด required หลังบ้าน
         if (membershipOption === 'none') {
           finalForm['usr_add'] = "-";
           finalForm['usr_add_post'] = "-";
@@ -196,33 +237,6 @@ export default function PreRegistrationPage() {
     // eslint-disable-next-line
   }, [cfToken, pendingSubmit]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (Object.keys(errors).length > 0) return;
-    
-    if (!membershipOption) {
-      setErrorDialog({ open: true, type: "warning", title: "กรุณาระบุข้อมูล", msg: "กรุณาเลือกสถานะสมาชิกสมาคมนิสิตเก่าฯ ของท่าน" });
-      return;
-    }
-    
-    if (membershipOption !== 'none') {
-        if (!form['usr_add'] || !form['usr_add_post']) {
-             setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณากรอกที่อยู่และรหัสไปรษณีย์เพื่อดำเนินการต่อ" });
-             return;
-        }
-    }
-
-    if (wantToDonate) {
-      if (!donationAmount || parseFloat(donationAmount) <= 0) {
-        setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
-        return;
-      }
-    }
-
-    setPendingSubmit(true);
-    executeTurnstile();
-  };
-
   const savePdf = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const imgData = canvas.toDataURL("image/png"); const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" }); const pageWidth = pdf.internal.pageSize.getWidth(); const imgWidth = 360; const imgHeight = (canvas.height * imgWidth) / canvas.width; const x = (pageWidth - imgWidth) / 2; const y = 60; pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight); pdf.save("E-Ticket.pdf"); }};
   const savePng = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const link = document.createElement("a"); link.href = canvas.toDataURL("image/png"); link.download = "E-Ticket.png"; link.click(); }};
   
@@ -242,12 +256,9 @@ export default function PreRegistrationPage() {
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: "relative" }}>
       
-      {/* 🔴 โบว์สีดำไว้อาลัยที่มุมซ้ายบน */}
       <MourningRibbon />
 
       <Container maxWidth="sm">
-        
-        {/* Header: รายละเอียดงานครบถ้วน */}
         <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
             <Avatar src="/logo.svg" alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
@@ -269,9 +280,10 @@ export default function PreRegistrationPage() {
         {fetchingFields && <Box sx={{ mt: 2, textAlign: 'center' }}><CircularProgress color="warning" /></Box>}
 
         {!registeredParticipant && !fetchingFields && (
-          <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          // ✅ ใส่ noValidate เพื่อแก้ปัญหา browser บล็อก submit เมื่อเลือกข้อ 3 (hidden fields)
+          <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             
-            {/* 1. ข้อมูลส่วนตัว / การศึกษา */}
+            {/* 1. ข้อมูลส่วนตัว */}
             <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
               {fieldGroups.personal.map((field) => (
                 <FieldInput key={field.name} field={field} value={form[field.name] ?? ""} onChange={handleInput} errorText={errors[field.name]} />
@@ -281,7 +293,7 @@ export default function PreRegistrationPage() {
               ))}
             </FormSection>
 
-            {/* 2. ช่องทางติดต่อ */}
+            {/* 2. ข้อมูลติดต่อ */}
             <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>
               {fieldGroups.contact.map((field) => (
                 <FieldInput key={field.name} field={field} value={form[field.name] ?? ""} onChange={handleInput} errorText={errors[field.name]} />
@@ -346,42 +358,47 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
-            {/* 5. สถานะสมาชิก (ย้ายมาไว้ท้ายสุด) */}
+            {/* 5. สมาชิกสมาคม (ท้ายสุด) */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9" }}>
                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                   <SecurityIcon color="primary" />
-                  <Typography fontWeight={800} fontSize="1.1rem" color="#1565c0">สถานะสมาชิกสมาคมฯ <span style={{color:'red'}}>*</span></Typography>
+                  <Typography fontWeight={800} fontSize="1.1rem" color="#1565c0">สมาชิกสมาคมฯ <span style={{color:'red'}}>*</span></Typography>
                </Stack>
                
                <FormControl component="fieldset" sx={{ width: '100%' }}>
                 <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
-                  {/* ตัวเลือกที่ 1 */}
+                  
+                  {/* ตัวเลือก 1: สมาชิกเดิม */}
                   <OptionCard 
                     value="existing" 
-                    label="1. เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ" 
                     selected={membershipOption === 'existing'} 
+                    label={
+                        <Box>
+                            <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ</Typography>
+                            {/* ✅ ข้อความยาวพิเศษตามสั่ง */}
+                            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
+                                (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบงาน)
+                            </Typography>
+                        </Box>
+                    }
                   />
-                  {/* ตัวเลือกที่ 2 */}
+
+                  {/* ตัวเลือก 2: สมัครใหม่ */}
                   <OptionCard 
                     value="new" 
                     selected={membershipOption === 'new'}
                     label={
                       <Box>
-                        <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>
-                          2. สมัครสมาชิกสมาคมฯ 
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.9rem' }}>
+                        <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>สมัครสมาชิกสมาคมฯ</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
                           (สมัครฟรีไม่มีค่าใช้จ่าย กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบงาน)
                         </Typography>
                       </Box>
                     } 
                   />
-                  {/* ตัวเลือกที่ 3 */}
-                  <OptionCard 
-                    value="none" 
-                    label="3. ไม่ประสงค์สมัครสมาชิกสมาคมฯ" 
-                    selected={membershipOption === 'none'} 
-                  />
+
+                  {/* ตัวเลือก 3: ไม่สมัคร */}
+                  <OptionCard value="none" label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" selected={membershipOption === 'none'} />
                 </RadioGroup>
               </FormControl>
 
@@ -396,7 +413,7 @@ export default function PreRegistrationPage() {
                         {fieldGroups.address.map((field) => (
                             <FieldInput 
                                 key={field.name} 
-                                field={{...field, required: true}} // บังคับกรอก
+                                field={{...field, required: true}}
                                 value={form[field.name] ?? ""} 
                                 onChange={handleInput} 
                                 errorText={errors[field.name]} 
@@ -407,13 +424,21 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
+            {/* 6. หมายเหตุ PDPA (เพิ่มใหม่) */}
+            <Alert severity="info" icon={<InfoIcon />} sx={{ bgcolor: "#e1f5fe", color: "#01579b", borderRadius: 2, "& .MuiAlert-icon": { color: "#0288d1" } }}>
+                <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                    <strong>หมายเหตุ:</strong> ภายในงานจะมีการบันทึกภาพและวิดีโอ เพื่อใช้ในการประชาสัมพันธ์กิจกรรมของสมาคมนิสิตเก่าวิทยาศาสตร์ฯ
+                </Typography>
+            </Alert>
+
             <Turnstile invisible onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} options={{ action: "pre_register" }} />
             
             {result && <Alert severity="success" iconMapping={{ success: <CheckCircleIcon fontSize="inherit" /> }} sx={{ fontWeight: 600, borderRadius: 2 }}>{result.message}</Alert>}
 
+            {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
-              <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0 || !membershipOption} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1.1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <QrCode2Icon fontSize="large" />}>
-                {loading ? "กำลังประมวลผล..." : "ลงทะเบียนเข้าร่วมงาน"}
+              <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1.1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
+                {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
               </Button>
               <Button type="button" variant="text" color="inherit" fullWidth onClick={handleReset} startIcon={<RestartAltIcon />}>เริ่มใหม่</Button>
             </Stack>
@@ -421,6 +446,47 @@ export default function PreRegistrationPage() {
           </Box>
         )}
         
+        {/* Review Dialog */}
+        <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+            <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                    <FactCheckIcon color="warning" />
+                    <Typography variant="h6" fontWeight={700}>ตรวจสอบข้อมูลการลงทะเบียน</Typography>
+                </Stack>
+            </DialogTitle>
+            <DialogContent dividers>
+                <Stack spacing={2}>
+                    <Typography variant="subtitle2" color="text.secondary">กรุณาตรวจสอบข้อมูลของท่านก่อนยืนยัน</Typography>
+                    
+                    <InfoRow label="ชื่อ-นามสกุล" value={form.name} />
+                    <InfoRow label="ชื่อเล่น" value={form.nickname} />
+                    <InfoRow label="ภาควิชา" value={form.dept} />
+                    <InfoRow label="ปีที่เข้าศึกษา (พ.ศ.)" value={form.date_year} />
+                    <InfoRow label="เบอร์โทรศัพท์" value={form.phone} />
+                    
+                    {membershipOption !== 'none' && (
+                        <Box sx={{ p: 1.5, bgcolor: "#f5f5f5", borderRadius: 2 }}>
+                            <Typography variant="caption" fontWeight={700} color="primary">ที่อยู่สำหรับจัดส่ง:</Typography>
+                            <Typography variant="body2">{form.usr_add} {form.usr_add_post}</Typography>
+                        </Box>
+                    )}
+
+                    <Divider />
+                    <InfoRow label="สถานะสมาชิก" value={membershipOption === 'existing' ? 'สมาชิกเดิม (อัปเดต)' : membershipOption === 'new' ? 'สมัครสมาชิกใหม่' : 'ไม่ประสงค์สมัคร'} />
+                    <InfoRow label="ผู้ติดตาม" value={bringFollowers ? `${followersCount} คน` : "ไม่มี"} />
+                    {wantToDonate && (
+                        <InfoRow label="ยอดบริจาค" value={`${donationAmount} บาท`} />
+                    )}
+                </Stack>
+            </DialogContent>
+            <DialogActions sx={{ p: 2 }}>
+                <Button onClick={() => setReviewOpen(false)} color="inherit">แก้ไขข้อมูล</Button>
+                <Button onClick={handleConfirmSubmit} variant="contained" color="success" size="large" sx={{ borderRadius: 2, px: 3, fontWeight: 700 }} startIcon={<CheckCircleIcon />}>
+                    ยืนยันและลงทะเบียน
+                </Button>
+            </DialogActions>
+        </Dialog>
+
         {/* Ticket Preview */}
         {registeredParticipant && (
            <Card elevation={6} sx={{ mt: 4, borderRadius: 4 }}>
@@ -445,31 +511,15 @@ export default function PreRegistrationPage() {
            </Card>
         )}
 
-        {/* Error Dialog */}
-        <Dialog
-          open={errorDialog.open}
-          onClose={() => setErrorDialog({ ...errorDialog, open: false })}
-          PaperProps={{
-            sx: {
-              borderRadius: 4, p: 1, maxWidth: 360, textAlign: 'center',
-              borderTop: errorDialog.type === 'security' ? '6px solid #FF3B30' : '6px solid #FF9800'
-            }
-          }}
-        >
+        <Dialog open={errorDialog.open} onClose={() => setErrorDialog({ ...errorDialog, open: false })} PaperProps={{ sx: { borderRadius: 4, p: 1, maxWidth: 360, textAlign: 'center', borderTop: errorDialog.type === 'security' ? '6px solid #FF3B30' : '6px solid #FF9800' } }}>
           <DialogContent>
             <Stack alignItems="center" spacing={2}>
               <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: errorDialog.type === 'security' ? '#FFEBEE' : '#FFF3E0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {errorDialog.type === 'security' ? <SecurityIcon sx={{ fontSize: 36, color: '#D32F2F' }} /> : <WarningIcon sx={{ fontSize: 36, color: '#EF6C00' }} />}
               </Box>
-              <Box>
-                <Typography variant="h6" fontWeight={800} color={errorDialog.type === 'security' ? '#D32F2F' : '#EF6C00'} gutterBottom>
-                  {errorDialog.title}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">{errorDialog.msg}</Typography>
-              </Box>
-              <Button variant="contained" color={errorDialog.type === 'security' ? 'error' : 'warning'} fullWidth onClick={() => setErrorDialog({ ...errorDialog, open: false })} sx={{ borderRadius: 2, fontWeight: 700, mt: 1 }}>
-                ตกลง
-              </Button>
+              <Typography variant="h6" fontWeight={800}>{errorDialog.title}</Typography>
+              <Typography variant="body2">{errorDialog.msg}</Typography>
+              <Button variant="contained" color={errorDialog.type === 'security' ? 'error' : 'warning'} fullWidth onClick={() => setErrorDialog({ ...errorDialog, open: false })}>ตกลง</Button>
             </Stack>
           </DialogContent>
         </Dialog>
@@ -488,9 +538,7 @@ function FormSection({ title, icon, children }) {
                 <Typography variant="subtitle1" fontWeight={800} color="#5d4037">{title}</Typography>
             </Box>
             <CardContent sx={{ p: 2.5 }}>
-                <Stack spacing={2.5}>
-                    {children}
-                </Stack>
+                <Stack spacing={2.5}>{children}</Stack>
             </CardContent>
         </Card>
     );
@@ -498,61 +546,23 @@ function FormSection({ title, icon, children }) {
 
 function OptionCard({ value, label, selected }) {
   return (
-    <Paper
-      variant="outlined"
-      sx={{
-        mb: 1.5, p: 0,
-        borderRadius: 2,
-        border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0",
-        bgcolor: selected ? "#f0f7ff" : "#fff",
-        transition: "all 0.2s",
-        "&:hover": { borderColor: "#90caf9" }
-      }}
-    >
-      <FormControlLabel
-        value={value}
-        control={<Radio sx={{ ml: 1 }} />}
-        label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>}
-        sx={{ width: '100%', m: 0, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { width: '100%' }, '& .MuiRadio-root': { mt: 0.5 } }}
-      />
+    <Paper variant="outlined" sx={{ mb: 1.5, p: 0, borderRadius: 2, border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0", bgcolor: selected ? "#f0f7ff" : "#fff", transition: "all 0.2s", "&:hover": { borderColor: "#90caf9" } }}>
+      <FormControlLabel value={value} control={<Radio sx={{ ml: 1 }} />} label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>} sx={{ width: '100%', m: 0, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { width: '100%' }, '& .MuiRadio-root': { mt: 0.5 } }} />
     </Paper>
   );
 }
 
 function FieldInput({ field, value, onChange, errorText }) {
-  // สไตล์สำหรับ Input ให้ดูใหญ่และชัดเจนสำหรับผู้สูงวัย
   const commonSx = {
-    "& .MuiOutlinedInput-root": {
-        borderRadius: 2.5,
-        bgcolor: "#fff",
-        fontSize: "1.1rem", // ตัวหนังสือใหญ่
-        "& fieldset": { borderColor: "#bdbdbd", borderWidth: 1 },
-        "&:hover fieldset": { borderColor: "#ffb74d" },
-        "&.Mui-focused fieldset": { borderColor: "#ff9800", borderWidth: 2 },
-    },
-    "& .MuiInputLabel-root": { fontSize: "1.05rem" }, // Label ใหญ่
+    "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem", "& fieldset": { borderColor: "#bdbdbd", borderWidth: 1 }, "&.Mui-focused fieldset": { borderColor: "#ff9800", borderWidth: 2 } },
+    "& .MuiInputLabel-root": { fontSize: "1.05rem" }
   };
 
-  // Special Style for Year: ตัวเลขใหญ่ และมีระยะห่าง เพื่อให้อ่านง่าย
   if (field.name === 'date_year') {
     return (
-        <TextField
-            name={field.name}
-            label={field.label}
-            value={value}
-            onChange={onChange}
-            required={!!field.required}
-            fullWidth
-            placeholder="25XX"
-            error={!!errorText}
-            helperText={errorText || "กรุณากรอกปี พ.ศ. 4 หลัก"}
-            InputProps={{
-                startAdornment: <InputAdornment position="start"><EventIcon color="action" /></InputAdornment>,
-                style: { fontSize: '1.4rem', letterSpacing: '0.25em', fontWeight: 'bold', textAlign: 'center' }
-            }}
-            inputProps={{ maxLength: 4, inputMode: "numeric", style: { textAlign: 'center' } }}
-            sx={commonSx}
-        />
+        <TextField name={field.name} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth placeholder="25XX" error={!!errorText} helperText={errorText || "กรุณากรอกปี พ.ศ. 4 หลัก"}
+            InputProps={{ startAdornment: <InputAdornment position="start"><EventIcon color="action" /></InputAdornment>, style: { fontSize: '1.4rem', letterSpacing: '0.25em', fontWeight: 'bold', textAlign: 'center' } }}
+            inputProps={{ maxLength: 4, inputMode: "numeric", style: { textAlign: 'center' } }} sx={commonSx} />
     );
   }
 
@@ -566,24 +576,8 @@ function FieldInput({ field, value, onChange, errorText }) {
   }
 
   const inputType = field.type === "email" ? "email" : field.type === "number" ? "text" : field.type === "date" ? "date" : "text";
-  const pattern = field.type === "number" ? "[0-9]*" : undefined;
-
   return (
-    <TextField 
-        name={field.name} 
-        type={inputType} 
-        label={field.label} 
-        value={value} 
-        onChange={onChange} 
-        required={!!field.required} 
-        fullWidth 
-        error={!!errorText} 
-        helperText={errorText || (field.required ? "" : "(ไม่บังคับ)")} 
-        sx={commonSx}
-        InputLabelProps={inputType === "date" ? { shrink: true } : undefined} 
-        autoComplete="off" 
-        inputProps={{ inputMode: field.type === 'number' ? 'numeric' : 'text', pattern }} 
-    />
+    <TextField name={field.name} type={inputType} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth error={!!errorText} helperText={errorText || (field.required ? "" : "(ไม่บังคับ)")} sx={commonSx} InputLabelProps={inputType === "date" ? { shrink: true } : undefined} autoComplete="off" inputProps={{ inputMode: field.type === 'number' ? 'numeric' : 'text', pattern: field.type === 'number' ? "[0-9]*" : undefined }} />
   );
 }
 
