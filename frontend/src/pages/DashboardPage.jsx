@@ -3,7 +3,8 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import useAuth from "../hooks/useAuth";
 import {
   AppBar, Toolbar, Box, Typography, Button, Avatar,
-  Stack, Chip, Card, CardContent, Container, Tooltip, Menu, MenuItem, Divider, CssBaseline, Switch, Skeleton, Fade, FormControlLabel
+  Stack, Chip, Card, CardContent, Container, Tooltip, Menu, MenuItem, Divider, CssBaseline, Switch, Skeleton, Fade, FormControlLabel,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress
 } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import LogoutIcon from "@mui/icons-material/Logout";
@@ -21,37 +22,32 @@ import PeopleIcon from "@mui/icons-material/People";
 import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import { getDonationSummary, getDashboardSummary } from "../utils/api";
 
-import { PieChart, Pie, Cell, Legend } from "recharts";
-import {
-  ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, LineChart, Line
-} from "recharts";
+// [NEW] Import Library สำหรับทำ Excel
+import * as XLSX from 'xlsx';
 
+import { PieChart, Pie, Cell, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip, LineChart, Line } from "recharts";
+
+// --- Custom Components ---
 class ChartErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false };
-  }
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-  componentDidCatch(err, info) {
-    // console.error("Chart error:", err, info);
-  }
+  constructor(props) { super(props); this.state = { hasError: false }; }
+  static getDerivedStateFromError() { return { hasError: true }; }
+  componentDidCatch(err, info) { }
   render() {
     if (this.state.hasError) {
       return (
-        <Card sx={{ mb: 4, border: "1px dashed #f44336" }}>
+        <Card sx={{ mb: 4, border: "1px dashed #f44336", borderRadius: 4 }}>
           <CardContent>
             <Typography color="error" fontWeight={700}>กราฟแสดงผลผิดพลาด</Typography>
-            <Typography variant="body2" color="text.secondary">
-              โปรดลองกดรีเฟรชสรุปข้อมูล หรือปรับตัวเลือกการแสดงผล (นับรวมผู้ติดตาม)
-            </Typography>
+            <Typography variant="body2" color="text.secondary">โปรดลองกดรีเฟรชสรุปข้อมูล</Typography>
           </CardContent>
         </Card>
       );
@@ -59,6 +55,44 @@ class ChartErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+
+// การ์ดสถิติแบบใหม่
+const StatCard = ({ title, value, subtext, icon, color1, color2, textColor = "#fff", loading }) => (
+  <Card sx={{
+    flex: 1,
+    background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
+    color: textColor,
+    position: 'relative',
+    overflow: 'hidden',
+    transition: 'all 0.3s ease',
+    border: 'none',
+    boxShadow: '0 8px 20px rgba(0,0,0,0.1)',
+    '&:hover': { transform: 'translateY(-5px)', boxShadow: '0 12px 28px rgba(0,0,0,0.2)' }
+  }}>
+    <Box sx={{
+      position: 'absolute', right: -20, bottom: -20,
+      opacity: 0.15, transform: 'rotate(-20deg)', pointerEvents: 'none'
+    }}>
+      {icon && React.cloneElement(icon, { sx: { fontSize: 120, color: textColor } })}
+    </Box>
+    <CardContent sx={{ position: 'relative', zIndex: 1, textAlign: "left", p: 3 }}>
+      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
+        <Box sx={{ bgcolor: 'rgba(255,255,255,0.2)', borderRadius: '50%', p: 0.5, display: 'flex' }}>
+            {icon && React.cloneElement(icon, { sx: { fontSize: 20, color: textColor } })}
+        </Box>
+        <Typography variant="subtitle2" fontWeight={600} sx={{ opacity: 0.9, letterSpacing: 0.5 }}>{title}</Typography>
+      </Stack>
+      {loading ? (
+        <Skeleton variant="text" width="60%" height={60} sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
+      ) : (
+        <Typography variant="h3" fontWeight={800} sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+          {typeof value === 'number' ? value.toLocaleString() : value}
+        </Typography>
+      )}
+      {subtext && <Typography variant="caption" sx={{ opacity: 0.8, mt: 0.5, display: 'block' }}>{subtext}</Typography>}
+    </CardContent>
+  </Card>
+);
 
 const MAIN_MENU = [
   { label: "Dashboard", icon: <DashboardIcon />, path: "/dashboard", roles: ["admin", "staff", "kiosk"] },
@@ -77,51 +111,96 @@ const getTheme = (mode = "light") =>
   createTheme({
     palette: {
       mode,
-      ...(mode === "light"
-        ? {
-            primary: { main: "#ffc107", light: "#fff350", dark: "#c79100" },
-            secondary: { main: "#ffb300", light: "#ffe54c", dark: "#c68400" },
-            background: {
-              default: "linear-gradient(120deg,#fff8e1 0%,#fffde7 100%)",
-              paper: "#fff",
-            },
-            info: { main: "#64b5f6" },
-            success: { main: "#4caf50", light: "#81c784", dark: "#388e3c" }
-          }
-        : {
-            primary: { main: "#ffc107", light: "#fff350", dark: "#c79100" },
-            secondary: { main: "#ffb300", light: "#ffe54c", dark: "#c68400" },
-            background: {
-              default: "linear-gradient(120deg,#663d00 0%,#3d2600 100%)",
-              paper: "#5a3e00",
-            },
-            info: { main: "#64b5f6" }
-          }),
+      primary: { main: "#FFC107", light: "#FFE082", dark: "#FFA000", contrastText: "#4E342E" },
+      secondary: { main: "#FF9800", light: "#FFB74D", dark: "#F57C00" },
+      background: {
+        default: mode === "light" ? "#FFFBE6" : "#121212",
+        paper: mode === "light" ? "#FFFFFF" : "#1E1E1E",
+      },
+      text: {
+        primary: mode === "light" ? "#4E342E" : "#FFF",
+        secondary: mode === "light" ? "#8D6E63" : "#B0BEC5"
+      },
+      success: { main: "#4CAF50", light: "#81C784", dark: "#388E3C" },
+      info: { main: "#29B6F6", light: "#4FC3F7", dark: "#0288D1" },
     },
     typography: {
-      fontFamily: "Prompt, Kanit, Roboto, Arial, sans-serif",
+      fontFamily: "'Prompt', 'Kanit', sans-serif",
       fontWeightBold: 700,
+      h4: { fontWeight: 800, letterSpacing: '-0.5px' },
+      h6: { fontWeight: 700 }
     },
-    shape: { borderRadius: 18 },
+    shape: { borderRadius: 16 },
     components: {
       MuiButton: {
         styleOverrides: {
           root: {
+            textTransform: 'none',
             borderRadius: 12,
-            fontWeight: 500,
+            fontWeight: 700,
+            boxShadow: 'none',
+            transition: 'all 0.2s',
+            '&:hover': {
+              transform: 'translateY(-2px)',
+              boxShadow: '0 4px 12px rgba(255, 193, 7, 0.4)',
+            },
+          },
+          outlined: {
+            borderWidth: '2px',
+            '&:hover': { borderWidth: '2px' }
+          }
+        },
+      },
+      MuiCard: {
+        styleOverrides: {
+          root: {
+            borderRadius: 24,
+            backgroundImage: mode === "light" ? 'linear-gradient(180deg, #FFFFFF 0%, #FFFEF9 100%)' : 'none',
+            boxShadow: '0 10px 40px -10px rgba(0,0,0,0.05)',
+            border: mode === "light" ? '1px solid rgba(255, 193, 7, 0.12)' : '1px solid rgba(255, 255, 255, 0.1)',
           },
         },
+      },
+      MuiPaper: {
+        styleOverrides: {
+          root: { backgroundImage: 'none' }
+        }
       },
       MuiAppBar: {
         styleOverrides: {
           root: {
-            background: mode === "light"
-              ? "linear-gradient(90deg,#ffecb3 0%,#ffca28 100%)"
-              : "linear-gradient(90deg,#a56d00 0%,#794e00 100%)",
-            boxShadow: "0 3px 24px 0 rgba(255,193,7,0.4)",
+            background: mode === "light" 
+              ? "rgba(255, 255, 255, 0.9)" 
+              : "rgba(30, 30, 30, 0.9)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 4px 20px rgba(0,0,0,0.04)",
+            borderBottom: "1px solid rgba(0,0,0,0.05)",
+            color: mode === "light" ? "#4E342E" : "#fff",
           },
         },
       },
+      MuiTableCell: {
+        styleOverrides: {
+          head: {
+            backgroundColor: mode === "light" ? "#FFF8E1" : "#333",
+            color: mode === "light" ? "#5D4037" : "#FFF",
+            fontWeight: 800,
+            borderBottom: "2px solid rgba(255,193,7,0.2)"
+          },
+          root: {
+            fontSize: '0.95rem'
+          }
+        }
+      },
+      MuiTableRow: {
+        styleOverrides: {
+          root: {
+            '&:hover': {
+              backgroundColor: mode === "light" ? "rgba(255, 248, 225, 0.6) !important" : "rgba(255, 255, 255, 0.05) !important",
+            }
+          }
+        }
+      }
     },
   });
 
@@ -150,16 +229,10 @@ export default function DashboardPage() {
   async function fetchSummary() {
     setLoadingSummary(true);
     try {
-      // ✅ [แก้ไขจุดที่ 2] ใช้ฟังก์ชันจาก api.js แทน fetch ดิบๆ
-      // ของเดิม: const res = await fetch("/api/dashboard/summary", ...);
-      
       const res = await getDashboardSummary(token);
-      setSummary(res.data); // Axios เก็บ response body ใน .data
-
-      // ส่วน Donation เรียกผ่าน api.js อยู่แล้ว (ถูกต้องแล้ว)
+      setSummary(res.data);
       const donRes = await getDonationSummary(token);
       setDonationStats(donRes.data);
-
     } catch (err) {
       console.error("Failed to fetch summary", err);
     }
@@ -167,23 +240,83 @@ export default function DashboardPage() {
     setRefreshCountdown(60);
   }
 
-  async function handleDownloadCsv() {
+// [FINAL FIXED] ฟังก์ชัน Download Excel สำหรับโครงสร้างข้อมูลที่มี fields
+  async function handleDownloadExcel() {
     try {
-      const res = await fetch("/api/participants/export", {
+      const res = await fetch("/api/participants?all=true", {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error("Export failed");
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `participants_${new Date().toISOString().slice(0,10)}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
+
+      if (!res.ok) throw new Error("ไม่สามารถดึงข้อมูลได้ (API Error)");
+      
+      const responseJson = await res.json();
+      const participants = Array.isArray(responseJson) ? responseJson : (responseJson.data || []);
+
+      if (participants.length === 0) {
+        alert("ไม่พบข้อมูลสำหรับดาวน์โหลด");
+        return;
+      }
+
+      // 1. Map สถานะ (ตรงกับ JSON เป๊ะๆ)
+      const statusMap = {
+        'registered': 'ลงทะเบียนแล้ว',
+        'checkedIn': 'เช็คอินแล้ว', // ใน JSON เป็น camelCase
+        'pending': 'รอตรวจสอบ',
+        'cancelled': 'ยกเลิก'
+      };
+
+      // 2. Map ข้อมูล (เจาะเข้าไปใน .fields)
+      const excelData = participants.map((item, index) => {
+        // ดึงข้อมูลส่วนตัวจาก fields (ถ้าไม่มีให้กัน error ไว้ด้วย {})
+        const f = item.fields || {};
+        
+        return {
+            'ลำดับ': index + 1,
+            'ชื่อ-นามสกุล': f.name || 'ไม่ระบุ',
+            'ชื่อเล่น': f.nickname || '-',
+            'เบอร์โทรศัพท์': f.phone || '-',
+            'อีเมล': f.email || '-',
+            'คณะ/หน่วยงาน': f.dept || '-',
+            'ปีรุ่น': f.date_year || '-',
+            'สถานะ': statusMap[item.status] || item.status, 
+            'ประเภทการลงทะเบียน': item.registrationType === 'onsite' ? 'หน้างาน' : 'ออนไลน์',
+            'จำนวนผู้ติดตาม': item.followers || 0,
+            'ความช่วยเหลือพิเศษ': item.specialAssistance || '-',
+            'เวลาลงทะเบียน': item.registeredAt ? new Date(item.registeredAt).toLocaleString('th-TH') : '-',
+            'เวลาเช็คอิน': item.checkedInAt ? new Date(item.checkedInAt).toLocaleString('th-TH') : 'ยังไม่เช็คอิน',
+            'จุดลงทะเบียน': item.registeredPoint === 'Online' ? 'ระบบออนไลน์' : (item.registeredPoint || '-')
+        };
+      });
+
+      // 3. สร้างไฟล์ Excel
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+
+      // จัดความกว้างคอลัมน์ให้สวยงาม
+      worksheet['!cols'] = [
+        { wch: 6 },  // ลำดับ
+        { wch: 25 }, // ชื่อ
+        { wch: 10 }, // ชื่อเล่น
+        { wch: 15 }, // เบอร์
+        { wch: 20 }, // อีเมล
+        { wch: 25 }, // คณะ
+        { wch: 10 }, // รุ่น
+        { wch: 15 }, // สถานะ
+        { wch: 15 }, // ประเภท
+        { wch: 10 }, // ผู้ติดตาม
+        { wch: 15 }, // ช่วยเหลือ
+        { wch: 20 }, // เวลาลงทะเบียน
+        { wch: 20 }, // เวลาเช็คอิน
+        { wch: 15 }  // จุดลงทะเบียน
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "รายชื่อผู้ลงทะเบียน");
+
+      XLSX.writeFile(workbook, `Report_Participants_${new Date().toISOString().slice(0,10)}.xlsx`);
+
     } catch (e) {
-      alert("ดาวน์โหลดไม่สำเร็จ: " + e?.message);
+      console.error(e);
+      alert("เกิดข้อผิดพลาด: " + e.message);
     }
   }
 
@@ -200,18 +333,16 @@ export default function DashboardPage() {
         return c - 1;
       });
     }, 1000);
-    return () => {
-      clearInterval(countdownRef.current);
-    };
+    return () => clearInterval(countdownRef.current);
   }, [token]);
 
   const mainMenuFiltered = MAIN_MENU.filter(item => item.roles.some(r => roles.includes(r)));
   const manageMenuFiltered = MANAGE_MENU.filter(item => item.roles.some(r => roles.includes(r)));
 
   const displayName = user?.fullName || user?.username || "";
-  const displayShort = displayName.length > 5 ? displayName.slice(0, 5) + "..." : displayName;
+  const displayShort = displayName.length > 10 ? displayName.slice(0, 10) + "..." : displayName;
 
-  function skel(h = 48, w = 100) { return <Skeleton variant="rectangular" height={h} width={w} animation="wave" />; }
+  function skel(h = 48, w = 100) { return <Skeleton variant="rectangular" height={h} width={w} animation="wave" sx={{borderRadius: 3}} />; }
 
   const statusPieData = useMemo(() => {
     if (!summary) return [];
@@ -277,534 +408,425 @@ export default function DashboardPage() {
   return (
     <ThemeProvider theme={getTheme(darkMode ? "dark" : "light")}>
       <CssBaseline />
-      <Box sx={{
-        minHeight: "100vh",
-        bgcolor: theme =>
-          theme.palette.mode === "dark"
-            ? "linear-gradient(120deg,#663d00 0%,#3d2600 100%)"
-            : "linear-gradient(120deg,#fff8e1 0%,#fffde7 100%)",
-        pb: 3
-      }}>
-        <AppBar position="static" color="default" elevation={2}>
-          <Toolbar sx={{ px: { xs: 1, md: 3 }, minHeight: 66, display: "flex", alignItems: "center", gap: 1, flexWrap: "nowrap" }}>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
-              <Avatar src={getAvatarUrl(user)} sx={{ bgcolor: "primary.main", width: 38, height: 38, border: user?.avatar ? "2px solid #ffb300" : undefined }}>
-                {!user?.avatar && getInitial(displayName)}
+      <Box sx={{ minHeight: "100vh", pb: 6 }}>
+        <AppBar position="sticky">
+          <Toolbar sx={{ px: { xs: 1, md: 3 }, minHeight: 70, display: "flex", alignItems: "center", gap: 1 }}>
+            
+            {/* Logo และ Title ตามที่ขอ */}
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mr: 1 }}>
+              <Avatar 
+                src="/logo.svg" 
+                variant="square" // ให้ Logo เป็นสี่เหลี่ยม (ไม่โดนตัดเป็นวงกลม)
+                sx={{ 
+                    width: 48, 
+                    height: 48, 
+                    bgcolor: 'transparent',
+                    img: { objectFit: 'contain' } 
+                }}
+              >
+                {!user?.avatar && <StoreIcon />} 
               </Avatar>
-              <Typography variant="h6" fontWeight="bold" color="primary" sx={{ fontSize: { xs: "1.05rem", sm: "1.15rem", md: "1.25rem" }, whiteSpace: "nowrap", textShadow: "0 1px 0 #fff5" }}>
-                Event Dashboard
-              </Typography>
+              <Box sx={{ display: { xs: 'none', sm: 'block' } }}>
+                <Typography variant="h6" fontWeight={800} color="primary.dark" sx={{ lineHeight: 1.1 }}>
+                  Registration Management System
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  ระบบจัดการข้อมูลผู้ลงทะเบียน
+                </Typography>
+              </Box>
             </Stack>
-            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ flex: 1, ml: { xs: 0.5, md: 2 } }}>
-              {mainMenuFiltered.map(item => (
-                <Button key={item.label} component={Link} to={item.path} startIcon={item.icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "primary.dark", bgcolor: "rgba(255,193,7,0.12)", "&:hover": { bgcolor: "rgba(255,193,7,0.22)" }, whiteSpace: "nowrap" }}>{item.label}</Button>
-              ))}
-              {manageMenuFiltered.length === 1 ? (
-                <Button key={manageMenuFiltered[0].label} component={Link} to={manageMenuFiltered[0].path} startIcon={manageMenuFiltered[0].icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "secondary.dark", bgcolor: "rgba(255,179,0,0.12)", "&:hover": { bgcolor: "rgba(255,179,0,0.22)" }, whiteSpace: "nowrap" }}>{manageMenuFiltered[0].label}</Button>
-              ) : (manageMenuFiltered.length > 1 && <MenuItemDropdown label="จัดการ" icon={<SettingsIcon />} menuItems={manageMenuFiltered} />)}
-            </Stack>
-            <Stack direction="row" alignItems="center" spacing={0}>
-              <Tooltip title={displayName}><Button color="inherit" sx={{ px: 1.6, py: 0.7, fontWeight: "bold", borderRadius: 3, color: "primary.dark", fontSize: { xs: 15, md: 16 } }} startIcon={<Avatar src={getAvatarUrl(user)} sx={{ width: 32, height: 32, bgcolor: "primary.main", fontSize: 17, fontWeight: 700, border: user?.avatar ? "2px solid #ffb300" : undefined }}>{!user?.avatar && getInitial(displayName)}</Avatar>} endIcon={<ExpandMoreIcon />} onClick={e => setProfileAnchorEl(e.currentTarget)}><Box sx={{ textAlign: "left", maxWidth: 68, overflow: "hidden", textOverflow: "ellipsis", fontWeight: 700, fontSize: { xs: 15, sm: 16 }, letterSpacing: 0.5 }}>{displayShort}</Box></Button></Tooltip>
-              <Menu anchorEl={profileAnchorEl} open={openProfile} onClose={() => setProfileAnchorEl(null)} PaperProps={{ elevation: 4, sx: { mt: 1, minWidth: 230, borderRadius: 2, boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)" } }}>
-                <Box sx={{ p: 1, pb: 0, display: "flex", alignItems: "center" }}><Avatar src={getAvatarUrl(user)} sx={{ width: 36, height: 36, bgcolor: "primary.main", mr: 1, border: user?.avatar ? "2px solid #ffb300" : undefined }}>{!user?.avatar && getInitial(displayName)}</Avatar><Box><Typography sx={{ fontWeight: 500 }}>{displayName}</Typography><Chip label={(Array.isArray(user?.role) ? user.role : [user?.role]).filter(Boolean).map(r => String(r).toUpperCase()).join(", ")} color="secondary" size="small" sx={{ fontWeight: "bold", letterSpacing: 1, mt: 0.3 }} /></Box></Box><Divider sx={{ my: 1 }} /><MenuItem component={Link} to="/profile" onClick={() => setProfileAnchorEl(null)}><PersonIcon sx={{ mr: 1 }} /> จัดการโปรไฟล์</MenuItem><MenuItem onClick={() => { setProfileAnchorEl(null); setDialogOpen(true); }}><VpnKeyIcon sx={{ mr: 1 }} /> เปลี่ยนรหัสผ่าน</MenuItem><MenuItem onClick={() => { setProfileAnchorEl(null); logout(); }}><LogoutIcon sx={{ mr: 1 }} /> Logout</MenuItem><Divider sx={{ my: 1 }} /><MenuItem onClick={() => setDarkMode(v => !v)}><Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>{darkMode ? <Brightness7Icon sx={{ mr: 1 }} /> : <Brightness4Icon sx={{ mr: 1 }} />}{darkMode ? "Light Mode" : "Dark Mode"}<Switch checked={darkMode} onChange={e => setDarkMode(e.target.checked)} sx={{ ml: "auto" }} /></Box></MenuItem>
+            
+            <Box sx={{ flex: 1 }} />
+
+            <Stack direction="row" alignItems="center" spacing={1.5}>
+              {/* เมนูหลักแบบปุ่มกลม */}
+              <Stack direction="row" spacing={1} sx={{ display: { xs: 'none', md: 'flex' } }}>
+                {mainMenuFiltered.map(item => (
+                    <Tooltip key={item.label} title={item.label}>
+                    <Button component={Link} to={item.path} sx={{ minWidth: 48, width: 48, height: 48, borderRadius: '50%', p: 0, bgcolor: 'background.paper', color: 'primary.main', border: '1px solid rgba(0,0,0,0.08)' }}>
+                        {item.icon}
+                    </Button>
+                    </Tooltip>
+                ))}
+              </Stack>
+              {/* เมนูจัดการ */}
+              {manageMenuFiltered.length > 0 && (
+                 <MenuItemDropdown icon={<SettingsIcon />} menuItems={manageMenuFiltered} />
+              )}
+              
+              <Divider orientation="vertical" flexItem sx={{ mx: 1, height: 24, alignSelf: 'center' }} />
+
+              <Button 
+                onClick={e => setProfileAnchorEl(e.currentTarget)}
+                sx={{ pl: 0.5, pr: 2, py: 0.5, borderRadius: 50, bgcolor: 'background.paper', border: '1px solid rgba(0,0,0,0.05)', color: 'text.primary', '&:hover': { bgcolor: '#fff' } }}
+                startIcon={<Avatar src={getAvatarUrl(user)} sx={{ width: 34, height: 34 }}>{!user?.avatar && getInitial(displayName)}</Avatar>}
+                endIcon={<ExpandMoreIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
+              >
+                <Typography variant="body2" fontWeight={600} sx={{ maxWidth: 80, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: 'nowrap' }}>{displayShort}</Typography>
+              </Button>
+              <Menu anchorEl={profileAnchorEl} open={openProfile} onClose={() => setProfileAnchorEl(null)} PaperProps={{ elevation: 8, sx: { mt: 1.5, minWidth: 200, borderRadius: 4 } }}>
+                {/* Mobile Menu Items that hidden in md */}
+                <Box sx={{ display: { md: 'none' } }}>
+                    {mainMenuFiltered.map(item => (
+                        <MenuItem key={item.label} component={Link} to={item.path} onClick={() => setProfileAnchorEl(null)}>
+                            <Box sx={{ mr: 1.5, color: 'primary.main', display: 'flex' }}>{item.icon}</Box> {item.label}
+                        </MenuItem>
+                    ))}
+                    <Divider sx={{ my: 1 }} />
+                </Box>
+                <MenuItem component={Link} to="/profile" onClick={() => setProfileAnchorEl(null)}><PersonIcon sx={{ mr: 1.5 }} /> โปรไฟล์</MenuItem>
+                <MenuItem onClick={() => { setProfileAnchorEl(null); setDialogOpen(true); }}><VpnKeyIcon sx={{ mr: 1.5 }} /> เปลี่ยนรหัสผ่าน</MenuItem>
+                <MenuItem onClick={() => { setProfileAnchorEl(null); logout(); }} sx={{ color: 'error.main' }}><LogoutIcon sx={{ mr: 1.5 }} /> ออกจากระบบ</MenuItem>
+                <Divider sx={{ my: 1 }} />
+                <MenuItem onClick={() => setDarkMode(v => !v)}>
+                  {darkMode ? <Brightness7Icon sx={{ mr: 1.5 }} /> : <Brightness4Icon sx={{ mr: 1.5 }} />}
+                  {darkMode ? "Light Mode" : "Dark Mode"}
+                </MenuItem>
               </Menu>
             </Stack>
           </Toolbar>
         </AppBar>
 
-        <Container maxWidth="md" sx={{ mt: 4, mb: 5 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-            <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-              รายงานสรุปข้อมูล
-            </Typography>
-            <Stack direction="row" alignItems="center" spacing={2}>
+        <Container maxWidth="xl" sx={{ mt: 4, mb: 5 }}>
+          <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems="flex-start" sx={{ mb: 4 }}>
+            <Box>
+                <Typography variant="h4" fontWeight={900} sx={{ background: "linear-gradient(45deg, #FFC107, #FF6F00)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", mb: 0.5 }}>
+                  ภาพรวมระบบลงทะเบียน
+                </Typography>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                    <AccessTimeIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                    <Typography variant="body2" color="text.secondary" fontWeight={500}>อัปเดตล่าสุด: {new Date().toLocaleTimeString('th-TH')}</Typography>
+                </Stack>
+            </Box>
+            <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 } }}>
               <FormControlLabel
-                control={<Switch checked={withFollowers} onChange={e => setWithFollowers(e.target.checked)} />}
-                label="นับรวมผู้ติดตาม"
+                control={<Switch checked={withFollowers} onChange={e => setWithFollowers(e.target.checked)} size="small" color="success" />}
+                label={<Typography variant="body2" fontWeight={600} color="text.secondary">รวมผู้ติดตาม</Typography>}
+                sx={{ ml: 1, mr: 0 }}
               />
-              <Typography variant="body2" color="text.secondary">
-                รีเฟรชใน {refreshCountdown}s
-              </Typography>
+              <Divider orientation="vertical" flexItem />
               <Button
-                variant="outlined" color="primary" size="small"
+                size="small"
                 onClick={() => fetchSummary()}
-                disabled={loadingSummary} sx={{ minWidth: 40 }}
+                disabled={loadingSummary}
+                startIcon={loadingSummary ? <CircularProgress size={14} color="inherit" /> : <TrendingUpIcon fontSize="small" />}
+                sx={{ minWidth: 100, borderRadius: 3, bgcolor: '#FFF8E1', color: '#FF8F00', '&:hover': { bgcolor: '#FFECB3' } }}
               >
-                {loadingSummary ? <span>...</span> : "รีเฟรช"}
+                รีเฟรช ({refreshCountdown}s)
               </Button>
             </Stack>
           </Stack>
 
           <ChartErrorBoundary>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={3} mb={4}>
-              <Card sx={{ flex: 1, bgcolor: "primary.light", color: "#4a2c00" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">ลงทะเบียนทั้งหมด (รายการ)</Typography>
-                  <Typography variant="h3">{summary?.totalRegistered ?? 0}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ flex: 1, bgcolor: "success.light", color: "#155724" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">เช็คอินแล้ว (รายการ)</Typography>
-                  <Typography variant="h3">{summary?.checkedIn ?? 0}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ flex: 1, bgcolor: "info.light", color: "#155724" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">อัตราเช็คอิน</Typography>
-                  <Typography variant="h3">{summary?.checkinRate ?? 0}%</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ flex: 1, bgcolor: "#ffe0b2", color: "#e65100" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">คนทั้งหมดที่เช็คอิน</Typography>
-                  <Typography variant="h3">{summary?.totalPeopleCheckedIn ?? 0}</Typography>
-                </CardContent>
-              </Card>
+            {/* Main Stats with New Design */}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={2} mb={4}>
+              <StatCard title="ลงทะเบียนทั้งหมด" value={summary?.totalRegistered ?? 0} icon={<PersonIcon />} color1="#FFC107" color2="#FF8F00" loading={loadingSummary} />
+              <StatCard title="เช็คอินแล้ว" value={summary?.checkedIn ?? 0} icon={<CheckCircleIcon />} color1="#66BB6A" color2="#43A047" loading={loadingSummary} />
+              <StatCard title="อัตราเช็คอิน" value={`${summary?.checkinRate ?? 0}%`} icon={<DashboardIcon />} color1="#42A5F5" color2="#1976D2" loading={loadingSummary} />
+              <StatCard title="จำนวนคนในงาน (รวม)" value={summary?.totalPeopleCheckedIn ?? 0} icon={<GroupIcon />} color1="#AB47BC" color2="#7B1FA2" loading={loadingSummary} />
             </Stack>
 
+            {/* Donation Section */}
             {donationStats && (
               <Box sx={{ mb: 4 }}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-                  <Typography variant="h5" fontWeight="bold" color="success.main" sx={{ display: 'flex', alignItems: 'center' }}>
-                    <VolunteerActivismIcon sx={{ mr: 1 }} /> ข้อมูลการสนับสนุน (Donations)
-                  </Typography>
-                  <Button 
-                    component={Link} 
-                    to="/admin/donations" 
-                    endIcon={<ArrowForwardIcon />}
-                    size="small"
-                    color="success"
-                  >
-                    ดูรายชื่อทั้งหมด
-                  </Button>
-                </Stack>
-                
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={3}>
-                  <Card sx={{ flex: 1, bgcolor: "#e8f5e9", color: "#1b5e20", border: '1px solid #c8e6c9' }}>
-                    <CardContent sx={{ textAlign: "center" }}>
-                      <Typography variant="h6">ยอดเงินสนับสนุนรวม</Typography>
-                      <Typography variant="h3" sx={{ fontWeight: 800 }}>
-                        ฿{totalDonationAmount.toLocaleString()}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                  <Card sx={{ flex: 1, bgcolor: "#f1f8e9", color: "#33691e", border: '1px solid #dcedc8' }}>
-                    <CardContent sx={{ textAlign: "center" }}>
-                      <Typography variant="h6">จำนวนรายการโอน</Typography>
-                      <Typography variant="h3">
-                        {totalDonationCount}
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                <Typography variant="h6" fontWeight={800} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary', ml: 1 }}>
+                    <VolunteerActivismIcon color="error" /> ข้อมูลการสนับสนุน
+                </Typography>
+                <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                    <Card sx={{ flex: 1.5, background: 'linear-gradient(135deg, #FFFDE7 0%, #FFFFFF 100%)', border: '1px solid #FFECB3' }}>
+                        <CardContent sx={{ p: 3 }}>
+                            <Stack direction="row" alignItems="center" justifyContent="space-between">
+                                <Box>
+                                    <Typography color="text.secondary" variant="subtitle2" fontWeight={600} mb={1}>ยอดเงินสนับสนุนรวม</Typography>
+                                    <Typography variant="h3" fontWeight={900} color="primary.dark" sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+                                        ฿{totalDonationAmount.toLocaleString()}
+                                    </Typography>
+                                </Box>
+                                <Box sx={{ bgcolor: '#FFF3E0', p: 2, borderRadius: '50%' }}>
+                                    <PaymentsIcon sx={{ fontSize: 40, color: '#FF9800' }} />
+                                </Box>
+                            </Stack>
+                        </CardContent>
+                    </Card>
+                    <Card sx={{ flex: 1, bgcolor: '#fff' }}>
+                        <CardContent sx={{ p: 3 }}>
+                            <Stack direction="row" alignItems="center" justifyContent="space-between">
+                                <Box>
+                                    <Typography color="text.secondary" variant="subtitle2" fontWeight={600} mb={1}>จำนวนรายการ</Typography>
+                                    <Typography variant="h4" fontWeight={800} color="text.primary">{totalDonationCount}</Typography>
+                                </Box>
+                                <Box sx={{ bgcolor: '#E3F2FD', p: 1.5, borderRadius: '50%' }}>
+                                    <ReceiptLongIcon sx={{ fontSize: 32, color: '#1976D2' }} />
+                                </Box>
+                            </Stack>
+                            <Button component={Link} to="/admin/donations" endIcon={<ArrowForwardIcon />} sx={{ mt: 2 }} fullWidth variant="outlined" size="small" color="primary">
+                                ดูรายชื่อทั้งหมด
+                            </Button>
+                        </CardContent>
+                    </Card>
                 </Stack>
                 
                 {recentDonations.length > 0 && (
-                  <Card sx={{ mt: 2, border: '1px solid #eee' }}>
+                  <Card sx={{ mt: 2 }}>
                     <CardContent sx={{ pb: 1 }}>
-                      <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center' }}>
-                        <PaymentsIcon sx={{ mr: 1, fontSize: 20 }} color="success" /> รายการล่าสุด
+                      <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
+                        รายการโอนล่าสุด
                       </Typography>
-                      <Box sx={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-                          <thead>
-                            <tr style={{ borderBottom: "2px solid #eee", color: "#666" }}>
-                              <th style={{ textAlign: "left", padding: "8px" }}>เวลา</th>
-                              <th style={{ textAlign: "left", padding: "8px" }}>ชื่อผู้บริจาค</th>
-                              <th style={{ textAlign: "right", padding: "8px" }}>ยอดเงิน</th>
-                              <th style={{ textAlign: "right", padding: "8px" }}>ช่องทาง</th>
-                            </tr>
-                          </thead>
-                          <tbody>
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                                <TableCell>เวลา</TableCell>
+                                <TableCell>ชื่อผู้บริจาค</TableCell>
+                                <TableCell align="right">ยอดเงิน</TableCell>
+                                <TableCell align="right">ช่องทาง</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
                             {recentDonations.map((d) => (
-                              <tr key={d._id} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                                <td style={{ padding: "8px" }}>{new Date(d.createdAt).toLocaleString("th-TH")}</td>
-                                <td style={{ padding: "8px" }}>{d.firstName} {d.lastName}</td>
-                                <td style={{ padding: "8px", textAlign: "right", fontWeight: "bold", color: "#2e7d32" }}>
-                                  +{d.amount.toLocaleString()}
-                                </td>
-                                <td style={{ padding: "8px", textAlign: "right" }}>
-                                  <Chip label={d.source === 'PRE_REGISTER' ? 'ลงทะเบียน' : 'อื่นๆ'} size="small" color="success" variant="outlined" />
-                                </td>
-                              </tr>
+                              <TableRow key={d._id} hover>
+                                <TableCell sx={{ color: 'text.secondary' }}>{new Date(d.createdAt).toLocaleString("th-TH")}</TableCell>
+                                <TableCell sx={{ fontWeight: 600 }}>{d.firstName} {d.lastName}</TableCell>
+                                <TableCell align="right" sx={{ fontWeight: "bold", color: "success.main" }}>+{d.amount.toLocaleString()}</TableCell>
+                                <TableCell align="right">
+                                  <Chip label={d.source === 'PRE_REGISTER' ? 'ลงทะเบียน' : 'อื่นๆ'} size="small" color="success" variant="outlined" sx={{ fontWeight: 600, fontSize: 11 }} />
+                                </TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
-                      </Box>
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
                     </CardContent>
                   </Card>
                 )}
               </Box>
             )}
 
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={3} mb={4}>
-              <Card sx={{ flex: 1, bgcolor: "#e3f2fd", color: "#0d47a1" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">ผู้ติดตามลงทะเบียน</Typography>
-                  <Typography variant="h3">{followersRegisteredTotal}</Typography>
-                </CardContent>
-              </Card>
-              <Card sx={{ flex: 1, bgcolor: "#e8f5e9", color: "#1b5e20" }}>
-                <CardContent sx={{ textAlign: "center" }}>
-                  <Typography variant="h6">ผู้ติดตามเช็คอิน</Typography>
-                  <Typography variant="h3">{followersCheckedInTotal}</Typography>
-                </CardContent>
-              </Card>
+            {/* Charts Grid */}
+            <Stack direction={{ xs: "column", md: "row" }} spacing={3} mb={4}>
+                <Card sx={{ flex: 1 }}>
+                    <CardContent>
+                        <Typography variant="h6" fontWeight={800} gutterBottom>สถานะผู้เข้าร่วม</Typography>
+                        <ResponsiveContainer width="100%" height={280}>
+                            <PieChart>
+                                <Pie data={statusPieData} cx="50%" cy="50%" innerRadius={70} outerRadius={95} paddingAngle={5} dataKey="value">
+                                    <Cell fill="#66BB6A" />
+                                    <Cell fill="#BDBDBD" />
+                                    <Cell fill="#EF5350" />
+                                </Pie>
+                                <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                <Legend verticalAlign="bottom" iconType="circle" />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+                <Card sx={{ flex: 1 }}>
+                    <CardContent>
+                        <Typography variant="h6" fontWeight={800} gutterBottom>ช่องทางลงทะเบียน</Typography>
+                        <ResponsiveContainer width="100%" height={280}>
+                            <PieChart>
+                                <Pie data={channelPieData} cx="50%" cy="50%" outerRadius={95} dataKey="value" paddingAngle={2}>
+                                    <Cell fill="#42A5F5" />
+                                    <Cell fill="#FFCA28" />
+                                </Pie>
+                                <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                                <Legend verticalAlign="bottom" iconType="circle" />
+                            </PieChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
             </Stack>
 
+            {/* Bar Chart */}
             <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">
-                  สถานะภาพรวม {withFollowers ? "(รวมผู้ติดตาม = คน)" : "(เฉพาะรายการ)"}
-                </Typography>
-                <ResponsiveContainer width="100%" height={260}>
-                  <PieChart>
-                    <Pie
-                      data={statusPieData}
-                      cx="50%" cy="50%" innerRadius={60} outerRadius={90}
-                      label={({ name, percent }) => `${name} - ${(percent * 100).toFixed(1)}%`}
-                      isAnimationActive={false}
-                      dataKey="value"
-                    >
-                      <Cell fill="#4caf50" />
-                      <Cell fill="#ff9800" />
-                      <Cell fill="#f44336" />
-                    </Pie>
-                    <Legend verticalAlign="bottom" height={36} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">ช่องทางลงทะเบียน (รายการ)</Typography>
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie
-                      data={channelPieData}
-                      cx="50%" cy="50%" outerRadius={80}
-                      label={({ name, value, percent }) =>
-                        `${name} : ${value} รายการ (${(percent * 100).toFixed(1)}%)`
-                      }
-                      isAnimationActive={false}
-                      dataKey="value"
-                    >
-                      <Cell fill="#2196f3" />
-                      <Cell fill="#ffb300" />
-                    </Pie>
-                    <Legend verticalAlign="bottom" height={36} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">Peak</Typography>
-                <Typography>
-                  <b>วันที่คนลงทะเบียนเยอะสุด (รายการ):</b> {summary?.peakDay || "-"} <b>({summary?.peakDayCount ?? 0} รายการ)</b>
-                </Typography>
-                <Typography>
-                  <b>ชั่วโมงที่เช็คอินเยอะสุด ({withFollowers ? "คน" : "รายการ"}):</b>{" "}
-                  {typeof summary?.peakHour === "number" ? `${summary.peakHour}:00 น.` : "-"}{" "}
-                  <b>({summary?.peakHourCount ?? 0} {withFollowers ? "คน" : "รายการ"})</b>
-                </Typography>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">ผู้ลงทะเบียนใหม่ 7 วันล่าสุด (รายการ)</Typography>
-                <Typography variant="h3">{summary?.newParticipantsLast7Days ?? 0}</Typography>
-                <Typography color="textSecondary">
-                  เปรียบเทียบสัปดาห์ก่อนหน้า: <b>{summary?.growthRate ?? "0.00"}%</b>
-                </Typography>
-              </CardContent>
-            </Card>
-
-            {(registrationByDayData || []).length > 0 && (
-              <Card sx={{ mb: 4 }}>
                 <CardContent>
-                  <Typography variant="h6" fontWeight="bold">
-                    แนวโน้มการลงทะเบียน (รายวัน) {withFollowers ? "(คน)" : "(รายการ)"}
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={registrationByDayData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="_id" />
-                      <YAxis allowDecimals={false} />
-                      <ReTooltip />
-                      <Line type="monotone" dataKey={regByDayKey} stroke="#ffb300" strokeWidth={3} isAnimationActive={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
+                    <Typography variant="h6" fontWeight={800} gutterBottom>แนวโน้มการเช็คอิน (รายชั่วโมง)</Typography>
+                    <ResponsiveContainer width="100%" height={320}>
+                        <BarChart data={checkinByHourData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                            <XAxis dataKey="_id" axisLine={false} tickLine={false} tick={{fill: '#9E9E9E', fontSize: 12}} />
+                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#9E9E9E', fontSize: 12}} />
+                            <ReTooltip cursor={{fill: 'rgba(0,0,0,0.02)'}} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                            <Bar dataKey={checkinHourKey} fill="url(#colorGradient)" radius={[6, 6, 0, 0]} barSize={40}>
+                                {checkinByHourData.map((entry, index) => (
+                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#FFC107' : '#FFB300'} />
+                                ))}
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
                 </CardContent>
-              </Card>
-            )}
+            </Card>
 
-            {(checkinByHourData || []).length > 0 && (
-              <Card sx={{ mb: 4 }}>
-                <CardContent>
-                  <Typography variant="h6" fontWeight="bold">
-                    จำนวนเช็คอินรายชั่วโมง {withFollowers ? "(คน)" : "(รายการ)"}
-                  </Typography>
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={checkinByHourData}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="_id" label={{ value: "ชั่วโมง", position: "insideBottom", offset: 0 }} />
-                      <YAxis allowDecimals={false} />
-                      <ReTooltip />
-                      <Bar dataKey={checkinHourKey} fill="#ffb300" isAnimationActive={false} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            )}
+            {/* Tables Section - Modernized */}
+            <Stack spacing={4}>
+                {/* Staff Contribution */}
+                {(checkedInByStaffView.length > 0 || registeredByStaffView.length > 0) && (
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" fontWeight={800} gutterBottom color="primary.dark">ผลงานเจ้าหน้าที่ (Staff Contribution)</Typography>
+                      <Stack direction={{ xs: "column", lg: "row" }} spacing={4} mt={2}>
+                        {checkedInByStaffView.length > 0 && (
+                            <Box flex={1}>
+                                <Typography variant="subtitle2" color="text.secondary" mb={1.5}>
+                                    Top 5 ช่วยเช็คอิน (รวม {checkedInByStaffView.reduce((s, r) => s + (r.count || 0), 0)})
+                                </Typography>
+                                <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #f0f0f0', borderRadius: 3 }}>
+                                    <Table size="small">
+                                        <TableHead><TableRow><TableCell>ชื่อ</TableCell><TableCell align="right">จำนวน</TableCell><TableCell align="right">%</TableCell></TableRow></TableHead>
+                                        <TableBody>
+                                            {checkedInByStaffView.slice(0, 5).map((u, i) => (
+                                                <TableRow key={i} hover>
+                                                    <TableCell sx={{ fontWeight: 500 }}>{u.name}</TableCell>
+                                                    <TableCell align="right">{u.count}</TableCell>
+                                                    <TableCell align="right"><Chip label={`${u.percent.toFixed(1)}%`} size="small" sx={{ bgcolor: '#FFF8E1', color: '#FF8F00', fontWeight: 700, height: 20, fontSize: 11 }} /></TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            </Box>
+                        )}
+                        {registeredByStaffView.length > 0 && (
+                            <Box flex={1}>
+                                <Typography variant="subtitle2" color="text.secondary" mb={1.5}>
+                                    Top 5 ช่วยลงทะเบียน (รวม {registeredByStaffView.reduce((s, r) => s + (r.count || 0), 0)})
+                                </Typography>
+                                <TableContainer component={Paper} elevation={0} sx={{ border: '1px solid #f0f0f0', borderRadius: 3 }}>
+                                    <Table size="small">
+                                        <TableHead><TableRow><TableCell>ชื่อ</TableCell><TableCell align="right">จำนวน</TableCell><TableCell align="right">%</TableCell></TableRow></TableHead>
+                                        <TableBody>
+                                            {registeredByStaffView.slice(0, 5).map((u, i) => (
+                                                <TableRow key={i} hover>
+                                                    <TableCell sx={{ fontWeight: 500 }}>{u.name}</TableCell>
+                                                    <TableCell align="right">{u.count}</TableCell>
+                                                    <TableCell align="right"><Chip label={`${u.percent.toFixed(1)}%`} size="small" sx={{ bgcolor: '#E3F2FD', color: '#1976D2', fontWeight: 700, height: 20, fontSize: 11 }} /></TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </TableContainer>
+                            </Box>
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                )}
 
-            {(checkedInByStaffView.length > 0 || registeredByStaffView.length > 0) && (
-              <Card sx={{ mb: 4 }}>
-                <CardContent>
-                  <Typography variant="h6" fontWeight="bold">สรุปตามเจ้าหน้าที่ (Staff Contribution)</Typography>
+                {/* By Registration Point */}
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" fontWeight={800} gutterBottom>สถิติตามจุดลงทะเบียน</Typography>
+                    <TableContainer sx={{ maxHeight: 400 }}>
+                      <Table stickyHeader size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>จุดลงทะเบียน</TableCell>
+                            <TableCell align="center">ลงทะเบียน</TableCell>
+                            <TableCell align="center">เช็คอิน</TableCell>
+                            <TableCell align="center">ผู้ติดตาม(ช)</TableCell>
+                            <TableCell align="center">รวมคน(ช)</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {(summary?.byRegistrationPoint || []).map((point, idx) => (
+                            <TableRow key={idx} hover>
+                              <TableCell sx={{ fontWeight: 600, color: 'primary.dark' }}>{point.pointName}</TableCell>
+                              <TableCell align="center">{point.registered}</TableCell>
+                              <TableCell align="center" sx={{ bgcolor: '#F1F8E9', color: 'success.dark', fontWeight: 700 }}>{point.checkedIn}</TableCell>
+                              <TableCell align="center">{point.followerCheckedIn}</TableCell>
+                              <TableCell align="center" sx={{ fontWeight: 700 }}>{point.totalCheckedInPeople}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  </CardContent>
+                </Card>
 
-                  {checkedInByStaffView.length > 0 && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography sx={{ fontWeight: 600, mb: 1 }}>
-                        เจ้าหน้าที่ที่ช่วยเช็คอิน (รวม {checkedInByStaffView.reduce((s, r) => s + (r.count || 0), 0)} รายการ)
-                      </Typography>
-                      <Box sx={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                          <thead>
-                            <tr style={{ background: "#fff8e1" }}>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "left" }}>ชื่อผู้ใช้</th>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "right" }}>จำนวนที่เช็คอิน</th>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "right" }}>% ส่วนแบ่ง</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {checkedInByStaffView.map((u) => (
-                              <tr key={String(u.userId || u._id || u.username || u.name)}>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{u.name}</td>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right" }}>{u.count || 0}</td>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right" }}>
-                                  {u.percent.toFixed(1)}%
-                                </td>
-                              </tr>
+                {/* Other Stats (Dept & Year) */}
+                <Stack direction={{ xs: "column", md: "row" }} spacing={3}>
+                    <Card sx={{ flex: 1 }}>
+                        <CardContent>
+                            <Typography variant="h6" fontWeight={800} gutterBottom>แยกตามภาควิชา</Typography>
+                            <TableContainer sx={{ maxHeight: 350 }}>
+                                <Table stickyHeader size="small">
+                                    <TableHead><TableRow><TableCell>ภาควิชา</TableCell><TableCell align="right">ลงทะเบียน</TableCell><TableCell align="right">เช็คอิน</TableCell></TableRow></TableHead>
+                                    <TableBody>
+                                        {(summary?.byDepartment || []).map((d, i) => (
+                                            <TableRow key={i} hover>
+                                                <TableCell>{d.department}</TableCell>
+                                                <TableCell align="right">{d.registered}</TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{d.checkedIn}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </CardContent>
+                    </Card>
+                    <Card sx={{ flex: 1 }}>
+                        <CardContent>
+                            <Typography variant="h6" fontWeight={800} gutterBottom>แยกตามปีการศึกษา</Typography>
+                            <TableContainer sx={{ maxHeight: 350 }}>
+                                <Table stickyHeader size="small">
+                                    <TableHead><TableRow><TableCell>ปีการศึกษา</TableCell><TableCell align="right">ลงทะเบียน</TableCell><TableCell align="right">เช็คอิน</TableCell></TableRow></TableHead>
+                                    <TableBody>
+                                        {(summary?.byYear || []).map((y, i) => (
+                                            <TableRow key={i} hover>
+                                                <TableCell>{y.year}</TableCell>
+                                                <TableCell align="right">{y.registered}</TableCell>
+                                                <TableCell align="right" sx={{ fontWeight: 700, color: 'success.main' }}>{y.checkedIn}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </CardContent>
+                    </Card>
+                </Stack>
+
+                {/* Last Checked In */}
+                {summary?.lastCheckedIn && (
+                  <Card>
+                    <CardContent>
+                      <Typography variant="h6" fontWeight={800} gutterBottom>ผู้ที่เช็คอินล่าสุด</Typography>
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead><TableRow><TableCell>ชื่อ</TableCell><TableCell align="right">เวลา</TableCell></TableRow></TableHead>
+                          <TableBody>
+                            {summary.lastCheckedIn.map(u => (
+                              <TableRow key={u._id} hover>
+                                <TableCell sx={{ fontWeight: 500 }}>{u.fullName}</TableCell>
+                                <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>{new Date(u.checkedInAt).toLocaleTimeString('th-TH')}</TableCell>
+                              </TableRow>
                             ))}
-                          </tbody>
-                        </table>
-                      </Box>
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    </CardContent>
+                  </Card>
+                )}
+            </Stack>
 
-                      <Box sx={{ mt: 2 }}>
-                        <ResponsiveContainer width="100%" height={250}>
-                          <BarChart data={checkedInByStaffView}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis allowDecimals={false} />
-                            <ReTooltip />
-                            <Bar dataKey="count" fill="#ffb300" isAnimationActive={false} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </Box>
-                    </Box>
-                  )}
-
-                  {registeredByStaffView.length > 0 && (
-                    <Box sx={{ mt: 4 }}>
-                      <Typography sx={{ fontWeight: 600, mb: 1 }}>
-                        เจ้าหน้าที่ที่ช่วยลงทะเบียน (รวม {registeredByStaffView.reduce((s, r) => s + (r.count || 0), 0)} รายการ)
-                      </Typography>
-                      <Box sx={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                          <thead>
-                            <tr style={{ background: "#fff8e1" }}>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "left" }}>ชื่อผู้ใช้</th>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "right" }}>จำนวนที่ลงทะเบียน</th>
-                              <th style={{ padding: 8, borderBottom: "1px solid #ddd", textAlign: "right" }}>% ส่วนแบ่ง</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {registeredByStaffView.map((u) => (
-                              <tr key={String(u.userId || u._id || u.username || u.name)}>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{u.name}</td>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right" }}>{u.count || 0}</td>
-                                <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right" }}>
-                                  {u.percent.toFixed(1)}%
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </Box>
-
-                      <Box sx={{ mt: 2 }}>
-                        <ResponsiveContainer width="100%" height={250}>
-                          <BarChart data={registeredByStaffView}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="name" />
-                            <YAxis allowDecimals={false} />
-                            <ReTooltip />
-                            <Bar dataKey="count" fill="#64b5f6" isAnimationActive={false} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </Box>
-                    </Box>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">สถิติแยกตามภาควิชา</Typography>
-                <Box sx={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                    <thead>
-                      <tr style={{ background: "#fff8e1" }}>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ภาควิชา</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ลงทะเบียน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>เช็คอิน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ยกเลิก</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ผู้ติดตาม(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ผู้ติดตาม(เช็คอิน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>รวมคน(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>รวมคน(เช็คอิน)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(summary?.byDepartment || []).map(dep => (
-                        <tr key={dep.department}>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.department}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.registered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.checkedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.cancelled}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.followerRegistered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.followerCheckedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.totalRegisteredPeople}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{dep.totalCheckedInPeople}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Box>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">สถิติแยกตามปีการศึกษา</Typography>
-                <Box sx={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                    <thead>
-                      <tr style={{ background: "#fff8e1" }}>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>ปีการศึกษา</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>ลงทะเบียน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>เช็คอิน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>ยกเลิก</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>ผู้ติดตาม(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>ผู้ติดตาม(เช็คอิน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>รวมคน(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid " }}>รวมคน(เช็คอิน)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(summary?.byYear || []).map(y => (
-                        <tr key={y.year}>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.year}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.registered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.checkedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.cancelled}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.followerRegistered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.followerCheckedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.totalRegisteredPeople}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{y.totalCheckedInPeople}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Box>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ mb: 4 }}>
-              <CardContent>
-                <Typography variant="h6" fontWeight="bold">สถิติแต่ละจุดลงทะเบียน</Typography>
-                <Box sx={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                    <thead>
-                      <tr style={{ background: "#fff8e1" }}>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>จุดลงทะเบียน</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ลงทะเบียน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>เช็คอิน(รายการ)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ยกเลิก</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ผู้ติดตาม(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ผู้ติดตาม(เช็คอิน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>รวมคน(ลงทะเบียน)</th>
-                        <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>รวมคน(เช็คอิน)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(summary?.byRegistrationPoint || []).map(point => (
-                        <tr key={String(point.pointId?.oid || point.pointId?.nameKey || point.pointId || point.pointName)}>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.pointName}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.registered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.checkedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.cancelled}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.followerRegistered}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.followerCheckedIn}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.totalRegisteredPeople}</td>
-                          <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{point.totalCheckedInPeople}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Box>
-              </CardContent>
-            </Card>
-
-            {summary?.lastCheckedIn && (
-              <Card sx={{ mb: 4 }}>
-                <CardContent>
-                  <Typography variant="h6" fontWeight="bold">ผู้ที่เช็คอินล่าสุด</Typography>
-                  <Box sx={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 15 }}>
-                      <thead>
-                        <tr style={{ background: "#fff8e1" }}>
-                          <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>ชื่อ</th>
-                          <th style={{ padding: 8, borderBottom: "1px solid #ddd" }}>เวลาเช็คอิน</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {summary.lastCheckedIn.map(u => (
-                          <tr key={u._id}>
-                            <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{u.fullName}</td>
-                            <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{new Date(u.checkedInAt).toLocaleString("th-TH")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </Box>
-                </CardContent>
-              </Card>
-            )}
-
-            <Box sx={{ mb: 3 }}>
-              <Button variant="outlined" color="secondary" onClick={handleDownloadCsv}>
-                ดาวน์โหลดรายชื่อ (Excel)
+            {/* [NEW] ปุ่ม Download Excel */}
+            <Box sx={{ textAlign: 'center', mt: 5 }}>
+              <Button 
+                variant="outlined" 
+                color="success" // เปลี่ยนสีเป็นเขียว (สื่อถึง Excel)
+                onClick={handleDownloadExcel} // เรียกใช้ฟังก์ชันใหม่
+                startIcon={<ReceiptLongIcon />} 
+                sx={{ borderRadius: 3, px: 4, py: 1.2, fontSize: 16, borderWidth: 2, '&:hover': { borderWidth: 2, bgcolor: '#E8F5E9' } }}
+              >
+                ดาวน์โหลดรายชื่อฉบับเต็ม (.xlsx)
               </Button>
             </Box>
+
           </ChartErrorBoundary>
 
           {loadingSummary && (
             <Fade in={loadingSummary} timeout={450}>
-              <Box>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={3} mb={4}>
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <Card key={n}><CardContent>{skel(48, 120)}</CardContent></Card>
-                  ))}
-                </Stack>
-                {[1, 2, 3, 4].map((n) => (
-                  <Card key={n} sx={{ mb: 3 }}><CardContent>{skel(180, "100%")}</CardContent></Card>
-                ))}
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, bgcolor: 'rgba(255,255,255,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                 <CircularProgress color="primary" />
               </Box>
             </Fade>
           )}
@@ -816,20 +838,20 @@ export default function DashboardPage() {
   );
 }
 
-function MenuItemDropdown({ label, icon, menuItems }) {
+function MenuItemDropdown({ icon, menuItems }) {
   const [anchorEl, setAnchorEl] = React.useState(null);
   return (
     <>
-      <Button onClick={e => setAnchorEl(e.currentTarget)} endIcon={<ExpandMoreIcon />} startIcon={icon} sx={{ textTransform: "none", fontWeight: 600, borderRadius: 999, px: 1.6, py: 1.0, fontSize: { xs: 13, md: 15 }, color: "secondary.dark", bgcolor: "rgba(255,179,0,0.12)", "&:hover": { bgcolor: "rgba(255,179,0,0.22)" }, whiteSpace: "nowrap" }}>
-        {label}
-      </Button>
-      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)} PaperProps={{ elevation: 4, sx: { mt: 1, minWidth: 220, borderRadius: 2, boxShadow: "0 6px 32px 0 rgba(0,0,0,0.10)", } }}>
+      <Tooltip title="เมนูจัดการ">
+        <Button onClick={e => setAnchorEl(e.currentTarget)} sx={{ minWidth: 48, width: 48, height: 48, borderRadius: '50%', p: 0, bgcolor: 'background.paper', color: 'secondary.main', border: '1px solid rgba(0,0,0,0.08)' }}>
+            {icon}
+        </Button>
+      </Tooltip>
+      <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={() => setAnchorEl(null)} PaperProps={{ elevation: 8, sx: { mt: 1, minWidth: 220, borderRadius: 4 } }}>
         {menuItems.map(item => (
-          <MenuItem key={item.label} component={Link} to={item.path} onClick={() => setAnchorEl(null)} sx={{ py: 1.3, px: 2, fontWeight: 500, fontSize: 15 }}>
-            <Stack direction="row" alignItems="center" spacing={1}>
-              {item.icon}
-              <span>{item.label}</span>
-            </Stack>
+          <MenuItem key={item.label} component={Link} to={item.path} onClick={() => setAnchorEl(null)} sx={{ py: 1.5 }}>
+            <Box sx={{ mr: 2, color: 'text.secondary', display: 'flex' }}>{item.icon}</Box>
+            <Typography fontWeight={600}>{item.label}</Typography>
           </MenuItem>
         ))}
       </Menu>
