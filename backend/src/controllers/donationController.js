@@ -1,10 +1,10 @@
 const Donation = require('../models/Donation');
 const { sendLineDonationAlert } = require('../utils/lineNotify');
-const auditLog = require('../helpers/auditLog'); // <--- เพิ่มการเรียกใช้ auditLog
+const auditLog = require('../helpers/auditLog'); 
 
 exports.createDonation = async (req, res) => {
   try {
-    const { userId, firstName, lastName, amount, transferDateTime, source } = req.body;
+    const { userId, firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
@@ -16,14 +16,15 @@ exports.createDonation = async (req, res) => {
       lastName,
       amount,
       transferDateTime,
-      source: source || 'PRE_REGISTER'
+      source: source || 'PRE_REGISTER',
+      isPackage: !!isPackage,
+      packageType: packageType || "",
+      size: size || ""
     });
 
     const savedDonation = await newDonation.save();
 
-
     await sendLineDonationAlert(savedDonation);
-
 
     auditLog({
       req,
@@ -33,7 +34,6 @@ exports.createDonation = async (req, res) => {
       error: null
     });
 
-
     res.status(201).json({
       success: true,
       message: 'บันทึกข้อมูลและแจ้งเตือนสำเร็จ',
@@ -42,8 +42,6 @@ exports.createDonation = async (req, res) => {
 
   } catch (error) {
     console.error(error);
-
-    // --- เพิ่ม: เก็บ Log Error เข้าระบบ ---
     auditLog({
       req,
       action: 'CREATE_DONATION_ERROR',
@@ -51,7 +49,6 @@ exports.createDonation = async (req, res) => {
       status: 500,
       error: error.message
     });
-    // -----------------------------------
 
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
@@ -61,7 +58,6 @@ exports.getDonationSummary = async (req, res) => {
   try {
     const donations = await Donation.find().sort({ createdAt: -1 });
     
-    // ... (logic คำนวณเดิม) ...
     const totalAmount = donations.reduce((sum, item) => sum + item.amount, 0);
     const preRegisterTotal = donations.filter(d => d.source === 'PRE_REGISTER').reduce((sum, item) => sum + item.amount, 0);
     const supportSystemTotal = donations.filter(d => d.source === 'SUPPORT_SYSTEM').reduce((sum, item) => sum + item.amount, 0);
@@ -80,7 +76,6 @@ exports.getDonationSummary = async (req, res) => {
     });
 
   } catch (error) {
-    // Audit Log for Error
     auditLog({
       req,
       action: 'GET_DONATION_SUMMARY_ERROR',

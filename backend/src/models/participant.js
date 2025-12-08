@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const participantSchema = new mongoose.Schema({
   qrCode: { type: String, unique: true, required: true },
 
-  // ฟิลด์ไดนามิกจากแบบฟอร์ม (เช่น name, phone, email, dept, date_year ...)
+
   fields: { type: Object, default: {} },
 
   status: {
@@ -26,19 +26,22 @@ const participantSchema = new mongoose.Schema({
   registrationType: {
     type: String,
     enum: ['online', 'onsite'],
-    default: 'online', // สอดคล้อง Pre-registration
+    default: 'online', 
     index: true
   },
 
-  // เก็บเฉพาะ "จำนวน" ผู้ติดตาม
+
   followers: { type: Number, default: 0, min: 0 },
 
-  // [ใหม่] เก็บข้อมูลการยินยอม (PDPA Consent)
+
   consent: { 
     type: String, 
     enum: ['agreed', 'disagreed', null], 
     default: null 
-  }
+  },
+
+
+  specialAssistance: { type: String, default: "" }
 
 }, { timestamps: true, versionKey: false });
 

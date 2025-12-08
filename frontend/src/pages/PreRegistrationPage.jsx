@@ -21,6 +21,8 @@ import SchoolIcon from '@mui/icons-material/School';
 import DownloadIcon from "@mui/icons-material/Download";
 import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import FactCheckIcon from '@mui/icons-material/FactCheck';
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import AccessibleIcon from '@mui/icons-material/Accessible';
 
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
@@ -28,6 +30,15 @@ import { jsPDF } from "jspdf";
 import { listParticipantFields, createParticipant, createDonation } from "../utils/api";
 import Turnstile, { executeTurnstile } from "../components/Turnstile";
 import dayjs from "dayjs";
+
+// --- Configuration Constants ---
+const PACKAGE_OPTIONS = [
+  { value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
+  { value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
+  { value: "package_C", label: "สนับสนุนเงิน 1,500 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว และ พวงกุญแจเสือเหลือง (ขนาด 5 นิ้ว) 1 ตัว" },
+  { value: "package_D", label: "สนับสนุนเงิน 1,200 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว" }
+];
+const SIZE_OPTIONS = ["SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL","6XL","7XL"];
 
 // --- Component โบว์สีดำ (SVG) ---
 const MourningRibbon = () => (
@@ -71,6 +82,14 @@ export default function PreRegistrationPage() {
   const [donationAmount, setDonationAmount] = useState("");
   const [donationDate, setDonationDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [donationTime, setDonationTime] = useState(dayjs().format("HH:mm"));
+
+  // Package Donation States
+  const [wantPackage, setWantPackage] = useState(false);
+  const [packageType, setPackageType] = useState("");
+  const [packageSize, setPackageSize] = useState("");
+
+  // Special Assistance State
+  const [specialAssistance, setSpecialAssistance] = useState("");
 
   const ticketRef = useRef();
 
@@ -179,6 +198,13 @@ export default function PreRegistrationPage() {
         setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
         return;
       }
+      // ตรวจสอบ Package หากเลือก
+      if (wantPackage) {
+        if (!packageType || !packageSize) {
+           setErrorDialog({ open: true, type: "warning", title: "ข้อมูลแพ็กเกจไม่ครบ", msg: "กรุณาเลือกรูปแบบแพ็กเกจและขนาดเสื้อ" });
+           return;
+        }
+      }
     }
 
     setReviewOpen(true);
@@ -208,7 +234,13 @@ export default function PreRegistrationPage() {
           finalForm['usr_add_post'] = "-";
         }
 
-        const payload = { ...finalForm, followers: count, cfToken, consent: finalConsent };
+        const payload = { 
+          ...finalForm, 
+          followers: count, 
+          cfToken, 
+          consent: finalConsent,
+          specialAssistance: specialAssistance.trim() // ส่งข้อมูลความช่วยเหลือพิเศษ
+        };
         const participant = await createParticipant(payload);
         
         let successMessage = "ลงทะเบียนล่วงหน้าสำเร็จ!";
@@ -227,7 +259,11 @@ export default function PreRegistrationPage() {
                   lastName,
                   amount: parseFloat(donationAmount),
                   transferDateTime,
-                  source: "PRE_REGISTER"
+                  source: "PRE_REGISTER",
+                  // ส่งข้อมูลแพ็กเกจ
+                  isPackage: wantPackage,
+                  packageType: wantPackage ? packageType : "",
+                  size: wantPackage ? packageSize : ""
                 });
                 successMessage += " และบันทึกข้อมูลการสนับสนุนเรียบร้อยแล้ว";
               } catch (donateErr) {
@@ -242,7 +278,11 @@ export default function PreRegistrationPage() {
         setBringFollowers(false);
         setFollowersCount(0);
         setWantToDonate(false);
+        setWantPackage(false); // Reset package state
+        setPackageType("");
+        setPackageSize("");
         setDonationAmount("");
+        setSpecialAssistance(""); // Reset special assistance
         setMembershipOption(null);
         setErrors({});
       } catch (err) {
@@ -275,7 +315,11 @@ export default function PreRegistrationPage() {
     setBringFollowers(false);
     setFollowersCount(0);
     setWantToDonate(false);
+    setWantPackage(false);
+    setPackageType("");
+    setPackageSize("");
     setDonationAmount("");
+    setSpecialAssistance("");
     setMembershipOption(null);
     setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -308,7 +352,6 @@ export default function PreRegistrationPage() {
         {fetchingFields && <Box sx={{ mt: 2, textAlign: 'center' }}><CircularProgress color="warning" /></Box>}
 
         {!registeredParticipant && !fetchingFields && (
-          // ✅ ใส่ noValidate เพื่อแก้ปัญหา browser บล็อก submit เมื่อเลือกข้อ 3 (hidden fields)
           <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             
             {/* 1. ข้อมูลส่วนตัว */}
@@ -382,36 +425,73 @@ export default function PreRegistrationPage() {
                     <Grid item xs={6}><TextField label="วันที่โอน" type="date" fullWidth value={donationDate} onChange={e => setDonationDate(e.target.value)} InputLabelProps={{ shrink: true }} size="small" /></Grid>
                     <Grid item xs={6}><TextField label="เวลาที่โอน" type="time" fullWidth value={donationTime} onChange={e => setDonationTime(e.target.value)} InputLabelProps={{ shrink: true }} size="small" /></Grid>
                   </Grid>
+
+                  {/* 4.1 Donation Package Selection */}
+                  <Divider sx={{ my: 2, borderStyle: 'dashed' }} />
+                  <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
+                    <CardGiftcardIcon color="secondary" />
+                    <Typography fontWeight={700} color="secondary.dark">รับของที่ระลึก (Package)</Typography>
+                  </Stack>
+                  <FormControlLabel 
+                    control={<Switch checked={wantPackage} onChange={(e) => setWantPackage(e.target.checked)} color="secondary" />} 
+                    label={<Typography variant="body2">{wantPackage ? "ต้องการรับของที่ระลึก" : "ไม่รับของที่ระลึก (บริจาคทั่วไป)"}</Typography>} 
+                  />
+                  <Collapse in={wantPackage}>
+                    <Box sx={{ mt: 1.5, p: 2, bgcolor: "#f3e5f5", borderRadius: 2 }}>
+                      <Stack spacing={2}>
+                        <TextField 
+                          select 
+                          label="เลือกรูปแบบ Package" 
+                          fullWidth 
+                          value={packageType} 
+                          onChange={(e) => setPackageType(e.target.value)} 
+                          size="small"
+                          sx={{ bgcolor: '#fff' }}
+                        >
+                          {PACKAGE_OPTIONS.map((opt) => (
+                            <MenuItem key={opt.value} value={opt.label}>{opt.label}</MenuItem>
+                          ))}
+                        </TextField>
+                        <TextField 
+                          select 
+                          label="เลือกขนาดเสื้อ (Size)" 
+                          fullWidth 
+                          value={packageSize} 
+                          onChange={(e) => setPackageSize(e.target.value)} 
+                          size="small"
+                          sx={{ bgcolor: '#fff' }}
+                        >
+                           {SIZE_OPTIONS.map((s) => (
+                            <MenuItem key={s} value={s}>{s}</MenuItem>
+                           ))}
+                        </TextField>
+                      </Stack>
+                    </Box>
+                  </Collapse>
                 </Box>
               </Collapse>
             </Paper>
 
-            {/* 5. สมาชิกสมาคม (ท้ายสุด) */}
+            {/* 5. สมาชิกสมาคม */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9" }}>
                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                   <SecurityIcon color="primary" />
                   <Typography fontWeight={800} fontSize="1.1rem" color="#1565c0">สมาชิกสมาคมฯ <span style={{color:'red'}}>*</span></Typography>
                </Stack>
-               
                <FormControl component="fieldset" sx={{ width: '100%' }}>
                 <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
-                  
-                  {/* ตัวเลือก 1: สมาชิกเดิม */}
                   <OptionCard 
                     value="existing" 
                     selected={membershipOption === 'existing'} 
                     label={
                         <Box>
                             <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ</Typography>
-                            {/* ✅ ข้อความยาวพิเศษตามสั่ง */}
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
                                 (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบงาน)
                             </Typography>
                         </Box>
                     }
                   />
-
-                  {/* ตัวเลือก 2: สมัครใหม่ */}
                   <OptionCard 
                     value="new" 
                     selected={membershipOption === 'new'}
@@ -424,13 +504,9 @@ export default function PreRegistrationPage() {
                       </Box>
                     } 
                   />
-
-                  {/* ตัวเลือก 3: ไม่สมัคร */}
                   <OptionCard value="none" label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" selected={membershipOption === 'none'} />
                 </RadioGroup>
               </FormControl>
-
-              {/* แสดงฟิลด์ที่อยู่เมื่อเลือก 1 หรือ 2 */}
               <Collapse in={membershipOption === 'existing' || membershipOption === 'new'}>
                 <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #90caf9' }}>
                     <Stack direction="row" alignItems="center" spacing={1} mb={2}>
@@ -452,7 +528,25 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
-            {/* 6. หมายเหตุ PDPA (เพิ่มใหม่) */}
+            {/* 6. Special Assistance (เพิ่มใหม่) */}
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#ffebee", border: "1px solid #ef9a9a" }}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
+                <AccessibleIcon color="error" />
+                <Typography fontWeight={800} fontSize="1.1rem" color="#c62828">ความช่วยเหลือพิเศษ</Typography>
+              </Stack>
+              <TextField 
+                multiline
+                rows={2}
+                label="ท่านต้องการความช่วยเหลืออะไรพิเศษไหม? (ถ้ามี)"
+                placeholder="เช่น ต้องการรถเข็น, แพ้อาหาร, หรืออื่นๆ"
+                fullWidth
+                value={specialAssistance}
+                onChange={(e) => setSpecialAssistance(e.target.value)}
+                sx={{ bgcolor: "#fff" }}
+              />
+            </Paper>
+
+            {/* 7. หมายเหตุ PDPA */}
             <Alert severity="info" icon={<InfoIcon />} sx={{ bgcolor: "#e1f5fe", color: "#01579b", borderRadius: 2, "& .MuiAlert-icon": { color: "#0288d1" } }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     <strong>หมายเหตุ:</strong> ภายในงานจะมีการบันทึกภาพและวิดีโอ เพื่อใช้ในการประชาสัมพันธ์กิจกรรมของสมาคมนิสิตเก่าวิทยาศาสตร์ฯ
@@ -466,7 +560,7 @@ export default function PreRegistrationPage() {
             {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
               <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
-                {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลลงทะเบียน"}
+                {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
               </Button>
               <Button type="button" variant="text" color="inherit" fullWidth onClick={handleReset} startIcon={<RestartAltIcon />}>เริ่มใหม่</Button>
             </Stack>
@@ -503,7 +597,18 @@ export default function PreRegistrationPage() {
                     <InfoRow label="สถานะสมาชิก" value={membershipOption === 'existing' ? 'สมาชิกเดิม (อัปเดต)' : membershipOption === 'new' ? 'สมัครสมาชิกใหม่' : 'ไม่ประสงค์สมัคร'} />
                     <InfoRow label="ผู้ติดตาม" value={bringFollowers ? `${followersCount} คน` : "ไม่มี"} />
                     {wantToDonate && (
-                        <InfoRow label="ยอดบริจาค" value={`${donationAmount} บาท`} />
+                        <>
+                          <InfoRow label="ยอดบริจาค" value={`${donationAmount} บาท`} />
+                          {wantPackage && (
+                            <Box sx={{ mt: 1, p: 1, border: '1px dashed #ccc', borderRadius: 1 }}>
+                              <Typography variant="caption" fontWeight="bold">ของที่ระลึก:</Typography>
+                              <Typography variant="body2">{packageType} ({packageSize})</Typography>
+                            </Box>
+                          )}
+                        </>
+                    )}
+                    {specialAssistance && (
+                        <InfoRow label="ความช่วยเหลือพิเศษ" value={specialAssistance} />
                     )}
                 </Stack>
             </DialogContent>
@@ -521,7 +626,7 @@ export default function PreRegistrationPage() {
              <CardContent>
               <Box ref={ticketRef} sx={{ textAlign: "center", p: { xs: 2, md: 3 }, border: "2px solid #1976d2", borderRadius: 3, background: "linear-gradient(135deg, #fafbff 80%, #e3eefe 100%)", boxShadow: "0 2px 18px #b3d6f833", position: "relative", overflow: "hidden" }}>
                 <Avatar src="/logo.svg" alt="logo" sx={{ width: 72, height: 72, position: "absolute", right: 12, top: 12, bgcolor: "#fff", border: "2px solid #1976d244" }} />
-                <Typography variant="h6" color="primary" fontWeight={900} sx={{ mb: 1 }}>บัตรเข้าร่วมงาน</Typography>
+                <Typography variant="h6" color="primary" fontWeight={900} sx={{ mb: 1 }}>E-Ticket เข้างาน</Typography>
                 <Divider sx={{ mb: 2 }} />
                 <Stack alignItems="center" sx={{ my: 2 }}><QRCodeSVG value={registeredParticipant?.qrCode || registeredParticipant?._id || ""} size={220} level="H" includeMargin style={{ background: "#fff", padding: 8, borderRadius: 16 }} /></Stack>
                 <InfoRow label="ชื่อ" value={pickField(registeredParticipant, ["name", "fullName", "fullname", "firstName"])}/>
