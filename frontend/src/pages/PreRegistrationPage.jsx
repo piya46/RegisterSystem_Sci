@@ -419,6 +419,8 @@ export default function PreRegistrationPage() {
                         <img src="/donate.png" alt="QR" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </Box>
                     <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>ชื่อบัญชี: น.ส.เสาวดี อิสริยะโอภาส และ นางนภาภรณ์ ลาชโรจน์</Typography>
+                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>ธนาคารกสิกรไทย</Typography>
+                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>เลขที่บัญชี: 211-8-76814-3</Typography>
                   </Stack>
                   <Grid container spacing={2}>
                     <Grid item xs={12}><TextField label="จำนวนเงินที่โอน (บาท)" type="number" fullWidth value={donationAmount} onChange={e => setDonationAmount(e.target.value)} size="small" /></Grid>
