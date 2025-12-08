@@ -13,7 +13,7 @@ router.post('/register-onsite', auth, requireKioskOrStaff, participantController
 
 // 3. ตรวจสอบ/ค้นหา/รายงาน (admin เท่านั้น)
 router.get('/', auth, requireAdmin, participantController.listParticipants);
-router.get('/search', auth, requireAdmin, participantController.searchParticipants);
+router.get('/search', auth, requireKioskOrStaff, participantController.searchParticipants);
 router.put('/:id', auth, requireAdmin, participantController.updateParticipant);
 router.delete('/:id', auth, requireAdmin, participantController.deleteParticipant);
 

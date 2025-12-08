@@ -4,7 +4,8 @@ import {
   Box, Container, Paper, Stack, Typography, TextField, MenuItem,
   Button, Avatar, Divider, Collapse, FormControlLabel, Switch,
   Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
-  Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment
+  Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 } from "@mui/material";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
@@ -31,14 +32,28 @@ import { listParticipantFields, createParticipant, createDonation } from "../uti
 import Turnstile, { executeTurnstile } from "../components/Turnstile";
 import dayjs from "dayjs";
 
-// --- Configuration Constants ---
+// --- Configuration Constants (เพิ่มราคา price เพื่อใช้คำนวณ) ---
 const PACKAGE_OPTIONS = [
-  { value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
-  { value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
-  { value: "package_C", label: "สนับสนุนเงิน 1,500 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว และ พวงกุญแจเสือเหลือง (ขนาด 5 นิ้ว) 1 ตัว" },
-  { value: "package_D", label: "สนับสนุนเงิน 1,200 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว" }
+  { price: 2000, value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
+  { price: 2000, value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
+  { price: 1500, value: "package_C", label: "สนับสนุนเงิน 1,500 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว และ พวงกุญแจเสือเหลือง (ขนาด 5 นิ้ว) 1 ตัว" },
+  { price: 1200, value: "package_D", label: "สนับสนุนเงิน 1,200 บาท รับเสื้องานคืนเหย้า T-shirt สีเหลือง (คอกลม) 1 ตัว" }
 ];
 const SIZE_OPTIONS = ["SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL","6XL","7XL"];
+
+// ข้อมูลตารางไซส์
+const SIZE_CHART_DATA = [
+  { size: "SS", chest: 34, length: 23 },
+  { size: "S",  chest: 36, length: 24 },
+  { size: "M",  chest: 38, length: 25 },
+  { size: "L",  chest: 40, length: 26 },
+  { size: "XL", chest: 42, length: 27 },
+  { size: "2XL", chest: 44, length: 28 },
+  { size: "3XL", chest: 46, length: 29 },
+  { size: "4XL", chest: 48, length: 30 },
+  { size: "5XL", chest: 50, length: 31 },
+  { size: "6XL", chest: 52, length: 32 },
+];
 
 // --- Component โบว์สีดำ (SVG) ---
 const MourningRibbon = () => (
@@ -55,6 +70,33 @@ const MourningRibbon = () => (
   >
     <img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(2px 2px 3px rgba(0,0,0,0.5))" }} />
   </Box>
+);
+
+// Component แสดงตารางไซส์ (แบบ Inline)
+const SizeChart = () => (
+  <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, bgcolor: "#fff", maxWidth: 400 }}>
+    <Table size="small" sx={{ "& .MuiTableCell-root": { px: 1, py: 0.5, fontSize: "0.9rem" } }}>
+      <TableHead>
+        <TableRow sx={{ bgcolor: "#eee" }}>
+          <TableCell align="center" sx={{ fontWeight: "bold" }}>Size</TableCell>
+          <TableCell align="center" sx={{ fontWeight: "bold" }}>รอบอก (นิ้ว)</TableCell>
+          <TableCell align="center" sx={{ fontWeight: "bold" }}>ความยาว (นิ้ว)</TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {SIZE_CHART_DATA.map((r) => (
+          <TableRow key={r.size}>
+            <TableCell align="center" sx={{ fontWeight: "bold", color: "primary.main" }}>{r.size}</TableCell>
+            <TableCell align="center">{r.chest}</TableCell>
+            <TableCell align="center">{r.length}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+    <Typography variant="caption" display="block" sx={{ p: 1, textAlign: "center", bgcolor: "#fff8e1", color: "#f57f17" }}>
+      * ขนาดอาจมีความคลาดเคลื่อน +/- 1 นิ้ว
+    </Typography>
+  </TableContainer>
 );
 
 export default function PreRegistrationPage() {
@@ -151,6 +193,17 @@ export default function PreRegistrationPage() {
     }
     
     setForm((f) => ({ ...f, [name]: value }));
+  };
+
+  // Function จัดการเมื่อเลือกแพ็กเกจ -> อัปเดตยอดเงินอัตโนมัติ
+  const handlePackageChange = (e) => {
+    const selectedLabel = e.target.value;
+    setPackageType(selectedLabel);
+
+    const foundPkg = PACKAGE_OPTIONS.find(p => p.label === selectedLabel);
+    if (foundPkg) {
+      setDonationAmount(foundPkg.price);
+    }
   };
 
   // --- Step 1: ตรวจสอบข้อมูลเบื้องต้น ---
@@ -446,27 +499,36 @@ export default function PreRegistrationPage() {
                           label="เลือกรูปแบบ Package" 
                           fullWidth 
                           value={packageType} 
-                          onChange={(e) => setPackageType(e.target.value)} 
+                          onChange={handlePackageChange} 
                           size="small"
                           sx={{ bgcolor: '#fff' }}
                         >
                           {PACKAGE_OPTIONS.map((opt) => (
-                            <MenuItem key={opt.value} value={opt.label}>{opt.label}</MenuItem>
+                            <MenuItem key={opt.value} value={opt.label} sx={{ whiteSpace: 'normal', py: 1 }}>
+                                {opt.label}
+                            </MenuItem>
                           ))}
                         </TextField>
-                        <TextField 
-                          select 
-                          label="เลือกขนาดเสื้อ (Size)" 
-                          fullWidth 
-                          value={packageSize} 
-                          onChange={(e) => setPackageSize(e.target.value)} 
-                          size="small"
-                          sx={{ bgcolor: '#fff' }}
-                        >
-                           {SIZE_OPTIONS.map((s) => (
-                            <MenuItem key={s} value={s}>{s}</MenuItem>
-                           ))}
-                        </TextField>
+                        
+                        <Stack spacing={2}>
+                            <TextField 
+                              select 
+                              label="เลือกขนาดเสื้อ (Size)" 
+                              fullWidth 
+                              value={packageSize} 
+                              onChange={(e) => setPackageSize(e.target.value)} 
+                              size="small"
+                              sx={{ bgcolor: '#fff' }}
+                            >
+                               {SIZE_OPTIONS.map((s) => (
+                                <MenuItem key={s} value={s}>{s}</MenuItem>
+                               ))}
+                            </TextField>
+                            
+                            {/* ตารางไซส์ */}
+                            <SizeChart />
+                        </Stack>
+
                       </Stack>
                     </Box>
                   </Collapse>
