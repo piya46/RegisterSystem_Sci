@@ -19,6 +19,9 @@ export const logout = (token) =>
   api.post('/sessions/logout', {}, {
     headers: { Authorization: `Bearer ${token}` }
   });
+  
+  export const verifyUser = (data) =>
+  api.post('/auth/verify', data);
 
 // ==== Admin ====
 export const listAdmins = (token) =>

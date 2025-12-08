@@ -1,3 +1,4 @@
+// frontend/src/pages/PreRegistrationPage.jsx
 import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Box, Container, Paper, Stack, Typography, TextField, MenuItem,
@@ -8,7 +9,6 @@ import {
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import QrCode2Icon from "@mui/icons-material/QrCode2";
 import InfoIcon from "@mui/icons-material/Info";
 import SecurityIcon from "@mui/icons-material/Security";
 import WarningIcon from "@mui/icons-material/Warning";
@@ -125,20 +125,47 @@ export default function PreRegistrationPage() {
       setForm((f) => ({ ...f, [name]: nums })); 
       return;
     }
+    
+    // เคลียร์ error เมื่อเริ่มพิมพ์ใหม่
+    if (errors[name]) {
+        setErrors(prev => { const next = { ...prev }; delete next[name]; return next; });
+    }
+    
     setForm((f) => ({ ...f, [name]: value }));
   };
 
   // --- Step 1: ตรวจสอบข้อมูลเบื้องต้น ---
   const handleCheckInfo = (e) => {
     e.preventDefault();
+    
+    // 1. ตรวจสอบ Error ค้างเก่า (เช่น ปีการศึกษาผิด)
     if (Object.keys(errors).length > 0) return;
 
+    // 2. ตรวจสอบ Required Fields (Dynamic)
+    const missingFields = fields.filter(f => f.required && f.enabled && !form[f.name]);
+    if (missingFields.length > 0) {
+        const newErrors = {};
+        missingFields.forEach(f => {
+            newErrors[f.name] = `กรุณากรอก ${f.label}`;
+        });
+        setErrors(prev => ({ ...prev, ...newErrors }));
+        
+        setErrorDialog({ 
+            open: true, 
+            type: "warning", 
+            title: "ข้อมูลไม่ครบถ้วน", 
+            msg: `กรุณากรอกข้อมูลให้ครบถ้วน: ${missingFields.map(f => f.label).join(", ")}` 
+        });
+        return;
+    }
+
+    // 3. ตรวจสอบ Membership
     if (!membershipOption) {
       setErrorDialog({ open: true, type: "warning", title: "กรุณาระบุข้อมูล", msg: "กรุณาเลือกสมาชิกสมาคมฯ ของท่าน" });
       return;
     }
 
-    // ตรวจสอบที่อยู่เฉพาะเมื่อเลือกสมัคร (1 หรือ 2)
+    // 4. ตรวจสอบที่อยู่เฉพาะเมื่อเลือกสมัคร (1 หรือ 2)
     if (membershipOption !== 'none') {
         if (!form['usr_add'] || !form['usr_add_post']) {
              setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณากรอกที่อยู่และรหัสไปรษณีย์เพื่อประกอบการสมัครสมาชิก" });
@@ -146,6 +173,7 @@ export default function PreRegistrationPage() {
         }
     }
 
+    // 5. ตรวจสอบ Donation
     if (wantToDonate) {
       if (!donationAmount || parseFloat(donationAmount) <= 0) {
         setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
@@ -437,8 +465,8 @@ export default function PreRegistrationPage() {
 
             {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
-              <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1.1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
-                {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
+              <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
+                {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลลงทะเบียน"}
               </Button>
               <Button type="button" variant="text" color="inherit" fullWidth onClick={handleReset} startIcon={<RestartAltIcon />}>เริ่มใหม่</Button>
             </Stack>
@@ -493,7 +521,7 @@ export default function PreRegistrationPage() {
              <CardContent>
               <Box ref={ticketRef} sx={{ textAlign: "center", p: { xs: 2, md: 3 }, border: "2px solid #1976d2", borderRadius: 3, background: "linear-gradient(135deg, #fafbff 80%, #e3eefe 100%)", boxShadow: "0 2px 18px #b3d6f833", position: "relative", overflow: "hidden" }}>
                 <Avatar src="/logo.svg" alt="logo" sx={{ width: 72, height: 72, position: "absolute", right: 12, top: 12, bgcolor: "#fff", border: "2px solid #1976d244" }} />
-                <Typography variant="h6" color="primary" fontWeight={900} sx={{ mb: 1 }}>E-Ticket เข้างาน</Typography>
+                <Typography variant="h6" color="primary" fontWeight={900} sx={{ mb: 1 }}>บัตรเข้าร่วมงาน</Typography>
                 <Divider sx={{ mb: 2 }} />
                 <Stack alignItems="center" sx={{ my: 2 }}><QRCodeSVG value={registeredParticipant?.qrCode || registeredParticipant?._id || ""} size={220} level="H" includeMargin style={{ background: "#fff", padding: 8, borderRadius: 16 }} /></Stack>
                 <InfoRow label="ชื่อ" value={pickField(registeredParticipant, ["name", "fullName", "fullname", "firstName"])}/>

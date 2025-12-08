@@ -1,10 +1,10 @@
 // src/pages/KioskPage.jsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider,
   TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle,
   DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup,
-  FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment
+  FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment, Switch
 } from "@mui/material";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import LockIcon from "@mui/icons-material/Lock";
@@ -19,14 +19,19 @@ import FactCheckIcon from '@mui/icons-material/FactCheck';
 import InfoIcon from "@mui/icons-material/Info";
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
+import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
+import TimerIcon from '@mui/icons-material/Timer';
 
 import {
   getMe,
+  verifyUser, // ใช้สำหรับ verify supervisor
   createParticipantByStaff as registerOnsiteByKiosk,
   listParticipantFields,
 } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import FollowersDialog from "../components/FollowersDialog";
+
+// --- Configuration ---
+const IDLE_TIMEOUT_MS = 60000; // 60 วินาที ถ้าไม่ขยับหน้าจอ ให้รีเซ็ต
 
 // --- Component โบว์สีดำ ---
 const MourningRibbon = () => (
@@ -35,7 +40,7 @@ const MourningRibbon = () => (
     </Box>
 );
 
-// --- Helper Components (เหมือน PreRegister) ---
+// --- Helper Components ---
 function FormSection({ title, icon, children }) {
   return (
       <Card variant="outlined" sx={{ borderRadius: 3, border: '1px solid #e0e0e0', overflow: 'hidden', mb: 2.5 }}>
@@ -66,8 +71,8 @@ function KioskPage() {
   const [loading, setLoading] = useState(false);
 
   const [membershipOption, setMembershipOption] = useState(null);
-  const [followersDialogOpen, setFollowersDialogOpen] = useState(false);
-  const [pendingSubmitForm, setPendingSubmitForm] = useState(null);
+  const [bringFollowers, setBringFollowers] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
   
   // Review Dialog
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -76,10 +81,18 @@ function KioskPage() {
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
   const [kioskMode, setKioskMode] = useState(false);
+  const selectedPoint = searchParams.get("point");
+
+  // --- Secure Exit State ---
   const [exitOpen, setExitOpen] = useState(false);
+  const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [exitError, setExitError] = useState("");
-  const selectedPoint = searchParams.get("point");
+  const [verifyingExit, setVerifyingExit] = useState(false);
+
+  // --- Idle Timer State ---
+  const [idleTime, setIdleTime] = useState(0);
+  const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
     if (!selectedPoint) { navigate("/select-point"); return; }
@@ -87,11 +100,46 @@ function KioskPage() {
     listParticipantFields(token).then((res) => setFields(res.data || res)).catch(() => {});
   }, [token, selectedPoint, navigate]);
 
-  // จัดกลุ่มฟิลด์เหมือน PreRegister
+  // --- Idle Timer Logic ---
+  useEffect(() => {
+    const handleActivity = () => {
+      lastActivityRef.current = Date.now();
+      if (idleTime > 0) setIdleTime(0); // Reset visual counter if needed
+    };
+
+    // Events to track
+    window.addEventListener("mousemove", handleActivity);
+    window.addEventListener("keydown", handleActivity);
+    window.addEventListener("touchstart", handleActivity);
+    window.addEventListener("scroll", handleActivity);
+
+    const timer = setInterval(() => {
+      const inactiveMs = Date.now() - lastActivityRef.current;
+      
+      // ถ้าไม่มีการตอบโต้เกินกำหนด และมีการกรอกข้อมูลค้างอยู่ หรือเปิด Dialog ค้างอยู่ ให้ Reset
+      if (inactiveMs > IDLE_TIMEOUT_MS) {
+        const hasData = Object.keys(form).length > 0 || membershipOption !== null || reviewOpen || result;
+        if (hasData) {
+           console.log("Auto-resetting due to inactivity...");
+           handleReset();
+        }
+        lastActivityRef.current = Date.now(); // Reset ref to prevent loop
+      }
+    }, 1000);
+
+    return () => {
+      window.removeEventListener("mousemove", handleActivity);
+      window.removeEventListener("keydown", handleActivity);
+      window.removeEventListener("touchstart", handleActivity);
+      window.removeEventListener("scroll", handleActivity);
+      clearInterval(timer);
+    };
+  }, [form, membershipOption, reviewOpen, result]); // Dependencies เพื่อให้เข้าถึง State ล่าสุด
+
+  // จัดกลุ่มฟิลด์
   const fieldGroups = useMemo(() => {
     const all = (fields || []).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
     
-    // แยกตามชื่อฟิลด์
     const personalFields = all.filter(f => ['name', 'nickname', 'dept', 'date_year'].includes(f.name));
     const contactFields = all.filter(f => ['phone', 'email'].includes(f.name));
     const addressFields = all.filter(f => ['usr_add', 'usr_add_post'].includes(f.name));
@@ -104,7 +152,22 @@ function KioskPage() {
 
   function openFullscreen() { const elem = document.documentElement; if (elem.requestFullscreen) elem.requestFullscreen(); }
   function closeFullscreen() { if (document.exitFullscreen) document.exitFullscreen(); }
-  useEffect(() => { if (kioskMode) openFullscreen(); else closeFullscreen(); }, [kioskMode]);
+  
+  useEffect(() => { 
+      if (kioskMode) openFullscreen(); 
+      // else closeFullscreen(); // Comment ออกเพื่อให้ Staff ใช้งานแบบไม่ Fullscreen ได้สะดวกโดยไม่เด้งออก
+  }, [kioskMode]);
+
+  const handleReset = () => {
+      setForm({});
+      setMembershipOption(null);
+      setBringFollowers(false);
+      setFollowersCount(0);
+      setResult(null);
+      setReviewOpen(false);
+      setExitOpen(false);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleInput = (e) => {
     const { name, value } = e.target;
@@ -118,6 +181,14 @@ function KioskPage() {
 
   const handleCheckInfo = (e) => {
     e.preventDefault();
+    
+    // 1. ตรวจสอบฟิลด์ Required แบบ Dynamic
+    const missingFields = fields.filter(f => f.required && f.enabled && !form[f.name]);
+    if (missingFields.length > 0) {
+        alert(`กรุณากรอกข้อมูลให้ครบถ้วน: ${missingFields.map(f => f.label).join(", ")}`);
+        return;
+    }
+
     if (!membershipOption) { alert("กรุณาเลือกสถานะสมาชิก"); return; }
     if (membershipOption !== 'none') {
         if (!form['usr_add'] || !form['usr_add_post']) { alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์"); return; }
@@ -126,17 +197,11 @@ function KioskPage() {
     setReviewOpen(true);
   };
 
-  const handleProceedToFollowers = () => {
+  const handleSubmit = async () => {
     setReviewOpen(false);
-    setPendingSubmitForm({ ...form });
-    setFollowersDialogOpen(true);
-  };
-
-  const handleConfirmFollowers = async (followers) => {
-    setFollowersDialogOpen(false);
     setLoading(true);
     try {
-      const finalForm = { ...pendingSubmitForm };
+      const finalForm = { ...form };
       if (membershipOption === 'none') {
         finalForm['usr_add'] = "-";
         finalForm['usr_add_post'] = "-";
@@ -144,26 +209,56 @@ function KioskPage() {
       const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
       finalForm['consent'] = finalConsent;
 
+      const followers = bringFollowers ? Math.max(0, parseInt(followersCount || 0, 10)) : 0;
+
       const res = await registerOnsiteByKiosk({ ...finalForm, registrationPoint: selectedPoint, followers }, token);
       setResult({ success: true, message: `ลงทะเบียนสำเร็จ: ${res.data?.fields?.name || res.fields?.name || ""}` });
-      setForm({});
-      setMembershipOption(null);
+      
+      // Auto Reset Form after 3 seconds success
+      setTimeout(() => {
+          handleReset();
+      }, 5000);
+
     } catch (err) {
       setResult({ success: false, message: err.response?.data?.error || "เกิดข้อผิดพลาด" });
     }
     setLoading(false);
-    setPendingSubmitForm(null);
   };
 
   const handleEnterKiosk = () => { setKioskMode(true); setResult(null); };
-  const openExitDialog = () => { setExitOpen(true); };
+  
+  const openExitDialog = () => { 
+      setExitUsername("");
+      setExitPassword("");
+      setExitError("");
+      setExitOpen(true); 
+  };
+  
   const closeExitDialog = () => { setExitOpen(false); };
-  const confirmExitKiosk = () => {
-    if (exitPassword === me?.username) { setKioskMode(false); closeExitDialog(); setResult(null); }
-    else { setExitError("รหัสผ่านไม่ถูกต้อง"); }
+  
+  const confirmExitKiosk = async () => {
+    // เปลี่ยนมาใช้ verifyUser แทน login
+    setVerifyingExit(true);
+    setExitError("");
+    try {
+        // ไม่ต้องส่ง cfToken แล้ว เพราะ API verify ไม่ได้ตรวจ
+        await verifyUser({ username: exitUsername, password: exitPassword });
+        
+        // ถ้าผ่าน แสดงว่ารหัสถูก
+        setKioskMode(false);
+        closeFullscreen(); 
+        closeExitDialog();
+        setResult(null);
+    } catch (err) {
+        // จัดการ Error message
+        const msg = err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
+        setExitError(msg);
+    } finally {
+        setVerifyingExit(false);
+    }
   };
 
-  // Render Field Input (เหมือน PreRegister)
+  // Render Field Input
   const renderField = (f, requiredOverride = null) => {
     const isRequired = requiredOverride !== null ? requiredOverride : f.required;
     const commonSx = { "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem" }, "& .MuiInputLabel-root": { fontSize: "1.05rem" } };
@@ -211,7 +306,14 @@ function KioskPage() {
                <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}><PersonOutlineIcon sx={{ fontSize: 16 }} /></Avatar>
                <Typography variant="body2" fontWeight={600}>{me?.fullName || "Staff"}</Typography>
              </Stack>
-             <Chip label={kioskMode ? "Kiosk Mode ON" : "Normal Mode"} size="small" color={kioskMode ? "success" : "default"} variant="outlined" />
+             <Stack direction="row" spacing={1} alignItems="center">
+                {kioskMode && (
+                    <Tooltip title="ระบบจะรีเซ็ตอัตโนมัติหากไม่มีการใช้งาน 60 วินาที">
+                        <Chip icon={<TimerIcon />} label="Auto-Reset ON" size="small" color="default" variant="outlined" />
+                    </Tooltip>
+                )}
+                <Chip label={kioskMode ? "Kiosk Mode" : "Normal Mode"} size="small" color={kioskMode ? "success" : "default"} variant="outlined" />
+             </Stack>
           </Paper>
         </Paper>
 
@@ -228,7 +330,33 @@ function KioskPage() {
                 {fieldGroups.contact.map(f => renderField(f))}
             </FormSection>
 
-            {/* 3. สมาชิกสมาคม */}
+            {/* 3. ผู้ติดตาม (ย้ายมาไว้ตรงนี้) */}
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", border: "1px solid #ffe082", mb: 2.5 }}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
+                <GroupAddIcon color="warning" />
+                <Typography fontWeight={800} fontSize="1.1rem">ผู้ติดตาม</Typography>
+                <Chip label="ไม่บังคับ" size="small" sx={{ ml: "auto", bgcolor: "#fff3e0", color: "#e65100", fontWeight: 600 }} />
+              </Stack>
+              <FormControlLabel 
+                sx={{ ml: 0 }} 
+                control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />} 
+                label={<Typography fontWeight={500}>{bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"}</Typography>} 
+              />
+              <Collapse in={bringFollowers}>
+                <Box mt={1.5}>
+                  <TextField 
+                    type="number" label="จำนวนผู้ติดตาม (คน)" 
+                    value={String(followersCount ?? "")} 
+                    onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setFollowersCount(raw === "" ? 0 : parseInt(raw, 10)); }} 
+                    fullWidth 
+                    inputProps={{ style: { fontSize: '1.2rem', textAlign: 'center', fontWeight: 'bold' } }}
+                    sx={{ bgcolor: '#fff' }}
+                  />
+                </Box>
+              </Collapse>
+            </Paper>
+
+            {/* 4. สมาชิกสมาคม */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9", mb: 3 }}>
                 <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                     <SecurityIcon color="primary"/>
@@ -280,10 +408,12 @@ function KioskPage() {
                 </Typography>
             </Alert>
 
-            {result && <Alert severity={result.success ? "success" : "error"} icon={<CheckCircleIcon />} sx={{ mb: 2, fontWeight: 600, borderRadius: 2 }}>{result.message}</Alert>}
+            {result && <Alert severity={result.success ? "success" : "error"} icon={<CheckCircleIcon />} sx={{ mb: 2, fontWeight: 600, borderRadius: 2 }}>
+                {result.message} {result.success && "(ระบบจะรีเซ็ตอัตโนมัติใน 5 วินาที)"}
+            </Alert>}
 
             {/* Action Buttons */}
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} mb={4}>
+            <Stack direction="row" spacing={1.5} mb={4}>
                 <Button
                   type="submit"
                   variant="contained"
@@ -303,21 +433,6 @@ function KioskPage() {
                 >
                   {loading ? "กำลังบันทึก..." : "ตรวจสอบและลงทะเบียน"}
                 </Button>
-                <Button 
-                    type="button" 
-                    variant="outlined" 
-                    color="inherit" 
-                    startIcon={<GroupAddIcon />} 
-                    onClick={() => { 
-                        if (!membershipOption) { alert("กรุณาเลือกสถานะสมาชิก"); return; } 
-                        setPendingSubmitForm({ ...form }); 
-                        setFollowersDialogOpen(true); 
-                    }} 
-                    fullWidth 
-                    sx={{ borderRadius: 3, fontWeight: 600 }}
-                >
-                  ระบุผู้ติดตามทันที
-                </Button>
             </Stack>
         </Box>
       </Container>
@@ -336,27 +451,45 @@ function KioskPage() {
                 <Typography variant="body1"><strong>ชื่อเล่น:</strong> {form.nickname}</Typography>
                 <Typography variant="body1"><strong>ภาควิชา:</strong> {form.dept}</Typography>
                 <Typography variant="body1"><strong>สถานะสมาชิก:</strong> {membershipOption === 'existing' ? 'สมาชิกเดิม' : membershipOption === 'new' ? 'สมัครใหม่' : 'ไม่สมัคร'}</Typography>
+                <Typography variant="body1"><strong>ผู้ติดตาม:</strong> {bringFollowers ? `${followersCount} คน` : 'ไม่มี'}</Typography>
                 {membershipOption !== 'none' && <Typography variant="body2" color="text.secondary">ที่อยู่: {form.usr_add} {form.usr_add_post}</Typography>}
             </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
             <Button onClick={() => setReviewOpen(false)} color="inherit">แก้ไข</Button>
-            <Button onClick={handleProceedToFollowers} variant="contained" color="success" size="large" sx={{borderRadius: 2, fontWeight: 700}}>ยืนยันและระบุผู้ติดตาม</Button>
+            <Button onClick={handleSubmit} variant="contained" color="success" size="large" sx={{borderRadius: 2, fontWeight: 700}}>
+                ยืนยันการลงทะเบียน
+            </Button>
         </DialogActions>
       </Dialog>
 
-      {!kioskMode ? <Tooltip title="เปิดโหมด Kiosk"><Fab color="primary" onClick={handleEnterKiosk} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab></Tooltip> : <Tooltip title="ออกจากโหมด Kiosk"><Fab color="secondary" onClick={openExitDialog} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockIcon /></Fab></Tooltip>}
+      {!kioskMode ? 
+        <Tooltip title="เปิดโหมด Kiosk (Fullscreen)">
+            <Fab color="primary" onClick={handleEnterKiosk} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab>
+        </Tooltip> 
+        : 
+        <Tooltip title="ปลดล็อคเครื่อง (Supervisor Unlock)">
+            <Fab color="secondary" onClick={openExitDialog} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockIcon /></Fab>
+        </Tooltip>
+      }
       
-      <FollowersDialog open={followersDialogOpen} onClose={() => { setFollowersDialogOpen(false); setPendingSubmitForm(null); }} onConfirm={handleConfirmFollowers} />
-      
+      {/* Secure Exit Dialog */}
       <Dialog open={exitOpen} onClose={closeExitDialog}>
-          <DialogTitle>ยืนยันออก Kiosk</DialogTitle>
+          <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1}}>
+              <SupervisorAccountIcon color="error" /> Supervisor Unlock
+          </DialogTitle>
           <DialogContent>
-              <TextField type="password" label="รหัสผ่าน Staff" value={exitPassword} onChange={(e) => setExitPassword(e.target.value)} fullWidth autoFocus error={!!exitError} helperText={exitError} margin="dense" />
+              <Typography variant="body2" color="text.secondary" paragraph>
+                  กรุณากรอกรหัสผ่านของเจ้าหน้าที่ หรือ Admin เพื่อออกจากโหมด Kiosk
+              </Typography>
+              <TextField label="Username" value={exitUsername} onChange={(e) => setExitUsername(e.target.value)} fullWidth margin="dense" />
+              <TextField type="password" label="Password" value={exitPassword} onChange={(e) => setExitPassword(e.target.value)} fullWidth margin="dense" error={!!exitError} helperText={exitError} />
           </DialogContent>
           <DialogActions>
               <Button onClick={closeExitDialog}>ยกเลิก</Button>
-              <Button onClick={confirmExitKiosk} variant="contained" color="error">ออก</Button>
+              <Button onClick={confirmExitKiosk} variant="contained" color="error" disabled={verifyingExit}>
+                  {verifyingExit ? "กำลังตรวจสอบ..." : "ปลดล็อค"}
+              </Button>
           </DialogActions>
       </Dialog>
     </Box>

@@ -92,6 +92,43 @@ exports.getMe = async (req, res) => {
     avartarUrl: admin.avatarUrl,
   });
 };
+exports.verify = async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        const admin = await Admin.findOne({ username });
+        if (!admin) {
+            // Log ความพยายามที่ล้มเหลว (Optional)
+            auditLog({ req, action: 'KIOSK_UNLOCK_FAIL', detail: `User not found: ${username}`, status: 401 });
+            return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        }
+
+        const isMatch = await bcrypt.compare(password, admin.passwordHash);
+        if (!isMatch) {
+            auditLog({ req, action: 'KIOSK_UNLOCK_FAIL', detail: `Wrong password: ${username}`, status: 401 });
+            return res.status(401).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+        }
+
+        // ตรวจสอบสิทธิ์ (ต้องเป็น Staff หรือ Admin เท่านั้นถึงจะปลดล็อคได้)
+        const allowedRoles = ['admin', 'staff'];
+        const hasPermission = admin.role.some(r => allowedRoles.includes(r)); // เช็ค array role
+        // หรือถ้า role เป็น string เดียว: const hasPermission = allowedRoles.includes(admin.role);
+        
+        if (!hasPermission) {
+             return res.status(403).json({ error: 'ไม่มีสิทธิ์ปลดล็อคเครื่อง (Admin/Staff only)' });
+        }
+
+        // บันทึก Log การปลดล็อคสำเร็จ
+        auditLog({ req, action: 'KIOSK_UNLOCK', detail: `Unlocked by ${username}` });
+
+        // ส่งกลับแค่ success ไม่ต้องส่ง Token
+        res.json({ success: true, message: 'Verified' });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Server Error' });
+    }
+};
 
 // exports.login = async (req, res) => {
 //     const {username, password} = req.body;
