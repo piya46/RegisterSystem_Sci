@@ -1,4 +1,4 @@
-// src/pages/KioskPage.jsx
+// frontend/src/pages/KioskPage.jsx
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
   Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider,
@@ -24,14 +24,14 @@ import TimerIcon from '@mui/icons-material/Timer';
 
 import {
   getMe,
-  verifyUser, // ใช้สำหรับ verify supervisor
+  verifyUser, // [ใหม่] ใช้ verifyUser แทน login เพื่อไม่ให้หลุดจากระบบถ้าใส่รหัสผิด
   createParticipantByStaff as registerOnsiteByKiosk,
   listParticipantFields,
 } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
 // --- Configuration ---
-const IDLE_TIMEOUT_MS = 60000; // 60 วินาที ถ้าไม่ขยับหน้าจอ ให้รีเซ็ต
+const IDLE_TIMEOUT_MS = 60000; // 60 วินาที
 
 // --- Component โบว์สีดำ ---
 const MourningRibbon = () => (
@@ -90,8 +90,7 @@ function KioskPage() {
   const [exitError, setExitError] = useState("");
   const [verifyingExit, setVerifyingExit] = useState(false);
 
-  // --- Idle Timer State ---
-  const [idleTime, setIdleTime] = useState(0);
+  // --- Idle Timer ---
   const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
@@ -100,14 +99,9 @@ function KioskPage() {
     listParticipantFields(token).then((res) => setFields(res.data || res)).catch(() => {});
   }, [token, selectedPoint, navigate]);
 
-  // --- Idle Timer Logic ---
+  // Auto-reset logic
   useEffect(() => {
-    const handleActivity = () => {
-      lastActivityRef.current = Date.now();
-      if (idleTime > 0) setIdleTime(0); // Reset visual counter if needed
-    };
-
-    // Events to track
+    const handleActivity = () => { lastActivityRef.current = Date.now(); };
     window.addEventListener("mousemove", handleActivity);
     window.addEventListener("keydown", handleActivity);
     window.addEventListener("touchstart", handleActivity);
@@ -115,15 +109,10 @@ function KioskPage() {
 
     const timer = setInterval(() => {
       const inactiveMs = Date.now() - lastActivityRef.current;
-      
-      // ถ้าไม่มีการตอบโต้เกินกำหนด และมีการกรอกข้อมูลค้างอยู่ หรือเปิด Dialog ค้างอยู่ ให้ Reset
       if (inactiveMs > IDLE_TIMEOUT_MS) {
         const hasData = Object.keys(form).length > 0 || membershipOption !== null || reviewOpen || result;
-        if (hasData) {
-           console.log("Auto-resetting due to inactivity...");
-           handleReset();
-        }
-        lastActivityRef.current = Date.now(); // Reset ref to prevent loop
+        if (hasData) handleReset();
+        lastActivityRef.current = Date.now();
       }
     }, 1000);
 
@@ -134,19 +123,15 @@ function KioskPage() {
       window.removeEventListener("scroll", handleActivity);
       clearInterval(timer);
     };
-  }, [form, membershipOption, reviewOpen, result]); // Dependencies เพื่อให้เข้าถึง State ล่าสุด
+  }, [form, membershipOption, reviewOpen, result]);
 
   // จัดกลุ่มฟิลด์
   const fieldGroups = useMemo(() => {
     const all = (fields || []).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
-    
     const personalFields = all.filter(f => ['name', 'nickname', 'dept', 'date_year'].includes(f.name));
     const contactFields = all.filter(f => ['phone', 'email'].includes(f.name));
     const addressFields = all.filter(f => ['usr_add', 'usr_add_post'].includes(f.name));
-    const otherFields = all.filter(f => 
-        !['name', 'nickname', 'dept', 'date_year', 'phone', 'email', 'usr_add', 'usr_add_post'].includes(f.name)
-    );
-
+    const otherFields = all.filter(f => !['name', 'nickname', 'dept', 'date_year', 'phone', 'email', 'usr_add', 'usr_add_post'].includes(f.name));
     return { personal: personalFields, contact: contactFields, address: addressFields, others: otherFields };
   }, [fields]);
 
@@ -155,7 +140,6 @@ function KioskPage() {
   
   useEffect(() => { 
       if (kioskMode) openFullscreen(); 
-      // else closeFullscreen(); // Comment ออกเพื่อให้ Staff ใช้งานแบบไม่ Fullscreen ได้สะดวกโดยไม่เด้งออก
   }, [kioskMode]);
 
   const handleReset = () => {
@@ -181,14 +165,11 @@ function KioskPage() {
 
   const handleCheckInfo = (e) => {
     e.preventDefault();
-    
-    // 1. ตรวจสอบฟิลด์ Required แบบ Dynamic
     const missingFields = fields.filter(f => f.required && f.enabled && !form[f.name]);
     if (missingFields.length > 0) {
         alert(`กรุณากรอกข้อมูลให้ครบถ้วน: ${missingFields.map(f => f.label).join(", ")}`);
         return;
     }
-
     if (!membershipOption) { alert("กรุณาเลือกสถานะสมาชิก"); return; }
     if (membershipOption !== 'none') {
         if (!form['usr_add'] || !form['usr_add_post']) { alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์"); return; }
@@ -208,16 +189,12 @@ function KioskPage() {
       }
       const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
       finalForm['consent'] = finalConsent;
-
       const followers = bringFollowers ? Math.max(0, parseInt(followersCount || 0, 10)) : 0;
 
       const res = await registerOnsiteByKiosk({ ...finalForm, registrationPoint: selectedPoint, followers }, token);
       setResult({ success: true, message: `ลงทะเบียนสำเร็จ: ${res.data?.fields?.name || res.fields?.name || ""}` });
       
-      // Auto Reset Form after 3 seconds success
-      setTimeout(() => {
-          handleReset();
-      }, 5000);
+      setTimeout(() => { handleReset(); }, 5000);
 
     } catch (err) {
       setResult({ success: false, message: err.response?.data?.error || "เกิดข้อผิดพลาด" });
@@ -237,20 +214,16 @@ function KioskPage() {
   const closeExitDialog = () => { setExitOpen(false); };
   
   const confirmExitKiosk = async () => {
-    // เปลี่ยนมาใช้ verifyUser แทน login
+    // [แก้ไข] ใช้ verifyUser แทน login เพื่อป้องกัน Session หลุด
     setVerifyingExit(true);
     setExitError("");
     try {
-        // ไม่ต้องส่ง cfToken แล้ว เพราะ API verify ไม่ได้ตรวจ
         await verifyUser({ username: exitUsername, password: exitPassword });
-        
-        // ถ้าผ่าน แสดงว่ารหัสถูก
         setKioskMode(false);
         closeFullscreen(); 
         closeExitDialog();
         setResult(null);
     } catch (err) {
-        // จัดการ Error message
         const msg = err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
         setExitError(msg);
     } finally {
@@ -258,7 +231,6 @@ function KioskPage() {
     }
   };
 
-  // Render Field Input
   const renderField = (f, requiredOverride = null) => {
     const isRequired = requiredOverride !== null ? requiredOverride : f.required;
     const commonSx = { "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem" }, "& .MuiInputLabel-root": { fontSize: "1.05rem" } };
@@ -288,7 +260,6 @@ function KioskPage() {
       <MourningRibbon />
 
       <Container maxWidth="sm">
-        {/* Header */}
         <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)", position: "relative", overflow: "hidden", mb: 3 }}>
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
             <Avatar src="/logo.svg" alt="Logo" sx={{ width: 64, height: 64, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 6px 18px rgba(255,193,7,.35)" }} />
@@ -300,7 +271,6 @@ function KioskPage() {
             </Box>
           </Stack>
           
-          {/* Staff Info (Compact) */}
           <Paper variant="outlined" sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: "rgba(255,255,255,0.6)", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
              <Stack direction="row" spacing={1} alignItems="center">
                <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}><PersonOutlineIcon sx={{ fontSize: 16 }} /></Avatar>
@@ -318,19 +288,15 @@ function KioskPage() {
         </Paper>
 
         <Box component="form" onSubmit={handleCheckInfo} noValidate>
-            
-            {/* 1. ข้อมูลส่วนตัว / การศึกษา */}
             <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
                 {fieldGroups.personal.map(f => renderField(f))}
                 {fieldGroups.others.map(f => renderField(f))}
             </FormSection>
 
-            {/* 2. ข้อมูลติดต่อ */}
             <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>
                 {fieldGroups.contact.map(f => renderField(f))}
             </FormSection>
 
-            {/* 3. ผู้ติดตาม (ย้ายมาไว้ตรงนี้) */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", border: "1px solid #ffe082", mb: 2.5 }}>
               <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
                 <GroupAddIcon color="warning" />
@@ -356,7 +322,6 @@ function KioskPage() {
               </Collapse>
             </Paper>
 
-            {/* 4. สมาชิกสมาคม */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9", mb: 3 }}>
                 <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                     <SecurityIcon color="primary"/>
@@ -365,31 +330,9 @@ function KioskPage() {
                 
                 <FormControl component="fieldset" sx={{ width: '100%' }}>
                   <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
-                    <OptionCard 
-                        value="existing" 
-                        selected={membershipOption === 'existing'}
-                        label={
-                            <Box>
-                                <Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว (อัปเดต)</Typography>
-                                <Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่ออัปเดตข้อมูล</Typography>
-                            </Box>
-                        } 
-                    />
-                    <OptionCard 
-                        value="new" 
-                        selected={membershipOption === 'new'}
-                        label={
-                            <Box>
-                                <Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ (ฟรี)</Typography>
-                                <Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่อประกอบการสมัคร</Typography>
-                            </Box>
-                        } 
-                    />
-                    <OptionCard 
-                        value="none" 
-                        selected={membershipOption === 'none'}
-                        label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" 
-                    />
+                    <OptionCard value="existing" selected={membershipOption === 'existing'} label={<Box><Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว (อัปเดต)</Typography><Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่ออัปเดตข้อมูล</Typography></Box>} />
+                    <OptionCard value="new" selected={membershipOption === 'new'} label={<Box><Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ (ฟรี)</Typography><Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่อประกอบการสมัคร</Typography></Box>} />
+                    <OptionCard value="none" selected={membershipOption === 'none'} label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" />
                   </RadioGroup>
                 </FormControl>
                 
@@ -401,7 +344,6 @@ function KioskPage() {
                 </Collapse>
             </Paper>
 
-            {/* PDPA Note */}
             <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 3, bgcolor: "#e1f5fe", color: "#01579b", borderRadius: 2, "& .MuiAlert-icon": { color: "#0288d1" } }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     <strong>หมายเหตุ:</strong> ภายในงานจะมีการบันทึกภาพและวิดีโอ เพื่อใช้ในการประชาสัมพันธ์กิจกรรม
@@ -412,32 +354,14 @@ function KioskPage() {
                 {result.message} {result.success && "(ระบบจะรีเซ็ตอัตโนมัติใน 5 วินาที)"}
             </Alert>}
 
-            {/* Action Buttons */}
             <Stack direction="row" spacing={1.5} mb={4}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="warning"
-                  size="large"
-                  disabled={loading}
-                  startIcon={loading ? <CircularProgress size={20} color="inherit"/> : <FactCheckIcon />}
-                  fullWidth
-                  sx={{
-                    borderRadius: 3,
-                    fontWeight: 800,
-                    boxShadow: "0 6px 20px rgba(255,193,7,.35)",
-                    py: 1.5,
-                    fontSize: '1.1rem',
-                    color: '#3e2723'
-                  }}
-                >
+                <Button type="submit" variant="contained" color="warning" size="large" disabled={loading} startIcon={loading ? <CircularProgress size={20} color="inherit"/> : <FactCheckIcon />} fullWidth sx={{ borderRadius: 3, fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.35)", py: 1.5, fontSize: '1.1rem', color: '#3e2723' }}>
                   {loading ? "กำลังบันทึก..." : "ตรวจสอบและลงทะเบียน"}
                 </Button>
             </Stack>
         </Box>
       </Container>
 
-      {/* Review Dialog */}
       <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
         <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
             <Stack direction="row" alignItems="center" spacing={1}>
@@ -457,9 +381,7 @@ function KioskPage() {
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
             <Button onClick={() => setReviewOpen(false)} color="inherit">แก้ไข</Button>
-            <Button onClick={handleSubmit} variant="contained" color="success" size="large" sx={{borderRadius: 2, fontWeight: 700}}>
-                ยืนยันการลงทะเบียน
-            </Button>
+            <Button onClick={handleSubmit} variant="contained" color="success" size="large" sx={{borderRadius: 2, fontWeight: 700}}>ยืนยันการลงทะเบียน</Button>
         </DialogActions>
       </Dialog>
 
@@ -473,7 +395,6 @@ function KioskPage() {
         </Tooltip>
       }
       
-      {/* Secure Exit Dialog */}
       <Dialog open={exitOpen} onClose={closeExitDialog}>
           <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1}}>
               <SupervisorAccountIcon color="error" /> Supervisor Unlock
