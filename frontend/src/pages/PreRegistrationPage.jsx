@@ -447,11 +447,11 @@ export default function PreRegistrationPage() {
         )}
         
         {/* Review Dialog */}
-        <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+        <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
             <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
                 <Stack direction="row" alignItems="center" spacing={1}>
                     <FactCheckIcon color="warning" />
-                    <Typography variant="h6" fontWeight={700}>ตรวจสอบข้อมูลการลงทะเบียน</Typography>
+                    <Typography variant="h7" fontWeight={500}>ตรวจสอบข้อมูลลงทะเบียน</Typography>
                 </Stack>
             </DialogTitle>
             <DialogContent dividers>
