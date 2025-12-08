@@ -1,49 +1,48 @@
-// import React from "react";
-// import { Navigate } from "react-router-dom";
-// import useAuth from "../hooks/useAuth";
-// import { Box, CircularProgress } from "@mui/material";
-
-// export default function ProtectedRoute({ children, roles }) {
-//   const { user, loading } = useAuth();
-
-//   if (loading)
-//     return (
-//       <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "80vh" }}>
-//         <CircularProgress color="primary" />
-//       </Box>
-//     );
-
-//   if (!user) return <Navigate to="/login" />;
-
-//   if (roles) {
-//     const userRoles = Array.isArray(user.role) ? user.role : [user.role];
-//     const hasRole = roles.some(role => userRoles.includes(role));
-//     if (!hasRole) {
-//       return <Navigate to="/unauthorized" />;
-//     }
-//   }
-
-//   return children;
-// }
-
+// src/components/ProtectedRoute.jsx
 import React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
-import { Box, CircularProgress } from "@mui/material";
+import { Box, CircularProgress, Typography, Stack } from "@mui/material";
 
 export default function ProtectedRoute({ children, roles }) {
   const { user, loading } = useAuth();
+  const location = useLocation(); // [NEW] ดึงตำแหน่งปัจจุบัน
+
+  // 1. Loading State (แต่งให้สวยขึ้นนิดนึง)
   if (loading)
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", minHeight: "80vh" }}>
-        <CircularProgress color="primary" />
+      <Box 
+        sx={{ 
+          display: "flex", 
+          flexDirection: "column",
+          justifyContent: "center", 
+          alignItems: "center", 
+          minHeight: "100vh", // เต็มจอ
+          bgcolor: "background.default",
+          gap: 2
+        }}
+      >
+        <CircularProgress size={40} thickness={4} color="primary" />
+        <Typography variant="body2" color="text.secondary" fontWeight={500}>
+          กำลังยืนยันตัวตน...
+        </Typography>
       </Box>
     );
-  if (!user) return <Navigate to="/login" />;
+
+  // 2. Not Logged In
+  if (!user) {
+    // [NEW] ส่ง state ไปด้วย เพื่อให้หน้า Login รู้ว่ามาจากไหน (Redirect back ได้)
+    // [NEW] ใช้ replace เพื่อไม่ให้เก็บ History หน้านี้ไว้ (กด Back จะได้ไม่วน)
+    return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // 3. Role Check
   if (roles) {
     const userRoles = Array.isArray(user.role) ? user.role : [user.role];
-    if (!roles.some(role => userRoles.includes(role)))
-      return <Navigate to="/unauthorized" />;
+    if (!roles.some(role => userRoles.includes(role))) {
+      return <Navigate to="/unauthorized" replace />;
+    }
   }
+
   return children;
 }

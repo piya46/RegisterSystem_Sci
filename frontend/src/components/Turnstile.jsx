@@ -1,71 +1,154 @@
-import React, { useEffect, useRef } from "react";
+// src/components/Turnstile.jsx
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 
-const scriptUrl = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+const SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
+const SCRIPT_ID = "cf-turnstile-script";
 
 /**
- * Turnstile widget (Managed/Invisible)
- * - invisible=true : เรียก executeTurnstile() เพื่อขอ token แล้ว onVerify ถูกเรียก
- * - managed (default) : widget จะขอ token อัตโนมัติเมื่อพร้อม
+ * Global Helper to inject Cloudflare script only once.
  */
-export default function Turnstile({
+const injectScript = () => {
+  return new Promise((resolve, reject) => {
+    if (document.getElementById(SCRIPT_ID)) {
+      // Script already exists, check if loaded
+      if (window.turnstile) return resolve(window.turnstile);
+      // Wait for it (simple polling or just resolve and let widget handle wait)
+      return resolve(window.turnstile); 
+    }
+
+    const script = document.createElement("script");
+    script.id = SCRIPT_ID;
+    script.src = SCRIPT_URL;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve(window.turnstile);
+    script.onerror = (err) => reject(err);
+    document.head.appendChild(script);
+  });
+};
+
+/**
+ * Cloudflare Turnstile Component
+ * * Usage:
+ * <Turnstile 
+ * ref={captchaRef}
+ * siteKey="..." 
+ * onVerify={(token) => ...} 
+ * />
+ * * Methods via ref:
+ * - ref.current.reset()
+ * - ref.current.execute()
+ * - ref.current.getResponse()
+ */
+const Turnstile = forwardRef(({
   siteKey = import.meta.env.VITE_CF_TURNSTILE_SITE_KEY,
-  options = {},      // { theme, size, action, cData, retry, appearance }
-  onVerify,          // (token) => void
-  onError,           // (err) => void
-  invisible = false, // true = โหมด invisible
-}) {
-  const elRef = useRef(null);
-  const widgetIdRef = useRef(null);
+  action,           // Optional: Action name for analytics (e.g., "login", "register")
+  cData,            // Optional: Customer Data
+  theme = "auto",   // "auto" | "light" | "dark"
+  size = "normal",  // "normal" | "compact" | "invisible"
+  retry = "auto",   // "auto" | "never"
+  onVerify,         // Callback(token) -> Success
+  onError,          // Callback(err) -> Error
+  onExpire,         // Callback() -> Token Expired
+  appearance = "always", // "always" | "execute" | "interaction-only"
+  style,
+  className
+}, ref) => {
+  const containerRef = useRef(null);
+  const widgetId = useRef(null);
+
+  // Expose methods to Parent via Ref
+  useImperativeHandle(ref, () => ({
+    reset: () => {
+      if (window.turnstile && widgetId.current) {
+        window.turnstile.reset(widgetId.current);
+      }
+    },
+    execute: () => {
+      if (window.turnstile && widgetId.current) {
+        window.turnstile.execute(widgetId.current);
+      }
+    },
+    getResponse: () => {
+      if (window.turnstile && widgetId.current) {
+        return window.turnstile.getResponse(widgetId.current);
+      }
+      return null;
+    }
+  }));
 
   useEffect(() => {
     let mounted = true;
 
-    const ensureScript = () =>
-      new Promise((resolve, reject) => {
-        if (window.turnstile) return resolve();
-        const s = document.createElement("script");
-        s.src = scriptUrl;
-        s.async = true;
-        s.defer = true;
-        s.onload = () => resolve();
-        s.onerror = reject;
-        document.head.appendChild(s);
-      });
+    if (!siteKey) {
+      console.warn("Turnstile: Site Key is missing.");
+      return;
+    }
 
-    ensureScript()
-      .then(() => {
-        if (!mounted || !elRef.current) return;
-        widgetIdRef.current = window.turnstile.render(elRef.current, {
+    const initWidget = async () => {
+      try {
+        await injectScript();
+        
+        if (!mounted || !containerRef.current || !window.turnstile) return;
+
+        // Cleanup existing widget if any (safety check)
+        if (widgetId.current) {
+            try { window.turnstile.remove(widgetId.current); } catch {}
+        }
+
+        // Render Widget
+        widgetId.current = window.turnstile.render(containerRef.current, {
           sitekey: siteKey,
-          callback: (token) => onVerify && onVerify(token),
-          "error-callback": () => onError && onError("turnstile-error"),
-          "expired-callback": () => {
-            try { window.turnstile.reset(widgetIdRef.current); } catch {}
+          theme,
+          size,
+          retry,
+          action,
+          cData,
+          appearance,
+          callback: (token) => {
+            if (onVerify) onVerify(token);
           },
-          theme: "auto",
-          ...options,
-          ...(invisible ? { size: "invisible" } : {}),
+          "error-callback": (code) => {
+            console.error("Turnstile Error Code:", code);
+            if (onError) onError(code || "turnstile-error");
+          },
+          "expired-callback": () => {
+            if (onExpire) onExpire();
+            // Optional: Auto-reset on expire? 
+            // window.turnstile.reset(widgetId.current);
+          },
         });
-      })
-      .catch((e) => onError && onError(e));
+
+      } catch (err) {
+        console.error("Turnstile Load Failed:", err);
+        if (onError) onError(err);
+      }
+    };
+
+    initWidget();
 
     return () => {
       mounted = false;
-      try {
-        if (window.turnstile && widgetIdRef.current) {
-          window.turnstile.remove(widgetIdRef.current);
+      if (window.turnstile && widgetId.current) {
+        try {
+          window.turnstile.remove(widgetId.current);
+          widgetId.current = null;
+        } catch (e) {
+          // ignore cleanup errors
         }
-      } catch {}
+      }
     };
-    // eslint-disable-next-line
-  }, [siteKey]);
+  }, [siteKey, theme, size, retry, action, cData, appearance, onVerify, onError, onExpire]);
 
-  return <div ref={elRef} />;
-}
+  return (
+    <div 
+        ref={containerRef} 
+        className={className} 
+        style={{ minHeight: size === 'compact' ? 120 : 65, ...style }} 
+    />
+  );
+});
 
-/** helper สำหรับ invisible: เรียก execute() ของทุก widget ที่เป็น invisible */
-export function executeTurnstile() {
-  try {
-    if (window.turnstile) window.turnstile.execute();
-  } catch {}
-}
+Turnstile.displayName = "Turnstile";
+
+export default Turnstile;

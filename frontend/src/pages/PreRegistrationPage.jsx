@@ -5,7 +5,7 @@ import {
   Button, Avatar, Divider, Collapse, FormControlLabel, Switch,
   Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
   Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton
 } from "@mui/material";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
@@ -24,15 +24,18 @@ import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import AccessibleIcon from '@mui/icons-material/Accessible';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { listParticipantFields, createParticipant, createDonation } from "../utils/api";
-import Turnstile, { executeTurnstile } from "../components/Turnstile";
 import dayjs from "dayjs";
 
-// --- Configuration Constants (เพิ่มราคา price เพื่อใช้คำนวณ) ---
+// [FIX 1] Import Turnstile without named export
+import Turnstile from "../components/Turnstile"; 
+
+// --- Configuration Constants ---
 const PACKAGE_OPTIONS = [
   { price: 2000, value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
   { price: 2000, value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
@@ -118,6 +121,7 @@ export default function PreRegistrationPage() {
   
   // Review Dialog State
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
 
   // Donation States
   const [wantToDonate, setWantToDonate] = useState(false);
@@ -134,6 +138,8 @@ export default function PreRegistrationPage() {
   const [specialAssistance, setSpecialAssistance] = useState("");
 
   const ticketRef = useRef();
+  // [FIX 2] Create Ref for Turnstile
+  const turnstileRef = useRef();
 
   useEffect(() => {
     setFetchingFields(true);
@@ -193,6 +199,11 @@ export default function PreRegistrationPage() {
     }
     
     setForm((f) => ({ ...f, [name]: value }));
+  };
+
+  const handleCopyAccount = () => {
+    navigator.clipboard.writeText("2118768143");
+    setSnackbarOpen(true);
   };
 
   // Function จัดการเมื่อเลือกแพ็กเกจ -> อัปเดตยอดเงินอัตโนมัติ
@@ -267,7 +278,8 @@ export default function PreRegistrationPage() {
   const handleConfirmSubmit = () => {
     setReviewOpen(false);
     setPendingSubmit(true);
-    executeTurnstile();
+    // [FIX 3] Call execute via Ref
+    turnstileRef.current?.execute();
   };
 
   useEffect(() => {
@@ -347,7 +359,9 @@ export default function PreRegistrationPage() {
           title: isSecurity ? "Security Check Failed" : "Registration Failed",
           msg: isSecurity ? "ระบบไม่สามารถยืนยันตัวตนของคุณได้ กรุณาลองใหม่อีกครั้ง" : errorMsg
         });
-        if (window.turnstile) try { window.turnstile.reset(); } catch {}
+        
+        // [FIX 4] Reset via Ref
+        turnstileRef.current?.reset();
       } finally {
         setLoading(false);
         setPendingSubmit(false);
@@ -468,12 +482,17 @@ export default function PreRegistrationPage() {
                     สแกน QR Code ด้านล่างเพื่อโอนเงินสนับสนุน
                   </Typography>
                   <Stack alignItems="center" sx={{ mb: 2 }}>
-                    <Box sx={{ width: 160, height: 160, bgcolor: "#eee", borderRadius: 2, overflow: 'hidden' }}>
+                    <Box sx={{ width: 160, height: 160, bgcolor: "#eee", borderRadius: 2, overflow: 'hidden', mb: 1 }}>
                         <img src="/donate.png" alt="QR" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </Box>
-                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>ชื่อบัญชี: น.ส.เสาวดี อิสริยะโอภาส และ นางนภาภรณ์ ลาชโรจน์</Typography>
-                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>ธนาคารกสิกรไทย</Typography>
-                    <Typography variant="caption" sx={{ mt: 1, fontWeight: 600 }}>เลขที่บัญชี: 211-8-76814-3</Typography>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>ธนาคารกสิกรไทย</Typography>
+                    <Stack direction="row" alignItems="center" spacing={1} sx={{ bgcolor: '#f5f5f5', px: 1.5, py: 0.5, borderRadius: 2 }}>
+                        <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: 1 }}>211-8-76814-3</Typography>
+                        <Tooltip title="กดเพื่อคัดลอก">
+                            <IconButton size="small" onClick={handleCopyAccount} color="primary"><ContentCopyIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                    </Stack>
+                    <Typography variant="caption" sx={{ mt: 0.5 }}>ชื่อบัญชี: น.ส.เสาวดี อ. และ นางนภาภรณ์ ล.</Typography>
                   </Stack>
                   <Grid container spacing={2}>
                     <Grid item xs={12}><TextField label="จำนวนเงินที่โอน (บาท)" type="number" fullWidth value={donationAmount} onChange={e => setDonationAmount(e.target.value)} size="small" /></Grid>
@@ -617,7 +636,8 @@ export default function PreRegistrationPage() {
                 </Typography>
             </Alert>
 
-            <Turnstile invisible onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} options={{ action: "pre_register" }} />
+            {/* [FIX 5] Use Ref for Turnstile */}
+            <Turnstile ref={turnstileRef} invisible onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} options={{ action: "pre_register" }} />
             
             {result && <Alert severity="success" iconMapping={{ success: <CheckCircleIcon fontSize="inherit" /> }} sx={{ fontWeight: 600, borderRadius: 2 }}>{result.message}</Alert>}
 
@@ -720,6 +740,10 @@ export default function PreRegistrationPage() {
             </Stack>
           </DialogContent>
         </Dialog>
+        
+        {/* Toast Notification */}
+        <Snackbar open={snackbarOpen} autoHideDuration={2000} onClose={() => setSnackbarOpen(false)} message="คัดลอกเลขบัญชีแล้ว" anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />
+
       </Container>
     </Box>
   );

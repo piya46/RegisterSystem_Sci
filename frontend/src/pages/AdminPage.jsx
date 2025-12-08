@@ -4,32 +4,83 @@ import {
   Box, Typography, Card, CardContent, Button,
   Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, IconButton, Chip,
-  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert
+  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert, Grid, Fade
 } from "@mui/material";
+import { styled, keyframes } from "@mui/material/styles";
+
+// Icons
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import AddIcon from "@mui/icons-material/PersonAdd";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
+import SecurityIcon from "@mui/icons-material/Security";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import SupervisorAccountIcon from "@mui/icons-material/SupervisorAccount";
+
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
 import AdminUserDialog from "../components/AdminUserDialog";
 import AdminPasswordDialog from "../components/AdminPasswordDialog";
 import { useNavigate } from "react-router-dom";
 
-/* ---------- Amber Theme Tokens (match yellow look & feel) ---------- */
+/* ---------- Premium Gold Theme ---------- */
 const Y = {
-  main: "#FFC107",   // amber 500
-  dark: "#FFB300",   // amber 600
-  light: "#FFE082",  // amber 200
-  pale: "#FFF8E1",   // amber 50
-  text: "#6B5B00",
-  border: "rgba(255,193,7,.35)",
-  glow: "0 14px 36px rgba(255,193,7,0.25)"
+  main: "#FFC107",      // Primary Gold
+  dark: "#F57F17",      // Dark Gold
+  light: "#FFF8E1",     // Light Cream
+  glass: "rgba(255, 255, 255, 0.85)", // Glass effect
+  text: "#4E342E",      // Dark Brown
+  success: "#2e7d32",
+  error: "#d32f2f",
+  border: "rgba(255, 193, 7, 0.3)"
 };
 
-const AUTO_REFRESH_SEC = 5;
+/* ---------- Animations & Styles ---------- */
+const gradientAnimation = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
+const spin = keyframes`
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+`;
+
+const StyledCard = styled(Card)(({ theme }) => ({
+  borderRadius: 24,
+  background: Y.glass,
+  backdropFilter: "blur(20px)",
+  boxShadow: "0 8px 32px rgba(255, 193, 7, 0.15)",
+  border: `1px solid ${Y.border}`,
+  overflow: "hidden"
+}));
+
+const StatCard = styled(Box)(({ theme, color }) => ({
+  padding: theme.spacing(2.5),
+  borderRadius: 20,
+  backgroundColor: "#fff",
+  border: `1px solid rgba(0,0,0,0.06)`,
+  boxShadow: "0 4px 12px rgba(0,0,0,0.03)",
+  display: "flex",
+  alignItems: "center",
+  gap: theme.spacing(2),
+  transition: "transform 0.2s",
+  "&:hover": {
+    transform: "translateY(-4px)",
+    borderColor: Y.main,
+    boxShadow: "0 8px 20px rgba(255, 193, 7, 0.2)"
+  }
+}));
+
+const stringAvatar = (name) => {
+  const n = name || "?";
+  return { children: n.charAt(0).toUpperCase() };
+};
+
+const AUTO_REFRESH_SEC = 10; // ปรับเวลาให้เหมาะสมขึ้น
 
 export default function AdminPage() {
   const { token, user } = useAuth();
@@ -112,252 +163,252 @@ export default function AdminPage() {
   };
 
   const canEdit = !!user && (Array.isArray(user.role) ? user.role.includes("admin") : user.role === "admin");
-
   const progressValue = (1 - (refreshCountdown - 1) / (AUTO_REFRESH_SEC - 1)) * 100;
 
   return (
     <Box sx={{
       minHeight: "100vh",
-      background:
-        "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), " +
-        "radial-gradient(1200px 600px at 120% 110%, #fff3cd 0%, transparent 60%), " +
-        "linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)",
-      py: { xs: 3, md: 6 }, px: 2
+      background: "linear-gradient(-45deg, #FFECB3, #FFF8E1, #FFD54F, #FFF3E0)",
+      backgroundSize: "400% 400%",
+      animation: `${gradientAnimation} 15s ease infinite`,
+      py: { xs: 3, md: 5 }, px: 2
     }}>
-      <Card sx={{
-        maxWidth: 1000, mx: "auto",
-        borderRadius: 4, boxShadow: Y.glow, border: `1px solid ${Y.border}`,
-        bgcolor: "#fffefa", overflow: "hidden", position: "relative"
-      }}>
-        {/* Watermark logo */}
-        <Avatar
-          src="/logo.svg"
-          alt="Logo"
-          sx={{
-            width: 64, height: 64,
-            position: "absolute", right: 14, top: 14,
-            bgcolor: "#fff",
-            border: `2px solid ${Y.border}`, boxShadow: Y.glow
-          }}
-        />
-
-        <CardContent sx={{ p: { xs: 2, md: 3 } }}>
-          {/* Header */}
-          <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 1 }}>
-            <Button
-              variant="outlined"
-              startIcon={<ArrowBackIcon />}
-              onClick={() => navigate("/dashboard")}
-              sx={{
-                borderColor: Y.main, color: Y.text, fontWeight: 700,
-                ":hover": { borderColor: Y.dark, backgroundColor: Y.pale }
-              }}
-            >
-              กลับหน้าหลัก
-            </Button>
-
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ flex: 1, justifyContent: "center" }}>
-              <Avatar
-                src="/logo.svg"
-                alt="Logo"
-                sx={{ width: 42, height: 42, border: `2px solid ${Y.border}` }}
-              />
-              <Typography
-                variant="h5"
-                fontWeight={900}
-                sx={{ letterSpacing: .4, color: Y.text, textAlign: "center" }}
+      <Box sx={{ maxWidth: 1100, mx: "auto" }}>
+        
+        {/* Header Section */}
+        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems="center" mb={4} spacing={2}>
+          <Box>
+            <Stack direction="row" alignItems="center" spacing={1.5} mb={0.5}>
+              <Button 
+                startIcon={<ArrowBackIcon />} 
+                onClick={() => navigate("/dashboard")}
+                sx={{ color: Y.text, fontWeight: 700, borderRadius: 3, "&:hover": { bgcolor: "rgba(255,255,255,0.5)" } }}
               >
-                จัดการผู้ดูแลระบบ
+                Back
+              </Button>
+              <Typography variant="h4" fontWeight={800} sx={{ color: Y.text }}>
+                System Admins
               </Typography>
-              <Chip
-                label="Admin Only"
-                size="small"
+            </Stack>
+            <Typography variant="body1" color="text.secondary" sx={{ ml: {sm: 1} }}>
+              จัดการบัญชีผู้ดูแลระบบและกำหนดสิทธิ์การเข้าถึง
+            </Typography>
+          </Box>
+
+          {canEdit && (
+             <Button
+               variant="contained"
+               startIcon={<AddIcon />}
+               onClick={handleOpenAdd}
+               sx={{
+                 bgcolor: Y.main, color: "#000", fontWeight: 800,
+                 px: 3, py: 1.2, borderRadius: 3,
+                 boxShadow: "0 8px 20px rgba(255, 193, 7, 0.4)",
+                 ":hover": { bgcolor: Y.dark, color: "#fff", transform: "translateY(-2px)" },
+                 transition: "all 0.2s"
+               }}
+             >
+               เพิ่มผู้ดูแล
+             </Button>
+          )}
+        </Stack>
+
+        {/* Stats Section */}
+        <Grid container spacing={2} mb={3}>
+           <Grid item xs={12} sm={6}>
+              <StatCard>
+                 <Avatar sx={{ bgcolor: Y.light, color: Y.dark, width: 56, height: 56 }}>
+                    <SupervisorAccountIcon fontSize="large" />
+                 </Avatar>
+                 <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                       ผู้ดูแลทั้งหมด
+                    </Typography>
+                    <Typography variant="h4" fontWeight={900} color={Y.text}>
+                       {admins.length}
+                    </Typography>
+                 </Box>
+              </StatCard>
+           </Grid>
+           <Grid item xs={12} sm={6}>
+              <StatCard>
+                 <Avatar sx={{ bgcolor: "#E8F5E9", color: Y.success, width: 56, height: 56 }}>
+                    <VerifiedUserIcon fontSize="large" />
+                 </Avatar>
+                 <Box>
+                    <Typography variant="caption" color="text.secondary" fontWeight={600}>
+                       บัญชีของคุณ
+                    </Typography>
+                    <Typography variant="h6" fontWeight={800} color={Y.success}>
+                       {user?.username || "Active"}
+                    </Typography>
+                 </Box>
+              </StatCard>
+           </Grid>
+        </Grid>
+
+        {/* Main Content Card */}
+        <StyledCard>
+          <Box sx={{ position: 'relative', height: 4 }}>
+             {/* Subtle Loading Bar */}
+             <LinearProgress
+                variant="determinate"
+                value={progressValue}
                 sx={{
-                  ml: 1,
-                  bgcolor: Y.light, color: "#3E2723", fontWeight: 800,
-                  border: `1px solid ${Y.border}`
+                  height: 4, bgcolor: "transparent",
+                  "& .MuiLinearProgress-bar": { bgcolor: Y.main }
                 }}
-              />
+             />
+          </Box>
+
+          <CardContent sx={{ p: { xs: 2, md: 3 } }}>
+            {/* Toolbar */}
+            <Stack direction="row" justifyContent="flex-end" alignItems="center" mb={2}>
+                <Tooltip title="รีเฟรชข้อมูล">
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon sx={{ animation: fetching ? `${spin} 1s infinite linear` : 'none' }} />}
+                    onClick={handleManualRefresh}
+                    sx={{ color: Y.text, borderRadius: 2, textTransform: 'none' }}
+                  >
+                    Auto-refresh in {refreshCountdown}s
+                  </Button>
+                </Tooltip>
             </Stack>
 
-            {canEdit && (
-              <Stack direction="row" spacing={1}>
-                <Tooltip title="รีเฟรชรายการ">
-                  <span>
-                    <Button
-                      variant="outlined"
-                      startIcon={<RefreshIcon />}
-                      onClick={handleManualRefresh}
-                      disabled={fetching}
-                      sx={{
-                        borderColor: Y.main, color: Y.text, fontWeight: 700,
-                        ":hover": { borderColor: Y.dark, backgroundColor: Y.pale }
-                      }}
-                    >
-                      Refresh
-                    </Button>
-                  </span>
-                </Tooltip>
-                <Button
-                  variant="contained"
-                  startIcon={<AddIcon />}
-                  onClick={handleOpenAdd}
-                  sx={{
-                    bgcolor: Y.main, color: "#3E2723", fontWeight: 900,
-                    ":hover": { bgcolor: Y.dark }, boxShadow: Y.glow
-                  }}
-                >
-                  เพิ่มผู้ใช้
-                </Button>
-              </Stack>
-            )}
-          </Stack>
-
-          {/* Auto refresh indicator */}
-          <Stack spacing={0.5} sx={{ mb: 2 }}>
-            <Typography variant="caption" sx={{ color: "#7f6b16", textAlign: "right" }}>
-              รีเฟรชอัตโนมัติใน <b>{refreshCountdown}</b> วินาที
-            </Typography>
-            <LinearProgress
-              variant="determinate"
-              value={progressValue}
-              sx={{
-                height: 8, borderRadius: 6, bgcolor: Y.pale,
-                "& .MuiLinearProgress-bar": { bgcolor: Y.main }
-              }}
-            />
-          </Stack>
-
-          {/* Table */}
-          <TableContainer component={Paper} sx={{
-            borderRadius: 3, overflow: "hidden",
-            border: `1px solid ${Y.border}`
-          }}>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: Y.pale }}>
-                  <TableCell sx={{ fontWeight: 800, color: Y.text }}>ชื่อเข้าใช้</TableCell>
-                  <TableCell sx={{ fontWeight: 800, color: Y.text }}>ชื่อ-สกุล</TableCell>
-                  <TableCell sx={{ fontWeight: 800, color: Y.text }}>Email</TableCell>
-                  <TableCell sx={{ fontWeight: 800, color: Y.text }}>สิทธิ์</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 800, color: Y.text, width: 180 }}>จัดการ</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {fetching && admins.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
-                      <CircularProgress sx={{ color: Y.main }} />
-                      <Typography sx={{ mt: 1, color: Y.text }}>กำลังโหลด...</Typography>
-                    </TableCell>
+            {/* Table */}
+            <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 3, border: "1px solid #eee" }}>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: Y.light }}>
+                    <TableCell sx={{ fontWeight: 800, color: Y.text }}>ผู้ใช้งาน (User)</TableCell>
+                    <TableCell sx={{ fontWeight: 800, color: Y.text }}>อีเมล</TableCell>
+                    <TableCell sx={{ fontWeight: 800, color: Y.text }}>สิทธิ์ (Role)</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 800, color: Y.text, width: 160 }}>เครื่องมือ</TableCell>
                   </TableRow>
-                ) : admins.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
-                      <Alert severity="info" variant="outlined" sx={{ mx: "auto", maxWidth: 420 }}>
-                        ยังไม่มีผู้ดูแลระบบในระบบ — กด “เพิ่มผู้ใช้” เพื่อเริ่มต้น
-                      </Alert>
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  admins.map((admin, idx) => {
-                    // ถ้าไม่ใช่ admin ให้เห็นเฉพาะบัญชีตัวเอง
-                    const isSelf = admin._id === user?._id || admin.id === user?.id;
-                    if (!canEdit && !isSelf) return null;
+                </TableHead>
+                <TableBody>
+                  {fetching && admins.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
+                        <CircularProgress sx={{ color: Y.main }} />
+                      </TableCell>
+                    </TableRow>
+                  ) : admins.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
+                        <Alert severity="info" sx={{ display: 'inline-flex', borderRadius: 3 }}>
+                           ไม่พบข้อมูลผู้ดูแลระบบ
+                        </Alert>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    admins.map((admin) => {
+                      const isSelf = admin._id === user?._id || admin.id === user?.id;
+                      // Logic: ถ้าไม่ใช่ admin ใหญ่ (canEdit) ให้เห็นแค่ตัวเอง
+                      if (!canEdit && !isSelf) return null;
 
-                    return (
-                      <TableRow
-                        key={admin._id}
-                        sx={{
-                          "&:nth-of-type(odd)": { bgcolor: "#FFFDF4" },
-                          "&:hover": { backgroundColor: "#FFF8E1" }
-                        }}
-                      >
-                        <TableCell sx={{ fontWeight: 600 }}>{admin.username}</TableCell>
-                        <TableCell>{admin.fullName || "-"}</TableCell>
-                        <TableCell>{admin.email || "-"}</TableCell>
-                        <TableCell>
-                          {Array.isArray(admin.role)
-                            ? admin.role.map((r) => (
+                      return (
+                        <TableRow
+                          key={admin._id}
+                          hover
+                          sx={{ 
+                             "&:hover": { backgroundColor: "#FFF8E1" },
+                             transition: "background-color 0.2s"
+                          }}
+                        >
+                          <TableCell>
+                             <Stack direction="row" alignItems="center" spacing={2}>
+                                <Avatar {...stringAvatar(admin.fullName || admin.username)} sx={{ bgcolor: isSelf ? Y.main : "#bdbdbd", fontWeight: 700 }} />
+                                <Box>
+                                   <Typography variant="body1" fontWeight={700} color={Y.text}>
+                                      {admin.fullName || admin.username}
+                                      {isSelf && <Chip label="Me" size="small" sx={{ ml: 1, height: 20, fontSize: 10, bgcolor: Y.light, color: Y.dark, fontWeight: 800 }} />}
+                                   </Typography>
+                                   <Typography variant="caption" color="text.secondary">
+                                      @{admin.username}
+                                   </Typography>
+                                </Box>
+                             </Stack>
+                          </TableCell>
+                          
+                          <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                             {admin.email || "-"}
+                          </TableCell>
+
+                          <TableCell>
+                            {Array.isArray(admin.role)
+                              ? admin.role.map((r) => (
+                                  <Chip
+                                    key={r}
+                                    icon={<SecurityIcon style={{ fontSize: 16 }} />}
+                                    label={r.toUpperCase()}
+                                    size="small"
+                                    sx={{
+                                      mr: 0.5,
+                                      bgcolor: r === "admin" ? "rgba(255, 193, 7, 0.2)" : "#f5f5f5",
+                                      color: r === "admin" ? "#b38f00" : "text.secondary",
+                                      fontWeight: 700,
+                                      border: "1px solid transparent",
+                                      borderColor: r === "admin" ? Y.main : "transparent"
+                                    }}
+                                  />
+                                ))
+                              : (
                                 <Chip
-                                  key={r}
-                                  label={r}
+                                  label={admin.role}
                                   size="small"
-                                  sx={{
-                                    mr: 0.5,
-                                    bgcolor: r === "admin" ? Y.main : Y.light,
-                                    color: "#3E2723",
-                                    fontWeight: 800,
-                                    border: `1px solid ${Y.border}`
-                                  }}
                                 />
-                              ))
-                            : (
-                              <Chip
-                                label={admin.role}
-                                size="small"
-                                sx={{
-                                  bgcolor: admin.role === "admin" ? Y.main : Y.light,
-                                  color: "#3E2723",
-                                  fontWeight: 800,
-                                  border: `1px solid ${Y.border}`
-                                }}
-                              />
-                            )}
-                        </TableCell>
-                        <TableCell align="center">
-                          {/* Edit */}
-                          {canEdit && (
-                            <Tooltip title="แก้ไขข้อมูลผู้ใช้">
-                              <IconButton
-                                color="primary"
-                                size="small"
-                                onClick={() => handleOpenEdit(admin)}
-                                sx={{ mr: 0.5 }}
-                              >
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          {/* Change/Reset Password */}
-                          <Tooltip title={isSelf ? "เปลี่ยนรหัสผ่านของคุณ" : "รีเซ็ตรหัสผ่านผู้ใช้"}>
-                            <span>
-                              <IconButton
-                                color="info"
-                                size="small"
-                                onClick={() => openPasswordDialog(admin)}
-                                disabled={!canEdit && !isSelf}
-                                sx={{ mr: 0.5 }}
-                              >
-                                <VpnKeyIcon />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                          {/* Delete */}
-                          {canEdit && (
-                            <Tooltip title="ลบผู้ใช้">
-                              <span>
-                                <IconButton
-                                  color="error"
-                                  size="small"
-                                  onClick={() => handleDelete(admin._id)}
-                                  disabled={isSelf}
-                                >
-                                  <DeleteIcon />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </CardContent>
-      </Card>
+                              )}
+                          </TableCell>
+
+                          <TableCell align="center">
+                            <Stack direction="row" justifyContent="center" spacing={1}>
+                               {canEdit && (
+                                  <Tooltip title="แก้ไข">
+                                    <IconButton size="small" onClick={() => handleOpenEdit(admin)} sx={{ color: 'primary.main', bgcolor: '#e3f2fd', '&:hover': { bgcolor: '#bbdefb' } }}>
+                                      <EditIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                               )}
+                               
+                               <Tooltip title={isSelf ? "เปลี่ยนรหัสผ่าน" : "รีเซ็ตรหัสผ่าน"}>
+                                 <IconButton 
+                                    size="small" 
+                                    onClick={() => openPasswordDialog(admin)} 
+                                    disabled={!canEdit && !isSelf}
+                                    sx={{ color: Y.dark, bgcolor: Y.light, '&:hover': { bgcolor: '#ffe082' } }}
+                                 >
+                                   <VpnKeyIcon fontSize="small" />
+                                 </IconButton>
+                               </Tooltip>
+
+                               {canEdit && (
+                                  <Tooltip title="ลบผู้ใช้">
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleDelete(admin._id)}
+                                        disabled={isSelf}
+                                        sx={{ color: 'error.main', bgcolor: '#ffebee', '&:hover': { bgcolor: '#ffcdd2' }, opacity: isSelf ? 0.5 : 1 }}
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                               )}
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </StyledCard>
+      </Box>
 
       {/* Dialog เพิ่ม/แก้ไข user */}
       <AdminUserDialog
@@ -367,6 +418,7 @@ export default function AdminPage() {
         initialData={editData}
         isEdit={!!editData}
       />
+      
       {/* Dialog เปลี่ยน/รีเซ็ตรหัสผ่าน */}
       <AdminPasswordDialog
         open={passwordDialogOpen}

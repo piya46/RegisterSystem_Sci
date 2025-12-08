@@ -8,7 +8,7 @@ import {
 import StoreIcon from "@mui/icons-material/Store";
 import NotesIcon from "@mui/icons-material/Notes";
 import ClearIcon from "@mui/icons-material/Backspace";
-import SparklesIcon from "@mui/icons-material/AutoAwesome"; // ใช้เป็นไอคอนประกอบหัวข้อ
+import SparklesIcon from "@mui/icons-material/AutoAwesome";
 
 const Transition = React.forwardRef(function Transition(props, ref) {
   return <Slide direction="up" ref={ref} {...props} />;
@@ -35,7 +35,7 @@ export default function RegistrationPointDialog({
   }, [initialData, open]);
 
   useEffect(() => {
-    // โฟกัสช่องชื่อเมื่อเปิด dialog
+    // Auto-focus on open
     if (open) {
       setTimeout(() => nameRef.current?.focus(), 200);
     }
@@ -43,18 +43,19 @@ export default function RegistrationPointDialog({
 
   const trimmedName = useMemo(() => name.trim(), [name]);
 
+  // Validation Logic
   const nameError =
     trimmedName.length === 0
-      ? "กรุณาระบุชื่อจุดลงทะเบียน"
+      ? "Point Name is required" // ทับศัพท์
       : trimmedName.length < 2
-      ? "ชื่อต้องมีความยาวอย่างน้อย 2 ตัวอักษร"
+      ? "Name too short (min 2 chars)"
       : trimmedName.length > NAME_MAX
-      ? `ชื่อยาวเกิน ${NAME_MAX} อักขระ`
+      ? `Name too long (max ${NAME_MAX} chars)`
       : "";
 
   const descError =
     description.length > DESC_MAX
-      ? `รายละเอียดเกิน ${DESC_MAX} อักขระ`
+      ? `Description too long (max ${DESC_MAX} chars)`
       : "";
 
   const isInvalid = Boolean(nameError || descError);
@@ -70,14 +71,13 @@ export default function RegistrationPointDialog({
         description: description.trim()
       };
       const ret = onSave?.(payload);
-      // รองรับ onSave แบบ async (Promise)
+      
+      // Handle Async onSave
       if (ret && typeof ret.then === "function") {
         await ret;
       }
-      // ปิดเมื่อบันทึกสำเร็จ
       onClose?.();
     } catch (err) {
-      // ถ้าอยากแสดง error จริง ๆ สามารถใส่ Snackbar ภายนอกได้
       console.error("Save registration point failed:", err);
     } finally {
       setSaving(false);
@@ -85,8 +85,8 @@ export default function RegistrationPointDialog({
   };
 
   const handleKeyDown = (e) => {
-    // Enter = บันทึก, Esc = ปิด
-    if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && e.target.tagName !== "TEXTAREA")) {
+    // Shortcut: Ctrl+Enter / Cmd+Enter to Save
+    if ((e.key === "Enter" && (e.metaKey || e.ctrlKey))) {
       handleSubmit(e);
     }
     if (e.key === "Escape") onClose?.();
@@ -104,15 +104,16 @@ export default function RegistrationPointDialog({
         sx: {
           borderRadius: 3,
           overflow: "hidden",
-          boxShadow: "0 16px 48px rgba(136,74,252,0.20)"
+          boxShadow: "0 16px 48px rgba(136,74,252,0.20)" // Purple Shadow
         }
       }}
     >
-      {/* Saving bar */}
+      {/* Loading Indicator */}
       {saving && (
-        <LinearProgress sx={{ height: 3, bgcolor: "#f3e8ff" }} />
+        <LinearProgress sx={{ height: 3, bgcolor: "#f3e8ff", "& .MuiLinearProgress-bar": { bgcolor: "#884afc" } }} />
       )}
 
+      {/* Header Area */}
       <Box
         sx={{
           px: 3,
@@ -124,6 +125,7 @@ export default function RegistrationPointDialog({
         <DialogTitle sx={{ p: 0 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <SparklesIcon sx={{ color: "#884afc" }} />
+            {/* Header Title (ทับศัพท์) */}
             <Typography
               variant="h6"
               sx={{
@@ -135,21 +137,23 @@ export default function RegistrationPointDialog({
                 letterSpacing: 0.2
               }}
             >
-              {isEdit ? "แก้ไขจุดลงทะเบียน" : "เพิ่มจุดลงทะเบียน"}
+              {isEdit ? "Edit Registration Point" : "Add Registration Point"}
             </Typography>
             <Chip
               size="small"
-              label={isEdit ? "Edit Mode" : "New"}
+              label={isEdit ? "Edit Mode" : "New Point"}
               sx={{
                 ml: 1,
                 fontWeight: 700,
                 bgcolor: isEdit ? "#ede7f6" : "#e8f5e9",
-                color: isEdit ? "#6d38b6" : "#1b5e20"
+                color: isEdit ? "#6d38b6" : "#1b5e20",
+                border: "1px solid",
+                borderColor: isEdit ? "rgba(109,56,182,0.2)" : "rgba(27,94,32,0.2)"
               }}
             />
           </Stack>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            กรอกชื่อที่เข้าใจง่าย เช่น “หน้างานโถงชั้น 1” หรือ “โต๊ะลงทะเบียน A”
+            Tips: ระบุชื่อ Location ให้ชัดเจน เช่น “Hall 1 - Desk A” หรือ “Main Entrance”
           </Typography>
         </DialogTitle>
       </Box>
@@ -159,19 +163,19 @@ export default function RegistrationPointDialog({
       <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
         <DialogContent sx={{ pt: 2.5 }}>
           <Stack spacing={2.5}>
-            {/* Name */}
+            {/* Field: Point Name */}
             <TextField
               inputRef={nameRef}
               autoFocus
-              label="ชื่อจุดลงทะเบียน"
-              placeholder="เช่น โถงชั้น 1 – โต๊ะ A"
+              label="Point Name"
+              placeholder="Ex. Main Hall - Desk A"
               value={name}
               onChange={(e) => setName(e.target.value)}
               error={Boolean(nameError)}
               helperText={
                 nameError || (
                   <Stack direction="row" justifyContent="space-between">
-                    <span>ควรสั้น กระชับ และสื่อสารชัดเจน</span>
+                    <span>Short & Unique Name</span>
                     <span>{trimmedName.length}/{NAME_MAX}</span>
                   </Stack>
                 )
@@ -179,25 +183,26 @@ export default function RegistrationPointDialog({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <StoreIcon color="primary" />
+                    <StoreIcon sx={{ color: "#884afc" }} />
                   </InputAdornment>
                 )
               }}
               fullWidth
               required
+              sx={fieldStyle}
             />
 
-            {/* Description */}
+            {/* Field: Description */}
             <TextField
-              label="รายละเอียด (ไม่บังคับ)"
-              placeholder="เช่น บริเวณหน้าลิฟต์ ใกล้บันไดเลื่อน เปิด 08:00–10:30 น."
+              label="Description (Optional)"
+              placeholder="Ex. Near elevators, Service time 08:00–10:30"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               error={Boolean(descError)}
               helperText={
                 descError || (
                   <Stack direction="row" justifyContent="space-between">
-                    <span>ข้อมูลช่วยอธิบายตำแหน่ง/ช่วงเวลา/ข้อสังเกต</span>
+                    <span>Additional details / Operating hours</span>
                     <span>{description.length}/{DESC_MAX}</span>
                   </Stack>
                 )
@@ -205,22 +210,20 @@ export default function RegistrationPointDialog({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <NotesIcon color="secondary" />
+                    <NotesIcon color="action" />
                   </InputAdornment>
                 ),
                 endAdornment: description ? (
                   <InputAdornment position="end">
-                    <Tooltip title="ล้างข้อความ">
-                      <span>
-                        <IconButton
-                          size="small"
-                          edge="end"
-                          onClick={() => setDescription("")}
-                          disabled={saving}
-                        >
-                          <ClearIcon fontSize="small" />
-                        </IconButton>
-                      </span>
+                    <Tooltip title="Clear text">
+                      <IconButton
+                        size="small"
+                        edge="end"
+                        onClick={() => setDescription("")}
+                        disabled={saving}
+                      >
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
                     </Tooltip>
                   </InputAdornment>
                 ) : null
@@ -229,16 +232,17 @@ export default function RegistrationPointDialog({
               minRows={3}
               maxRows={6}
               fullWidth
+              sx={fieldStyle}
             />
 
-            {/* Preview Chip (เล่นสีเล็ก ๆ ให้เห็นชื่อจะไปโผล่ยังไง) */}
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Typography variant="body2" color="text.secondary">
-                ตัวอย่างแท็กแสดงผล:
+            {/* Preview Section */}
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ pl: 0.5 }}>
+              <Typography variant="caption" sx={{ fontWeight: 600, color: "text.secondary" }}>
+                PREVIEW BADGE:
               </Typography>
               <Chip
                 icon={<StoreIcon />}
-                label={trimmedName || "ชื่อจุดลงทะเบียน"}
+                label={trimmedName || "Point Name"}
                 sx={{
                   fontWeight: 700,
                   borderRadius: 2,
@@ -253,37 +257,44 @@ export default function RegistrationPointDialog({
 
         <Divider />
 
-        <DialogActions sx={{ p: 2.2 }}>
-          <Tooltip title="Esc">
-            <span>
-              <Button
-                onClick={onClose}
-                disabled={saving}
-                sx={{ fontWeight: 700, borderRadius: 2 }}
-              >
-                ยกเลิก
-              </Button>
-            </span>
-          </Tooltip>
-          <Tooltip title="Enter หรือ Ctrl/Cmd + Enter">
-            <span>
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={isInvalid || saving}
-                sx={{
-                  fontWeight: 800,
-                  borderRadius: 2,
-                  px: 3,
-                  boxShadow: "0 6px 18px rgba(136,74,252,0.25)"
-                }}
-              >
-                {isEdit ? "บันทึก" : "เพิ่ม"}
-              </Button>
-            </span>
-          </Tooltip>
+        <DialogActions sx={{ p: 2.2, bgcolor: "#fafafa" }}>
+          <Button
+            onClick={onClose}
+            disabled={saving}
+            color="inherit"
+            sx={{ fontWeight: 700, borderRadius: 2, color: "text.secondary" }}
+          >
+            Cancel
+          </Button>
+          
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={isInvalid || saving}
+            sx={{
+              fontWeight: 800,
+              borderRadius: 2,
+              px: 3,
+              bgcolor: "#6d38b6",
+              "&:hover": { bgcolor: "#512da8" },
+              boxShadow: "0 6px 18px rgba(109,56,182,0.25)"
+            }}
+          >
+            {isEdit ? "Save Changes" : "Add Point"}
+          </Button>
         </DialogActions>
       </form>
     </Dialog>
   );
 }
+
+// Custom Style for nice focus state
+const fieldStyle = {
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 2,
+    "&.Mui-focused fieldset": {
+      borderColor: "#884afc",
+      borderWidth: 2
+    }
+  }
+};

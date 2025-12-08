@@ -3,63 +3,88 @@ import React, { useEffect, useState, useRef } from "react";
 import {
   Box, Paper, Typography, Stack, TextField, Button,
   CircularProgress, Snackbar, Alert, Stepper, Step, StepLabel,
-  Dialog, DialogTitle, DialogContent, DialogActions,
-  Avatar, Chip, Divider, Fade, Tooltip, useMediaQuery, LinearProgress
+  Dialog, DialogContent,
+  Avatar, Chip, IconButton, Fade, Tooltip, useMediaQuery, 
+  Grow, Zoom, Slide
 } from "@mui/material";
+import { keyframes, styled, useTheme } from "@mui/material/styles";
+
+// Icons
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
-import SearchIcon from "@mui/icons-material/ManageSearch";
+import SearchIcon from "@mui/icons-material/Search";
 import PersonIcon from "@mui/icons-material/Person";
 import CloseIcon from "@mui/icons-material/Close";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+
+// Utils & Hooks
 import getAvatarUrl from "../utils/getAvatarUrl";
 import { searchParticipants, checkinByQr, listRegistrationPoints } from "../utils/api";
 import useAuth from "../hooks/useAuth";
 import QrScanner from "../components/QrScanner";
 import FollowersDialog from "../components/FollowersDialog";
-import { useTheme } from "@mui/material/styles";
 import { useNavigate, useLocation } from "react-router-dom";
 
-/* ===================== Theme Yellows ===================== */
-const Y = {
-  main: "#FFC107",      // amber 500
-  dark: "#FFB300",      // amber 600
-  light: "#FFE082",     // amber 200
-  pale: "#FFF8E1",      // amber 50
-  chipBg: "#FFF3CD",    // soft chip bg
-  chipText: "#8A6D3B",  // chip text
-  success: "#3ecf8e"
+/* ===================== Config & Translation ===================== */
+// แปลงชื่อ Field เป็นภาษาไทย
+const FIELD_LABELS = {
+  name: "ชื่อ-นามสกุล",
+  phone: "เบอร์โทร",
+  dept: "ภาควิชา",
+  date_year: "ปีการศึกษา",
+  email: "อีเมล",
+  studentId: "รหัสนิสิต",
+  // เพิ่ม field อื่นๆ ที่ต้องการแปลตรงนี้ได้เลยครับ
 };
 
-/* ===================== Big Step Icon (Yellow) ===================== */
-function BigStepIcon(props) {
-  const { icon, active, completed } = props;
-  return (
-    <Box sx={{
-      width: 48, height: 48, borderRadius: "50%",
-      background: active || completed
-        ? "linear-gradient(135deg, #FFC107 55%, #FFF3E0 100%)"
-        : Y.pale,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      border: active ? `3.5px solid ${Y.main}` : `2px solid ${Y.pale}`,
-      boxShadow: active ? "0 2px 16px rgba(255,193,7,.35)" : "0 1px 8px rgba(255,193,7,.18)",
-      transition: "all .18s"
-    }}>
-      {React.cloneElement(icon, {
-        sx: { fontSize: 30, color: active || completed ? "#5D4037" : "#BFA066" }
-      })}
-    </Box>
-  );
-}
+/* ===================== Modern Gold Theme ===================== */
+const Y = {
+  main: "#FFC107",      // Primary Gold
+  dark: "#F57F17",      // Deep Gold/Orange
+  light: "#FFF8E1",     // Light Cream
+  glass: "rgba(255, 255, 255, 0.75)", // Glass effect
+  glassBorder: "rgba(255, 193, 7, 0.3)",
+  text: "#4E342E",      // Dark Brown Text
+  success: "#00C853",   // Vivid Green
+  error: "#D32F2F"      // Red
+};
 
-const STEPS = [
-  { label: "รอสแกน QR", icon: <QrCodeScannerIcon /> },
-  { label: "ค้นหาข้อมูล", icon: <SearchIcon /> },
-  { label: "ผลลัพธ์", icon: <PersonIcon /> },
-];
+/* ===================== Animations & Styles ===================== */
+const gradientAnimation = keyframes`
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+`;
+
+const scanLineAnimation = keyframes`
+  0% { top: 0%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+`;
+
+const PulseButton = styled(Button)(({ theme }) => ({
+  transition: "transform 0.1s ease-in-out, box-shadow 0.2s",
+  "&:active": { transform: "scale(0.96)" },
+  borderRadius: "12px",
+  textTransform: "none",
+  fontFamily: "inherit",
+}));
+
+const GlassPaper = styled(Paper)(({ theme }) => ({
+  background: Y.glass,
+  backdropFilter: "blur(16px)",
+  WebkitBackdropFilter: "blur(16px)",
+  borderRadius: "24px",
+  border: `1px solid ${Y.glassBorder}`,
+  boxShadow: "0 8px 32px 0 rgba(255, 193, 7, 0.15)",
+}));
+
+/* ===================== Main Component ===================== */
 
 export default function CheckinStaffPage() {
   const theme = useTheme();
-  const isXs = useMediaQuery(theme.breakpoints.down("sm"));
-  const isMd = useMediaQuery(theme.breakpoints.down("md"));
   const { token } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,9 +98,13 @@ export default function CheckinStaffPage() {
   const [snackbar, setSnackbar] = useState({ open: false, msg: "", success: true });
   const [lastQr, setLastQr] = useState("");
   const [activeStep, setActiveStep] = useState(0);
+  
+  // Dialogs
   const [openResult, setOpenResult] = useState(false);
   const [openNotFound, setOpenNotFound] = useState(false);
   const [notFoundText, setNotFoundText] = useState("");
+  
+  // Refs
   const qrLock = useRef(false);
 
   // Registration points
@@ -83,7 +112,7 @@ export default function CheckinStaffPage() {
   const [registrationPointName, setRegistrationPointName] = useState("");
   const [pointList, setPointList] = useState([]);
 
-  // Followers dialog
+  // Followers dialog logic
   const [askFollowersFor, setAskFollowersFor] = useState(null);
   const [showFollowersDialog, setShowFollowersDialog] = useState(false);
 
@@ -94,7 +123,7 @@ export default function CheckinStaffPage() {
       .catch(() => {});
   }, [token]);
 
-  // Determine selected point from URL or localStorage
+  // Determine selected point
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const pointId = params.get("point") || localStorage.getItem("selectedPointId") || "";
@@ -118,7 +147,7 @@ export default function CheckinStaffPage() {
     qrLock.current = false;
   };
 
-  /* ===================== Manual Search ===================== */
+  /* ===================== Logic Handlers ===================== */
   const handleSearch = async (e) => {
     e.preventDefault();
     setActiveStep(1);
@@ -128,9 +157,7 @@ export default function CheckinStaffPage() {
       const res = await searchParticipants({ q: search }, token);
       const enriched = (res.data || []).map(p => ({
         ...p,
-        registeredPointName:
-          pointList.find(pt => pt._id === p.registeredPoint)?.name ||
-          p.registeredPoint
+        registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
       }));
       if (enriched.length) {
         setParticipants(enriched);
@@ -150,24 +177,23 @@ export default function CheckinStaffPage() {
     setLoading(false);
   };
 
-  /* ===================== QR Scan ===================== */
   const handleScanQr = async (qrText) => {
     if (!qrText || qrLock.current || qrText === lastQr) return;
     qrLock.current = true;
     setLastQr(qrText);
     setActiveStep(1);
     setLoading(true);
+
     try {
       const res = await searchParticipants({ q: qrText }, token);
       const enriched = (res.data || []).map(p => ({
         ...p,
-        registeredPointName:
-          pointList.find(pt => pt._id === p.registeredPoint)?.name ||
-          p.registeredPoint
+        registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
       }));
+
       if (enriched.length) {
         setParticipants(enriched);
-        setSnackbar({ open: true, msg: "สแกนสำเร็จ: " + qrText, success: true });
+        setSnackbar({ open: true, msg: "สแกนสำเร็จ!", success: true });
         setActiveStep(2);
         setOpenResult(true);
         setShowQR(false);
@@ -175,32 +201,31 @@ export default function CheckinStaffPage() {
 
         if (enriched.length === 1 && enriched[0].status !== "checkedIn") {
           setAskFollowersFor({ id: enriched[0]._id, qrCode: enriched[0].qrCode });
-          setShowFollowersDialog(true);
+          setTimeout(() => {
+             setShowFollowersDialog(true);
+          }, 500);
         }
       } else {
-        setNotFoundText(`ไม่พบข้อมูลสำหรับ QR "${qrText}"`);
+        setNotFoundText(`ไม่พบข้อมูล QR Code นี้`);
         setOpenNotFound(true);
         setActiveStep(0);
-        setTimeout(() => { qrLock.current = false; }, 700);
+        setTimeout(() => { qrLock.current = false; }, 1500);
       }
     } catch {
-      setNotFoundText("เกิดข้อผิดพลาดขณะค้นหา");
+      setNotFoundText("เกิดข้อผิดพลาดในการอ่านข้อมูล");
       setOpenNotFound(true);
       setActiveStep(0);
-      setTimeout(() => { qrLock.current = false; }, 700);
+      setTimeout(() => { qrLock.current = false; }, 1500);
     }
     setLoading(false);
   };
 
-  /* ===================== Check-in Action ===================== */
   const handleCheckin = async (id, qrCode, auto = false, followers = 0) => {
     setCheckingIn(id);
     try {
-      await checkinByQr(
-        { participantId: id, qrCode, registrationPoint, followers },
-        token
-      );
+      await checkinByQr({ participantId: id, qrCode, registrationPoint, followers }, token);
       setSnackbar({ open: true, msg: "เช็คอินสำเร็จ!", success: true });
+      
       setParticipants(prev =>
         prev.map(p =>
           p._id === id
@@ -215,6 +240,7 @@ export default function CheckinStaffPage() {
             : p
         )
       );
+      
       setTimeout(() => {
         setCheckingIn("");
         if (auto) resetAll();
@@ -232,352 +258,345 @@ export default function CheckinStaffPage() {
     setAskFollowersFor(null);
   };
 
-  const handleModalClose = () => resetAll();
-  const handleNotFoundClose = () => resetAll();
-
-  function CustomProgressBar() {
+  /* ===================== UI Components ===================== */
+  
+  const ColorlibStepIcon = (props) => {
+    const { active, completed } = props;
     return (
-      <LinearProgress
-        variant="determinate"
-        value={((activeStep) / (STEPS.length - 1)) * 100}
-        sx={{
-          height: 8,
-          borderRadius: 5,
-          bgcolor: Y.pale,
-          "& .MuiLinearProgress-bar": { bgcolor: Y.main },
-          mb: 3,
-        }}
-      />
+      <Box sx={{
+        zIndex: 1, color: '#fff', width: 40, height: 40, display: 'flex', borderRadius: '50%',
+        justifyContent: 'center', alignItems: 'center',
+        background: active || completed ? `linear-gradient(136deg, ${Y.main} 0%, ${Y.dark} 100%)` : '#E0E0E0',
+        boxShadow: active ? `0 4px 10px ${Y.glassBorder}` : 'none',
+        transition: 'all 0.3s'
+      }}>
+        {props.icon}
+      </Box>
     );
-  }
+  };
+
+  const steps = [
+    { label: 'รอสแกน', icon: <QrCodeScannerIcon fontSize="small"/> },
+    { label: 'กำลังหา', icon: <SearchIcon fontSize="small"/> },
+    { label: 'ผลลัพธ์', icon: <PersonIcon fontSize="small"/> },
+  ];
 
   return (
     <Box sx={{
       minHeight: "100vh",
-      background:
-        "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #fff3cd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)",
-      pt: isXs ? 2 : 6, px: isXs ? 0.5 : 2
+      background: "linear-gradient(-45deg, #FFECB3, #FFF8E1, #FFD54F, #FFF3E0)",
+      backgroundSize: "400% 400%",
+      animation: `${gradientAnimation} 15s ease infinite`,
+      pt: { xs: 2, md: 6 }, pb: 4, px: 2,
+      display: 'flex', flexDirection: 'column', alignItems: 'center'
     }}>
-      <Fade in>
-        <Paper elevation={16} sx={{
-          width: "100%", maxWidth: isXs ? 380 : isMd ? 500 : 640, mx: "auto",
-          p: { xs: 2, sm: 3, md: 4 }, mt: { xs: 1, sm: 3 }, borderRadius: 5,
-          boxShadow: "0 14px 36px rgba(255,193,7,0.25)",
-          bgcolor: "#fffefa",
-          position: "relative",
-          overflow: "hidden",
-          border: "1px solid rgba(255,193,7,.25)"
+
+      {/* Main Glass Card */}
+      <Fade in={true} timeout={800}>
+        <GlassPaper sx={{
+          width: "100%", maxWidth: 550,
+          p: { xs: 3, md: 4 },
+          position: "relative", overflow: "hidden"
         }}>
-          {/* Watermark logo in corner */}
-          <Avatar
-            src="/logo.svg"
-            alt="Logo"
-            sx={{
-              width: 64, height: 64,
-              position: "absolute", right: 12, top: 12,
-              bgcolor: "#fff",
-              border: "2px solid rgba(255,193,7,.35)",
-              boxShadow: "0 6px 18px rgba(255,193,7,.35)"
-            }}
-          />
-
-          {/* จุดลงทะเบียน */}
-          <Stack direction="row" justifyContent="center" alignItems="center" spacing={2} sx={{ mb: 2 }}>
-            <Chip
-              sx={{
-                fontWeight: 800, px: 2, fontSize: 16,
-                bgcolor: Y.chipBg, color: Y.chipText,
-                ".MuiChip-label": { display: "flex", alignItems: "center" },
-                border: "1px solid rgba(255,193,7,.45)"
-              }}
-              label={
-                <span>
-                  <QrCodeScannerIcon sx={{ mr: .7, fontSize: 22, mb: -0.5, color: Y.dark }} />
-                  จุดลงทะเบียน: <b>{registrationPointName || registrationPoint}</b>
-                </span>
-              }
-            />
-            <Button
-              size="small"
-              variant="outlined"
-              sx={{
-                fontWeight: 700, py: 0.6, px: 2, borderRadius: 3,
-                borderColor: Y.main, color: "#6B5B00",
-                ":hover": { borderColor: Y.dark, backgroundColor: "#FFF8E1" }
-              }}
-              onClick={() => { resetAll(); navigate("/staff/select-point"); }}
-            >
-              เปลี่ยนจุด
-            </Button>
+          {/* Header Row */}
+          <Stack direction="row" alignItems="center" justifyContent="space-between" mb={3}>
+             <Stack direction="row" alignItems="center" spacing={1.5}>
+                <Avatar src="/logo.svg" sx={{ width: 48, height: 48, bgcolor: "#fff", border: `2px solid ${Y.main}` }} />
+                <Box>
+                  <Typography variant="h6" fontWeight={800} color={Y.text} lineHeight={1.1}>
+                    Check-in Staff
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" fontWeight={500}>
+                    ระบบเช็คอินเจ้าหน้าที่
+                  </Typography>
+                </Box>
+             </Stack>
+             <Chip
+                icon={<LocationOnIcon style={{ color: '#fff' }} />}
+                label={registrationPointName}
+                sx={{
+                  bgcolor: Y.dark, color: '#fff', fontWeight: 700,
+                  boxShadow: `0 4px 12px ${Y.glassBorder}`
+                }}
+             />
           </Stack>
 
-          {/* Header with big title & logo */}
-          <Stack direction="row" spacing={1.2} alignItems="center" justifyContent="center" sx={{ mb: 2.5 }}>
-            <Avatar
-              src="/logo.svg"
-              alt="Logo"
-              sx={{
-                width: 48, height: 48,
-                bgcolor: "#fff",
-                border: "2px solid rgba(255,193,7,.6)"
-              }}
-            />
-            <Typography variant={isXs ? "h6" : "h5"} color="primary" fontWeight={900} sx={{ letterSpacing: .6, color: "#6B5B00" }}>
-              ระบบเช็คอินสำหรับเจ้าหน้าที่
-            </Typography>
-          </Stack>
-
-          <CustomProgressBar/>
-
-          <Stepper activeStep={activeStep} alternativeLabel sx={{ mt: 1, mb: 2 }}>
-            {STEPS.map(step => (
-              <Step key={step.label}>
-                <StepLabel
-                  StepIconComponent={p => <BigStepIcon {...p} icon={step.icon} />}
-                  sx={{
-                    ".MuiStepLabel-label": { fontWeight: 700, color: "#6B5B00", fontSize: 16 },
-                    ".MuiStepIcon-text": { fontSize: 18, fill: "#6B5B00" }
-                  }}
-                >
-                  <span style={{ fontWeight: 600, fontSize: isXs ? 13 : 16 }}>
-                    {step.label}
-                  </span>
+          {/* Stepper */}
+          <Stepper alternativeLabel activeStep={activeStep} connector={null} sx={{ mb: 4 }}>
+            {steps.map((s, index) => (
+              <Step key={s.label}>
+                <StepLabel StepIconComponent={(p) => <ColorlibStepIcon {...p} icon={s.icon} />}>
+                  <Typography fontWeight={activeStep === index ? 700 : 500} color={activeStep === index ? Y.dark : 'text.disabled'}>
+                    {s.label}
+                  </Typography>
                 </StepLabel>
               </Step>
             ))}
           </Stepper>
 
-          {/* คำแนะนำ */}
-          <Paper sx={{
-            bgcolor: "#FFF3CD", borderRadius: 3,
-            p: isXs ? 1 : 2, mb: 2,
-            boxShadow: "0 2px 10px rgba(255,193,7,0.18)",
-            border: "1px solid rgba(255,193,7,.45)"
-          }} variant="outlined">
-            <Typography fontSize={15} sx={{ color: "#6B5B00", fontWeight: 700 }}>
-              <b>1.</b> กรอกชื่อ/เบอร์/อีเมล หรือ <b>2.</b> <b>กด “สแกน QR”</b> เพื่อเช็คอิน
-            </Typography>
-          </Paper>
+          {/* Action Area */}
+          <Box sx={{ position: "relative", minHeight: 250 }}>
+            {!showQR ? (
+              <Grow in={!showQR}>
+                <Stack spacing={3}>
+                   <Typography align="center" variant="h5" fontWeight={900} sx={{
+                     background: `linear-gradient(45deg, ${Y.text} 30%, ${Y.dark} 90%)`,
+                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent"
+                   }}>
+                     พร้อมเช็คอินไหม?
+                   </Typography>
 
-          {/* ฟอร์มค้นหา */}
-          <form onSubmit={handleSearch} autoComplete="off">
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems="center">
-              <TextField
-                label="ค้นหาด้วยชื่อ/เบอร์/อีเมล/รหัส QR"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                size="small"
-                fullWidth
-                autoFocus
-                sx={{
-                  bgcolor: "#fff",
-                  borderRadius: 2,
-                  "& .MuiInputBase-root": { borderRadius: 2 }
-                }}
-                disabled={loading || showQR}
-              />
-              <Button
-                type="submit"
-                variant="contained"
-                disabled={loading || !search}
-                sx={{
-                  fontWeight: 800, px: 2.5, minWidth: 90, borderRadius: 2,
-                  bgcolor: Y.main, ":hover": { bgcolor: Y.dark },
-                  boxShadow: "0 3px 14px rgba(255,193,7,.45)", color: "#3E2723"
-                }}
-                startIcon={<SearchIcon />}
-              >
-                ค้นหา
-              </Button>
-              <Tooltip title="เปิดกล้องสแกน QR" arrow>
-                <Button
-                  variant={showQR ? "contained" : "outlined"}
-                  onClick={() => {
-                    setShowQR(v => !v);
-                    setActiveStep(0);
-                    setParticipants([]);
-                    qrLock.current = false;
-                  }}
-                  sx={{
-                    borderRadius: 2, py: 1.2,
-                    ...(showQR
-                      ? { bgcolor: Y.light, color: "#3E2723",
-                          ":hover": { bgcolor: "#FFD54F" },
-                          boxShadow: "0 3px 14px rgba(255,193,7,.35)" }
-                      : { borderColor: Y.main, color: "#6B5B00",
-                          ":hover": { borderColor: Y.dark, backgroundColor: "#FFF8E1" } })
-                  }}
-                  startIcon={<QrCodeScannerIcon sx={{ color: showQR ? "#3E2723" : Y.dark }} />}
-                >
-                  สแกน QR
-                </Button>
-              </Tooltip>
-            </Stack>
-          </form>
+                   <PulseButton
+                     fullWidth variant="contained" size="large"
+                     onClick={() => {
+                        setShowQR(true);
+                        setActiveStep(0);
+                        qrLock.current = false;
+                        setParticipants([]);
+                     }}
+                     startIcon={<QrCodeScannerIcon />}
+                     sx={{
+                       bgcolor: Y.main, color: '#000', fontSize: '1.2rem', fontWeight: 800, py: 2,
+                       boxShadow: "0 8px 20px rgba(255,193,7, 0.4)",
+                       ":hover": { bgcolor: Y.dark, color: '#fff' }
+                     }}
+                   >
+                     เปิดกล้องสแกน QR
+                   </PulseButton>
 
-          {/* QR Scanner */}
-          {showQR && (
-            <Box sx={{
-              mt: 3, mb: 2, mx: "auto",
-              width: "100%", maxWidth: isXs ? 280 : 360,
-              borderRadius: 3, overflow: "hidden",
-              boxShadow: "0 2px 24px rgba(255,193,7,.35)",
-              position: "relative", bgcolor: "#fff",
-              border: "1px solid rgba(255,193,7,.35)"
-            }}>
-              <QrScanner
-                onScan={handleScanQr}
-                onError={() => setSnackbar({ open: true, msg: "สแกน QR ไม่สำเร็จ", success: false })}
-                style={{ width: "100%", minHeight: isXs ? 160 : 210 }}
-              />
-              {activeStep === 1 && (
-                <Typography sx={{ mt: 2, mb: 2, textAlign: "center", color: "#6B5B00" }}>
-                  <CircularProgress size={26} sx={{ mr: 1, color: Y.main }} />
-                  <b>กำลังค้นหาข้อมูล...</b>
-                </Typography>
-              )}
-              {lastQr && (
-                <Typography variant="caption" sx={{
-                  mt: 1, mb: 0, display: "block", textAlign: "center",
-                  fontWeight: 600, letterSpacing: 0.2, color: "#6B5B00"
-                }}>
-                  ผลสแกน: <b style={{ color: Y.dark }}>{lastQr}</b>
-                </Typography>
-              )}
-            </Box>
-          )}
+                   <Typography variant="body2" align="center" color="text.secondary">
+                      &mdash; หรือ &mdash;
+                   </Typography>
 
-          {/* Loading สำหรับ manual search */}
-          {!showQR && loading && (
-            <Box sx={{ textAlign: "center", py: 4 }}>
-              <CircularProgress size={36} sx={{ color: Y.main }} />
-              <Typography sx={{ mt: 2, color: "#6B5B00" }}>กำลังค้นหาข้อมูล...</Typography>
-            </Box>
-          )}
-        </Paper>
+                   <form onSubmit={handleSearch}>
+                     <Stack direction="row" spacing={1}>
+                       <TextField
+                         fullWidth
+                         placeholder="พิมพ์ชื่อ / เบอร์ / อีเมล..."
+                         value={search}
+                         onChange={e => setSearch(e.target.value)}
+                         variant="outlined"
+                         size="medium"
+                         InputProps={{
+                            sx: { borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.6)' },
+                            startAdornment: <SearchIcon sx={{ color: 'text.disabled', mr: 1 }} />
+                         }}
+                       />
+                       <PulseButton
+                         type="submit"
+                         variant="outlined"
+                         disabled={loading || !search}
+                         sx={{
+                           borderRadius: '12px', minWidth: 80,
+                           borderColor: Y.dark, color: Y.dark, fontWeight: 700,
+                           borderWidth: 2,
+                           ":hover": { borderWidth: 2, bgcolor: Y.light, borderColor: Y.dark }
+                         }}
+                       >
+                         ค้นหา
+                       </PulseButton>
+                     </Stack>
+                   </form>
+                </Stack>
+              </Grow>
+            ) : (
+              <Zoom in={showQR}>
+                <Box>
+                  <Stack direction="row" alignItems="center" mb={2}>
+                    <IconButton onClick={() => setShowQR(false)}>
+                       <ArrowBackIcon />
+                    </IconButton>
+                    <Typography variant="h6" fontWeight={700} ml={1}>Scan QR Code</Typography>
+                  </Stack>
+
+                  <Box sx={{
+                    position: 'relative', width: '100%', height: 300,
+                    borderRadius: '20px', overflow: 'hidden', bgcolor: '#000',
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.2)'
+                  }}>
+                    <QrScanner
+                      onScan={handleScanQr}
+                      onError={() => setSnackbar({ open: true, msg: "กล้องมีปัญหา", success: false })}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                    
+                    <Box sx={{
+                      position: 'absolute', top: 20, left: 20, right: 20, bottom: 20,
+                      border: '2px solid rgba(255,255,255,0.3)', borderRadius: '12px',
+                      zIndex: 2, pointerEvents: 'none'
+                    }}>
+                        <Box sx={{ position: 'absolute', top: -2, left: -2, width: 20, height: 20, borderTop: `4px solid ${Y.main}`, borderLeft: `4px solid ${Y.main}` }} />
+                        <Box sx={{ position: 'absolute', top: -2, right: -2, width: 20, height: 20, borderTop: `4px solid ${Y.main}`, borderRight: `4px solid ${Y.main}` }} />
+                        <Box sx={{ position: 'absolute', bottom: -2, left: -2, width: 20, height: 20, borderBottom: `4px solid ${Y.main}`, borderLeft: `4px solid ${Y.main}` }} />
+                        <Box sx={{ position: 'absolute', bottom: -2, right: -2, width: 20, height: 20, borderBottom: `4px solid ${Y.main}`, borderRight: `4px solid ${Y.main}` }} />
+                    </Box>
+                    
+                    <Box sx={{
+                      position: 'absolute', top: 0, left: 10, right: 10, height: '2px',
+                      bgcolor: 'red', boxShadow: '0 0 10px red',
+                      zIndex: 3, animation: `${scanLineAnimation} 2s infinite linear`
+                    }} />
+
+                    {loading && (
+                      <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 4 }}>
+                         <CircularProgress sx={{ color: Y.main }} />
+                      </Box>
+                    )}
+                  </Box>
+                  <Typography align="center" variant="caption" display="block" mt={1} color="text.secondary">
+                    วาง QR Code ให้อยู่ในกรอบ
+                  </Typography>
+                </Box>
+              </Zoom>
+            )}
+          </Box>
+        </GlassPaper>
       </Fade>
 
-      {/* ผลลัพธ์การค้นหา */}
-      <Dialog open={openResult} onClose={handleModalClose} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{
-          textAlign: "center", fontWeight: 900, color: "#6B5B00", letterSpacing: .4, pb: 1
-        }}>
-          <PersonIcon sx={{ mb: -0.7, mr: 1, fontSize: 28, color: Y.dark }} />
-          ผลลัพธ์การค้นหา
-          <Button aria-label="close" onClick={handleModalClose} sx={{
-            position: "absolute", right: 12, top: 13, color: "#8D6E63", minWidth: 32, p: 0
-          }}>
-            <CloseIcon />
-          </Button>
-        </DialogTitle>
-        <DialogContent sx={{ position: "relative" }}>
-          {/* watermark logo */}
-          <Avatar
-            src="/logo.svg"
-            alt="logo"
-            sx={{
-              width: 56, height: 56, position: "absolute", right: 8, top: 8,
-              bgcolor: "#fff", border: "2px solid rgba(255,193,7,.35)"
-            }}
-          />
-          {participants.length > 0 ? (
-            <Stack spacing={2}>
-              {participants.map(p => (
+      {/* Result Dialog (Ticket Style) */}
+      <Dialog
+        open={openResult}
+        onClose={() => resetAll()}
+        fullWidth
+        maxWidth="xs"
+        PaperProps={{
+          style: { borderRadius: 24, padding: 0, background: 'transparent', boxShadow: 'none' }
+        }}
+        TransitionComponent={Slide}
+        TransitionProps={{ direction: "up" }}
+      >
+        <DialogContent sx={{ p: 0 }}>
+          <Stack spacing={2}>
+            {participants.map((p) => {
+               const isCheckedIn = p.status === "checkedIn";
+               return (
                 <Paper key={p._id} sx={{
-                  p: 2, mb: 1.5, borderRadius: 4,
-                  background: p.status === "checkedIn" ? "#e7fff0" : "#FFFDF4",
-                  border: p.status === "checkedIn" ? "2px solid #3ecf8e" : "2px solid rgba(255,193,7,.35)",
-                  boxShadow: "0 2px 16px rgba(255,193,7,.15)"
-                }} variant="outlined">
-                  <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 1.3 }}>
-                    <Avatar src={getAvatarUrl(p)} sx={{ width: 56, height: 56, boxShadow: "0 2px 8px rgba(255,193,7,.25)" }} />
-                    <Chip
-                      label={p.status === "checkedIn" ? "เช็คอินแล้ว" : "ยังไม่เช็คอิน"}
+                  position: 'relative', overflow: 'hidden',
+                  bgcolor: '#fff',
+                  borderRadius: '20px',
+                  p: 3,
+                  maskImage: 'radial-gradient(circle at center bottom, transparent 0, black 0)',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                }}>
+                  {/* Decorative Header Bar */}
+                  <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 8, bgcolor: isCheckedIn ? Y.success : Y.main }} />
+
+                  {/* Header: Avatar + Name */}
+                  <Stack direction="row" spacing={2} alignItems="center" mb={2}>
+                    <Avatar
+                      src={getAvatarUrl(p)}
                       sx={{
-                        fontWeight: 800,
-                        bgcolor: p.status === "checkedIn" ? Y.success : Y.chipBg,
-                        color: p.status === "checkedIn" ? "#fff" : Y.chipText,
-                        px: 2, fontSize: 16
+                        width: 64, height: 64,
+                        border: `3px solid ${isCheckedIn ? Y.success : Y.main}`
                       }}
                     />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                       <Typography variant="h6" fontWeight={800} noWrap sx={{ color: Y.text }}>
+                         {p.fields?.name || "ไม่ระบุชื่อ"}
+                       </Typography>
+                       <Chip
+                          size="small"
+                          label={isCheckedIn ? "Checked-In" : "Ready"}
+                          sx={{
+                            bgcolor: isCheckedIn ? '#E8F5E9' : '#FFF8E1',
+                            color: isCheckedIn ? Y.success : Y.dark,
+                            fontWeight: 700
+                          }}
+                       />
+                    </Box>
                   </Stack>
-                  <Stack spacing={0.7} sx={{ pl: 1, fontSize: 16 }}>
-                    {Object.entries(p.fields || {}).map(([key, val]) => (
-                      <Typography key={key} fontSize={15}><b>{key}:</b> {val || "-"}</Typography>
-                    ))}
-                  </Stack>
-                  {p.status === "checkedIn" ? (
-                    <Stack spacing={0.5} sx={{ pl: 1, mt: 1 }}>
-                      <Typography fontSize={14} color="success.main">
-                        เวลาเช็คอิน: {p.checkedInAt ? new Date(p.checkedInAt).toLocaleString("th-TH") : "-"}
-                      </Typography>
-                      <Typography fontSize={14} sx={{ color: "#6B5B00" }}>
-                        จุดเช็คอิน: {p.registeredPointName || "-"}
-                      </Typography>
-                      <Typography fontSize={14}>
-                        ผู้ติดตาม: {p.followers ?? 0}
-                      </Typography>
-                    </Stack>
-                  ) : (
+
+                  <Box sx={{ my: 2, py: 2, borderTop: '1px dashed #ddd', borderBottom: '1px dashed #ddd' }}>
+                     {Object.entries(p.fields || {}).map(([key, val]) => {
+                        if (key === "name") return null; // ชื่อแสดงข้างบนแล้ว
+                        
+                        // แปลง Key เป็นภาษาไทย (ถ้าไม่มีใน map จะใช้ key เดิม)
+                        const label = FIELD_LABELS[key] || key;
+                        
+                        return (
+                          <Stack direction="row" justifyContent="space-between" key={key} mb={0.5}>
+                             <Typography variant="body2" color="text.secondary">{label}</Typography>
+                             <Typography variant="body2" fontWeight={600} color="text.primary" sx={{ textAlign: 'right', pl: 1 }}>{val || "-"}</Typography>
+                          </Stack>
+                        );
+                     })}
+                     
+                     {isCheckedIn && (
+                       <>
+                         <Stack direction="row" justifyContent="space-between" mt={1}>
+                            <Typography variant="body2" color="success.main">เวลาเช็คอิน</Typography>
+                            <Typography variant="body2" fontWeight={700} color="success.main">
+                              {new Date(p.checkedInAt).toLocaleTimeString("th-TH", {hour: '2-digit', minute:'2-digit'})} น.
+                            </Typography>
+                         </Stack>
+                         <Stack direction="row" justifyContent="space-between">
+                            <Typography variant="body2" color="text.secondary">ผู้ติดตาม</Typography>
+                            <Typography variant="body2" fontWeight={700}>{p.followers ?? 0}</Typography>
+                         </Stack>
+                       </>
+                     )}
+                  </Box>
+
+                  {/* Action Button */}
+                  {isCheckedIn ? (
                     <Button
-                      variant="contained" fullWidth
-                      sx={{
-                        mt: 2, fontWeight: 900, borderRadius: 3, fontSize: 17,
-                        bgcolor: Y.main, ":hover": { bgcolor: Y.dark },
-                        boxShadow: "0 4px 18px rgba(255,193,7,.35)", color: "#3E2723"
-                      }}
-                      disabled={checkingIn === p._id}
+                      fullWidth variant="contained" color="success"
+                      startIcon={<CheckCircleIcon />}
+                      onClick={() => resetAll()}
+                      sx={{ borderRadius: 3, fontWeight: 700, boxShadow: 'none' }}
+                    >
+                      เรียบร้อย (ปิด)
+                    </Button>
+                  ) : (
+                    <PulseButton
+                      fullWidth
+                      variant="contained"
                       onClick={() => {
                         setAskFollowersFor({ id: p._id, qrCode: p.qrCode });
                         setShowFollowersDialog(true);
                       }}
+                      disabled={checkingIn === p._id}
+                      sx={{
+                        bgcolor: Y.main, color: '#3E2723', fontWeight: 800, fontSize: '1.1rem', py: 1.5,
+                        boxShadow: `0 8px 24px ${Y.glassBorder}`,
+                        ":hover": { bgcolor: Y.dark, color: '#fff' }
+                      }}
                     >
-                      {checkingIn === p._id ? <CircularProgress size={18} sx={{ color: "#3E2723" }} /> : "เช็คอิน"}
-                    </Button>
+                      {checkingIn === p._id ? <CircularProgress size={24} color="inherit"/> : "CHECK IN"}
+                    </PulseButton>
                   )}
                 </Paper>
-              ))}
-            </Stack>
-          ) : (
-            <Typography color="text.secondary" align="center">ไม่พบข้อมูล</Typography>
-          )}
+               );
+            })}
+          </Stack>
+          
+          <Box sx={{ mt: 2, textAlign: 'center' }}>
+             <IconButton onClick={() => resetAll()} sx={{ bgcolor: 'rgba(255,255,255,0.8)', ":hover": { bgcolor: '#fff' } }}>
+                <CloseIcon />
+             </IconButton>
+          </Box>
         </DialogContent>
-        <Divider />
-        <DialogActions sx={{ justifyContent: "center", pb: 2 }}>
-          <Button
-            variant="outlined"
-            onClick={handleModalClose}
-            sx={{ borderRadius: 2, fontWeight: 800, fontSize: 17, px: 4, borderColor: Y.main, color: "#6B5B00",
-              ":hover": { borderColor: Y.dark, backgroundColor: "#FFF8E1" } }}
-          >
-            ปิด
-          </Button>
-        </DialogActions>
       </Dialog>
 
-      {/* ไม่พบข้อมูล */}
-      <Dialog open={openNotFound} onClose={handleNotFoundClose} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ textAlign: "center", fontWeight: 900, color: "#B00020", pb: 1 }}>
-          <SearchIcon sx={{ mb: -0.7, mr: 1, fontSize: 26, color: "#B00020" }} />
-          ไม่พบข้อมูล
-        </DialogTitle>
-        <DialogContent>
-          <Typography color="text.secondary" align="center" fontWeight={700} fontSize={16}>
-            {notFoundText}
-          </Typography>
+      {/* Not Found Dialog */}
+      <Dialog open={openNotFound} onClose={() => resetAll()} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4 } }}>
+        <DialogContent sx={{ textAlign: 'center', py: 4 }}>
+           <Box sx={{ width: 80, height: 80, bgcolor: '#FFEBEE', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+              <SearchIcon sx={{ fontSize: 40, color: Y.error }} />
+           </Box>
+           <Typography variant="h6" fontWeight={700} color={Y.error} gutterBottom>
+              ไม่พบข้อมูล
+           </Typography>
+           <Typography color="text.secondary" mb={3}>
+              {notFoundText}
+           </Typography>
+           <Button variant="outlined" onClick={() => resetAll()} color="error" sx={{ borderRadius: 3, px: 4, fontWeight: 700 }}>
+             ลองใหม่
+           </Button>
         </DialogContent>
-        <DialogActions sx={{ justifyContent: "center", pb: 2 }}>
-          <Button
-            variant="contained"
-            onClick={handleNotFoundClose}
-            sx={{ borderRadius: 2, fontWeight: 800, fontSize: 16, bgcolor: Y.main, ":hover": { bgcolor: Y.dark }, color: "#3E2723" }}
-          >
-            ปิด
-          </Button>
-        </DialogActions>
       </Dialog>
 
-      {/* Dialog สำหรับกรอกจำนวนผู้ติดตาม */}
+      {/* Followers Dialog */}
       <FollowersDialog
         open={showFollowersDialog}
         onClose={() => setShowFollowersDialog(false)}
@@ -587,14 +606,15 @@ export default function CheckinStaffPage() {
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={2200}
+        autoHideDuration={2500}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: "top", horizontal: "center" }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         <Alert
           severity={snackbar.success ? "success" : "error"}
+          variant="filled"
           onClose={() => setSnackbar({ ...snackbar, open: false })}
-          sx={{ fontWeight: 800, fontSize: 16 }}
+          sx={{ width: '100%', borderRadius: 3, fontWeight: 600, boxShadow: '0 8px 20px rgba(0,0,0,0.2)' }}
         >
           {snackbar.msg}
         </Alert>

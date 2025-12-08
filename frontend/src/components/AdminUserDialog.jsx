@@ -66,18 +66,18 @@ export default function AdminUserDialog({
     return Math.min(score, 100);
   }, [password, isEdit]);
 
-  const strengthLabel = pwdStrength >= 80 ? "แข็งแรงมาก"
-                      : pwdStrength >= 60 ? "แข็งแรง"
-                      : pwdStrength >= 40 ? "ปานกลาง"
-                      : pwdStrength > 0   ? "อ่อน"
+  const strengthLabel = pwdStrength >= 80 ? "Very Strong"
+                      : pwdStrength >= 60 ? "Strong"
+                      : pwdStrength >= 40 ? "Medium"
+                      : pwdStrength > 0   ? "Weak"
                       : "";
 
   const validate = () => {
     const e = {};
-    if (!username.trim()) e.username = "กรุณากรอก Username";
-    if (!email.trim()) e.email = "กรุณากรอก Email";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "รูปแบบอีเมลไม่ถูกต้อง";
-    if (!isEdit && !password) e.password = "กรุณากรอกรหัสผ่าน";
+    if (!username.trim()) e.username = "กรุณาระบุ Username";
+    if (!email.trim()) e.email = "กรุณาระบุ Email";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Email Format ไม่ถูกต้อง";
+    if (!isEdit && !password) e.password = "กรุณาระบุ Password";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -104,7 +104,7 @@ export default function AdminUserDialog({
         }
       }}
     >
-      {/* Header สวยงามพร้อมโลโก้ */}
+      {/* Header */}
       <DialogTitle
         sx={{
           py: 1.5,
@@ -120,14 +120,15 @@ export default function AdminUserDialog({
             sx={{ width: 44, height: 44, bgcolor: "#fff", border: `2px solid ${Y.border}` }}
           />
           <Box sx={{ flex: 1 }}>
+            {/* ปรับแก้: ใช้ภาษาอังกฤษ/ทับศัพท์ */}
             <Typography variant="h6" fontWeight={900} sx={{ color: Y.text, letterSpacing: .3 }}>
-              {isEdit ? "แก้ไขผู้ใช้" : "เพิ่มผู้ใช้ใหม่"}
+              {isEdit ? "Edit User" : "Add New User"}
             </Typography>
             <Typography variant="caption" sx={{ color: "#8b7a1a" }}>
-              ฟอร์มสำหรับ {isEdit ? "ปรับปรุงข้อมูลผู้ดูแล/เจ้าหน้าที่" : "สร้างบัญชีผู้ดูแล/เจ้าหน้าที่ใหม่"}
+              Form สำหรับ {isEdit ? "Update ข้อมูล Admin/Staff" : "Create Account Admin/Staff ใหม่"}
             </Typography>
           </Box>
-          <Tooltip title="ปิด">
+          <Tooltip title="Close">
             <IconButton onClick={onClose} size="small" sx={{ color: Y.text }}>
               <CloseIcon />
             </IconButton>
@@ -139,14 +140,16 @@ export default function AdminUserDialog({
         <Stack spacing={2}>
           <Stack direction="row" spacing={1} alignItems="center">
             <Chip
-              label={`สิทธิ์: ${roles.find(r => r.value === role)?.label || role}`}
+              label={`Role: ${roles.find(r => r.value === role)?.label || role}`}
               sx={{ bgcolor: Y.pale, border: `1px solid ${Y.border}`, color: Y.text, fontWeight: 800 }}
               size="small"
             />
             {isEdit ? (
-              <Chip label="โหมดแก้ไข" color="warning" size="small" />
+              // ปรับแก้: Edit Mode
+              <Chip label="Edit Mode" color="warning" size="small" />
             ) : (
-              <Chip label="โหมดเพิ่มใหม่" color="success" size="small" />
+              // ปรับแก้: Add Mode
+              <Chip label="Add Mode" color="success" size="small" />
             )}
           </Stack>
 
@@ -157,7 +160,7 @@ export default function AdminUserDialog({
             fullWidth
             autoFocus={!isEdit}
             error={!!errors.username}
-            helperText={errors.username || "ใช้สำหรับเข้าสู่ระบบ (แก้ไม่ได้ภายหลัง)"}
+            helperText={errors.username || "ใช้สำหรับ Login (แก้ไขไม่ได้)"}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -171,7 +174,8 @@ export default function AdminUserDialog({
           />
 
           <TextField
-            label="ชื่อ-สกุล"
+            // ปรับแก้: Full Name
+            label="Full Name"
             value={fullName}
             onChange={e => setFullName(e.target.value)}
             fullWidth
@@ -194,7 +198,7 @@ export default function AdminUserDialog({
             fullWidth
             margin="dense"
             error={!!errors.email}
-            helperText={errors.email || "ใช้รับการแจ้งเตือน/รีเซ็ตรหัสผ่าน"}
+            helperText={errors.email || "ใช้รับ Notification / Reset Password"}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -207,12 +211,13 @@ export default function AdminUserDialog({
 
           <TextField
             select
-            label="สิทธิ์"
+            // ปรับแก้: Role
+            label="Role"
             value={role}
             onChange={e => setRole(e.target.value)}
             fullWidth
             margin="dense"
-            helperText="เลือกบทบาทของผู้ใช้"
+            helperText="Select Role ของ User"
             sx={tfStyle}
           >
             {roles.map(option => (
@@ -225,7 +230,8 @@ export default function AdminUserDialog({
           {!isEdit ? (
             <>
               <TextField
-                label="รหัสผ่าน"
+                // ปรับแก้: Password
+                label="Password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 fullWidth
@@ -233,7 +239,8 @@ export default function AdminUserDialog({
                 type="password"
                 autoComplete="new-password"
                 error={!!errors.password}
-                helperText={errors.password || "อย่างน้อย 8 ตัวอักษร แนะนำให้มีตัวพิมพ์ใหญ่ ตัวเลข และอักขระพิเศษ"}
+                // ปรับแก้: คำแนะนำ Password แบบทับศัพท์
+                helperText={errors.password || "อย่างน้อย 8 characters แนะนำให้มี Uppercase, Number และ Special Character"}
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -253,16 +260,17 @@ export default function AdminUserDialog({
                       "& .MuiLinearProgress-bar": { bgcolor: Y.main }
                     }}
                   />
+                  {/* ปรับแก้: Password Strength */}
                   <Typography variant="caption" sx={{ color: Y.text, fontWeight: 700 }}>
-                    ความแข็งแรงรหัสผ่าน: {strengthLabel}
+                    Password Strength: {strengthLabel}
                   </Typography>
                 </Stack>
               )}
             </>
           ) : (
             <Typography sx={{ mt: 1.5, color: "text.secondary", fontSize: 14 }}>
-              ต้องการเปลี่ยนรหัสผ่าน? กดปุ่ม{" "}
-              <VpnKeyIcon fontSize="small" sx={{ verticalAlign: "middle" }} /> ในตารางผู้ใช้
+              ต้องการ Change Password? กดปุ่ม{" "}
+              <VpnKeyIcon fontSize="small" sx={{ verticalAlign: "middle" }} /> ในตาราง User List
             </Typography>
           )}
 
@@ -270,15 +278,16 @@ export default function AdminUserDialog({
 
           <Box sx={{ px: 1 }}>
             <Typography variant="caption" sx={{ color: "#8b7a1a" }}>
-              เคล็ดลับ: ใช้สิทธิ์ <b>Staff</b> สำหรับเจ้าหน้าที่ทั่วไป และ <b>Kiosk</b> สำหรับเครื่องลงทะเบียนหน้างาน
+              Tips: ใช้ Role <b>Staff</b> สำหรับเจ้าหน้าที่ทั่วไป และ <b>Kiosk</b> สำหรับจุด Registration หน้างาน
             </Typography>
           </Box>
         </Stack>
       </DialogContent>
 
       <DialogActions sx={{ p: 2, backgroundColor: "#fffefa", borderTop: `1px solid ${Y.border}` }}>
+        {/* ปรับแก้: ปุ่ม Cancel / Save */}
         <Button onClick={onClose} color="inherit" startIcon={<CloseIcon />}>
-          ยกเลิก
+          Cancel
         </Button>
         <Button
           onClick={handleSave}
@@ -286,7 +295,7 @@ export default function AdminUserDialog({
           startIcon={isEdit ? <SaveIcon /> : <PersonAddIcon />}
           sx={{ bgcolor: Y.main, color: "#3E2723", fontWeight: 900, ":hover": { bgcolor: Y.dark } }}
         >
-          {isEdit ? "บันทึก" : "เพิ่มผู้ใช้"}
+          {isEdit ? "Save" : "Add User"}
         </Button>
       </DialogActions>
     </Dialog>

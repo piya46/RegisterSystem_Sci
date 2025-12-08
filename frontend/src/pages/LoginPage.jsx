@@ -1,10 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 import {
   Box, Card, CardContent, Typography, TextField, Button,
-  CircularProgress, InputAdornment, IconButton, Checkbox,
-  FormControlLabel, Tooltip, Dialog, DialogContent, Stack
+  CircularProgress, InputAdornment, IconButton, Tooltip, 
+  Dialog, DialogContent, Stack
 } from "@mui/material";
 import { keyframes } from "@mui/system";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
@@ -13,7 +13,10 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import SecurityIcon from "@mui/icons-material/Security";
-import Turnstile, { executeTurnstile } from "../components/Turnstile";
+import ContactSupportIcon from '@mui/icons-material/ContactSupport';
+
+// Import Turnstile (ไม่ต้อง import executeTurnstile แล้ว)
+import Turnstile from "../components/Turnstile";
 
 // --- Animations ---
 const float1 = keyframes`0% { transform: translateY(0px) } 50% { transform: translateY(-16px) } 100% { transform: translateY(0px) }`;
@@ -23,19 +26,28 @@ const shake = keyframes`0%,100% { transform: translateX(0) } 20% { transform: tr
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const { login, user, loading } = useAuth();
-  const navigate = useNavigate();
-  const [error, setError] = useState(null);
+  
+  // State UI
   const [showPwd, setShowPwd] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [shakeOnError, setShakeOnError] = useState(false);
+  const [error, setError] = useState(null);
+  
+  // Dialog States
+  const [securityErrorOpen, setSecurityErrorOpen] = useState(false);
+  const [forgotPwdOpen, setForgotPwdOpen] = useState(false);
 
-  // Turnstile State
+  // Turnstile & Login Logic
   const [cfToken, setCfToken] = useState("");
   const [pendingLogin, setPendingLogin] = useState(false);
-  const [securityErrorOpen, setSecurityErrorOpen] = useState(false);
+  
+  // Ref สำหรับควบคุม Turnstile
+  const turnstileRef = useRef(null);
 
+  const { login, user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
       navigate("/dashboard");
@@ -45,41 +57,56 @@ export default function LoginPage() {
   // Trigger Login when Token is ready
   useEffect(() => {
     const doLogin = async () => {
-      if (!pendingLogin || !cfToken) return;
+      // เงื่อนไข: ต้องมี token และข้อมูลครบ
+      if (!pendingLogin || !cfToken || !username || !password) return;
       
       setError(null);
       setShakeOnError(false);
+      
       try {
         await login(username.trim(), password, cfToken);
       } catch (err) {
-        const msg = err?.response?.data?.message || err?.response?.data?.error || "เข้าสู่ระบบไม่สำเร็จ";
+        const res = err?.response?.data;
+        const rawMsg = res?.message || res?.error || "Login Failed";
         
-        // ตรวจสอบว่าเป็น Error จาก Security หรือไม่
-        if (msg.includes("Security") || msg.includes("Turnstile")) {
+        // ตรวจสอบว่าเป็น Bot Error หรือไม่
+        const isBotError = 
+            rawMsg.toLowerCase().includes("turnstile") || 
+            rawMsg.toLowerCase().includes("captcha") ||
+            (rawMsg.toLowerCase().includes("security") && !rawMsg.includes("credential"));
+
+        if (isBotError) {
            setSecurityErrorOpen(true);
         } else {
-           setError(msg);
+           setError("Username or Password incorrect"); // ใช้ข้อความกลางๆ
            setShakeOnError(true);
            setTimeout(() => setShakeOnError(false), 500);
         }
 
-        // Reset Turnstile อัตโนมัติ
-        if (window.turnstile) {
-            try { window.turnstile.reset(); } catch {}
-        }
+        // Reset Turnstile ผ่าน Ref เพื่อให้ลองใหม่ได้
+        turnstileRef.current?.reset();
         setCfToken("");
+        
       } finally {
         setPendingLogin(false);
       }
     };
+
     doLogin();
-    // eslint-disable-next-line
-  }, [cfToken, pendingLogin]);
+  }, [cfToken, pendingLogin, username, password, login]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!username || !password) {
+        setError("Please enter username and password");
+        setShakeOnError(true);
+        setTimeout(() => setShakeOnError(false), 500);
+        return;
+    }
     setPendingLogin(true);
-    executeTurnstile(); // เริ่มกระบวนการตรวจสอบ Human
+    
+    // สั่ง Execute ผ่าน Ref
+    turnstileRef.current?.execute();
   };
 
   return (
@@ -115,7 +142,7 @@ export default function LoginPage() {
               Management Login
             </Typography>
             <Typography sx={{ mt: 0.5, color: "#7a5b00", fontWeight: 600 }}>
-              เข้าสู่ระบบเพื่อจัดการงานอีเวนต์
+              Sign in to manage events
             </Typography>
           </Box>
 
@@ -138,7 +165,11 @@ export default function LoginPage() {
                 startAdornment: (<InputAdornment position="start"><LockOutlinedIcon sx={{ color: "#fbc02d" }} /></InputAdornment>),
                 endAdornment: (
                   <InputAdornment position="end">
-                    <IconButton onClick={() => setShowPwd((v) => !v)} edge="end">
+                    <IconButton 
+                        onClick={() => setShowPwd((v) => !v)} 
+                        edge="end"
+                        aria-label={showPwd ? "Hide password" : "Show password"}
+                    >
                       {showPwd ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
                   </InputAdornment>
@@ -151,9 +182,9 @@ export default function LoginPage() {
             {(capsLock || error) && (
               <Box sx={{ mt: 1, mb: 1 }}>
                 {capsLock && (
-                  <Tooltip title="ปิด Caps Lock เพื่อหลีกเลี่ยงการพิมพ์ผิด">
+                  <Tooltip title="Caps Lock is ON">
                     <Typography sx={{ display: "flex", alignItems: "center", gap: 0.7, color: "#b26a00", fontWeight: 700 }} variant="body2">
-                      <WarningAmberRoundedIcon fontSize="small" /> Caps Lock เปิดอยู่
+                      <WarningAmberRoundedIcon fontSize="small" /> Caps Lock is ON
                     </Typography>
                   </Tooltip>
                 )}
@@ -161,13 +192,25 @@ export default function LoginPage() {
               </Box>
             )}
 
-            <Box sx={{ mt: 1, mb: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <FormControlLabel control={<Checkbox checked={remember} onChange={(e) => setRemember(e.target.checked)} sx={{ color: "#fbc02d", "&.Mui-checked": { color: "#f57f17" } }} />} label="จดจำการเข้าสู่ระบบ" sx={{ userSelect: "none" }} />
-              <Button type="button" size="small" sx={{ textTransform: "none", color: "#7a5b00", fontWeight: 700, "&:hover": { textDecoration: "underline" } }} onClick={() => alert("โปรดติดต่อผู้ดูแลระบบ")}>ลืมรหัสผ่าน?</Button>
+            <Box sx={{ mt: 1, mb: 1, display: "flex", justifyContent: "flex-end" }}>
+              <Button 
+                type="button" 
+                size="small" 
+                onClick={() => setForgotPwdOpen(true)}
+                sx={{ textTransform: "none", color: "#7a5b00", fontWeight: 700, "&:hover": { textDecoration: "underline", bgcolor: 'transparent' } }} 
+              >
+                Forgot Password?
+              </Button>
             </Box>
 
-            {/* Invisible Turnstile Widget */}
-            <Turnstile invisible onVerify={(t) => setCfToken(t)} onError={() => { setPendingLogin(false); setError("Security check failed"); }} options={{ action: "login" }} />
+            {/* Invisible Turnstile Widget WITH REF */}
+            <Turnstile 
+                ref={turnstileRef} 
+                invisible 
+                onVerify={(t) => setCfToken(t)} 
+                onError={() => { setPendingLogin(false); setError("Security check failed"); }} 
+                options={{ action: "login" }} 
+            />
 
             <Button
               type="submit" fullWidth size="large" variant="contained"
@@ -186,16 +229,11 @@ export default function LoginPage() {
         </CardContent>
       </Card>
 
-      {/* Security Error Dialog (Modern Cloudflare Style) */}
+      {/* Security Error Dialog */}
       <Dialog
         open={securityErrorOpen}
         onClose={() => setSecurityErrorOpen(false)}
-        PaperProps={{
-          sx: {
-            borderRadius: 4, p: 2, maxWidth: 360, textAlign: 'center',
-            borderTop: '6px solid #FF3B30' // Red top accent
-          }
-        }}
+        PaperProps={{ sx: { borderRadius: 4, p: 2, maxWidth: 360, textAlign: 'center', borderTop: '6px solid #FF3B30' } }}
       >
         <DialogContent>
           <Stack alignItems="center" spacing={2}>
@@ -203,26 +241,51 @@ export default function LoginPage() {
               <SecurityIcon sx={{ fontSize: 36, color: '#D32F2F' }} />
             </Box>
             <Box>
-              <Typography variant="h6" fontWeight={800} color="#D32F2F" gutterBottom>
-                Verification Failed
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
-                ระบบไม่สามารถยืนยันตัวตนของคุณได้ในขณะนี้ (Security Check)
-              </Typography>
-              <Typography variant="caption" display="block" sx={{ mt: 1.5, color: '#757575', bgcolor: '#f5f5f5', py: 0.5, px: 1, borderRadius: 1 }}>
-                Please verify you are a human.
-              </Typography>
+              <Typography variant="h6" fontWeight={800} color="#D32F2F" gutterBottom>Verification Failed</Typography>
+              <Typography variant="body2" color="text.secondary">System cannot verify your identity (Cloudflare Check Failed)</Typography>
             </Box>
-            <Button 
-              variant="contained" color="error" fullWidth 
-              onClick={() => setSecurityErrorOpen(false)}
-              sx={{ borderRadius: 2, fontWeight: 700, mt: 1, boxShadow: 'none' }}
-            >
-              ตกลง
-            </Button>
+            <Button variant="contained" color="error" fullWidth onClick={() => setSecurityErrorOpen(false)} sx={{ borderRadius: 2, fontWeight: 700, mt: 1 }}>OK</Button>
           </Stack>
         </DialogContent>
       </Dialog>
+
+      {/* Forgot Password Dialog */}
+      <Dialog
+        open={forgotPwdOpen}
+        onClose={() => setForgotPwdOpen(false)}
+        PaperProps={{ sx: { borderRadius: 4, maxWidth: 400 } }}
+      >
+         <DialogContent sx={{ textAlign: 'center', p: 4 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+                <Box sx={{ p: 2, bgcolor: '#fff8e1', borderRadius: '50%' }}>
+                    <ContactSupportIcon sx={{ fontSize: 40, color: '#fbc02d' }} />
+                </Box>
+            </Box>
+            <Typography variant="h6" fontWeight="bold" gutterBottom color="#333">
+                Forgot Password?
+            </Typography>
+            <Typography color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
+                Please contact System Admin or IT Support to reset your password.
+            </Typography>
+            
+            <Box sx={{ bgcolor: '#f5f5f5', p: 2, borderRadius: 3, border: '1px dashed #bdbdbd' }}>
+                <Typography variant="subtitle2" color="text.secondary">Support Contact</Typography>
+                <Typography variant="h6" color="primary.main" fontWeight="bold">
+                   Email: piyaton56@gmail.com (IT)
+                </Typography>
+            </Box>
+
+            <Button 
+                onClick={() => setForgotPwdOpen(false)} 
+                fullWidth 
+                variant="outlined" 
+                sx={{ mt: 3, borderRadius: 2, fontWeight: 700, color: '#666', borderColor: '#ddd' }}
+            >
+                Close
+            </Button>
+         </DialogContent>
+      </Dialog>
+
     </Box>
   );
 }

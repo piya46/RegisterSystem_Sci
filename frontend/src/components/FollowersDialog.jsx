@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Button, Typography, Stack, InputAdornment
+  TextField, Button, Typography, Stack, IconButton, Box, Chip, Divider
 } from "@mui/material";
 import GroupIcon from "@mui/icons-material/Groups";
+import AddCircleIcon from "@mui/icons-material/AddCircle";
+import RemoveCircleIcon from "@mui/icons-material/RemoveCircle";
+import PersonIcon from "@mui/icons-material/Person";
 
+// ฟังก์ชันจำกัดค่า (Helper)
 function clampInt(v, min = 0, max = 50) {
   const n = Number.parseInt(String(v ?? "").trim(), 10);
   if (Number.isNaN(n)) return min;
@@ -12,130 +16,145 @@ function clampInt(v, min = 0, max = 50) {
 }
 
 export default function FollowersDialog({ open, onClose, onConfirm }) {
-  // เก็บเป็น string เพื่อควบคุม input ได้ดี (รวมถึงค่าว่าง "")
   const [value, setValue] = useState("0");
   const inputRef = useRef(null);
-  const focusTimer = useRef(null);
 
-  // รีเซ็ตเมื่อเปิดใหม่ และโฟกัสช่องกรอก
+  // เมื่อเปิด Dialog ให้รีเซ็ตค่า
   useEffect(() => {
     if (open) {
       setValue("0");
-      // โฟกัสหลัง render เสร็จ
-      focusTimer.current = setTimeout(() => {
+      setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
-      }, 200);
+      }, 100);
     }
-    return () => {
-      if (focusTimer.current) {
-        clearTimeout(focusTimer.current);
-        focusTimer.current = null;
-      }
-    };
   }, [open]);
 
+  // ฟังก์ชันยืนยัน
   const handleConfirm = () => {
     const n = clampInt(value);
     onConfirm?.(n);
     setValue("0");
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleConfirm();
+  // ปุ่ม +/-
+  const handleAdjust = (delta) => {
+    const current = clampInt(value);
+    const next = clampInt(current + delta);
+    setValue(String(next));
+  };
+
+  // ปุ่มลัดเลือกจำนวน
+  const handleQuickSelect = (num) => {
+    setValue(String(num));
+    inputRef.current?.focus();
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle
-        sx={{
-          textAlign: "center",
-          pb: 1.5,
-          color: "#6d38b6",
-          fontWeight: 700,
-          letterSpacing: 0.5,
-          fontSize: 22
-        }}
-      >
-        <GroupIcon sx={{ mr: 1, fontSize: 26, mb: "-5px" }} color="primary" />
-        จำนวนผู้ติดตาม
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      maxWidth="xs" 
+      fullWidth
+      PaperProps={{
+        sx: { borderRadius: 4, padding: 1 } // เพิ่มความโค้งมน
+      }}
+    >
+      <DialogTitle sx={{ textAlign: "center", pt: 3, pb: 1 }}>
+        <Stack direction="column" alignItems="center" spacing={1}>
+          <Box sx={{ bgcolor: "#e3f2fd", p: 1.5, borderRadius: "50%" }}>
+            <GroupIcon sx={{ fontSize: 32, color: "#1976d2" }} />
+          </Box>
+          <Typography variant="h6" fontWeight={800} color="#333">
+            ระบุจำนวนผู้ติดตาม
+          </Typography>
+        </Stack>
       </DialogTitle>
 
       <DialogContent>
-        <Stack spacing={2} alignItems="center" sx={{ mt: 1 }}>
-          <Typography
-            color="text.secondary"
-            fontWeight={500}
-            sx={{ fontSize: 16, mb: 1, textAlign: "center" }}
+        <Typography variant="body2" color="text.secondary" align="center" mb={3}>
+          รวมเพื่อนหรือผู้ติดตามที่มาด้วยกัน (ไม่รวมตัวผู้ลงทะเบียน)
+        </Typography>
+
+        {/* ส่วนปุ่ม +/- และ Input */}
+        <Stack direction="row" alignItems="center" justifyContent="center" spacing={2} mb={3}>
+          <IconButton 
+            onClick={() => handleAdjust(-1)} 
+            color="error" 
+            disabled={clampInt(value) <= 0}
+            sx={{ transform: 'scale(1.2)' }}
           >
-            หากผู้เข้าร่วมมีเพื่อนหรือผู้ติดตามมาด้วย ให้กรอกจำนวนคนไว้ที่นี่
-          </Typography>
+            <RemoveCircleIcon fontSize="large" />
+          </IconButton>
 
           <TextField
-            type="number"
-            label="กรอกจำนวนผู้ติดตาม"
+            inputRef={inputRef}
             value={value}
             onChange={(e) => {
-              // อนุญาตค่าว่างเพื่อให้ลบได้ แต่จะ clamp ตอนยืนยัน
-              const next = e.target.value;
-              // กันใส่ทศนิยม: ตัดทุกอย่างให้เหลือเฉพาะเครื่องหมายลบตัวแรกและตัวเลข
-              const sanitized = next.replace(/[^\d-]/g, "");
-              setValue(sanitized);
+              // รับเฉพาะตัวเลขเท่านั้น (ตัดตัวอักษรและเครื่องหมายลบ)
+              const val = e.target.value.replace(/\D/g, ""); 
+              setValue(val);
             }}
-            onKeyDown={(e) => {
-              // กัน scroll เปลี่ยนค่าเวลาโฟกัสอยู่ที่ input
-              if (e.key === "Enter") handleConfirm();
-            }}
-            onWheel={(e) => e.currentTarget.blur()}
-            inputRef={inputRef}
+            onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
             inputProps={{
-              min: 0,
-              max: 50,
-              step: 1,
               inputMode: "numeric",
-              style: { textAlign: "center", fontSize: 20 }
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <GroupIcon color="secondary" />
-                </InputAdornment>
-              ),
-            }}
-            fullWidth
-            variant="outlined"
-            sx={{
-              "& .MuiInputBase-root": {
-                borderRadius: 2,
-                bgcolor: "#f6f2ff",
-                fontWeight: 700
+              style: { 
+                textAlign: "center", 
+                fontSize: 32, 
+                fontWeight: "bold",
+                padding: "8px" 
               }
             }}
-            aria-label="จำนวนผู้ติดตาม (คน)"
+            variant="standard" // แบบขีดเส้นใต้ ดูสะอาดตา
+            sx={{ width: 80 }}
           />
+
+          <IconButton 
+            onClick={() => handleAdjust(1)} 
+            color="primary"
+            disabled={clampInt(value) >= 50}
+            sx={{ transform: 'scale(1.2)' }}
+          >
+            <AddCircleIcon fontSize="large" />
+          </IconButton>
+        </Stack>
+        
+        <Divider sx={{ mb: 2 }}>
+            <Chip label="เลือกจำนวนด่วน" size="small" sx={{ bgcolor: '#fff', color: '#999' }} />
+        </Divider>
+
+        {/* ปุ่มเลือกจำนวนด่วน */}
+        <Stack direction="row" spacing={1} justifyContent="center">
+          {[0, 1, 2, 3].map((num) => (
+            <Chip
+              key={num}
+              label={num === 0 ? "ไม่มี" : `${num} คน`}
+              onClick={() => handleQuickSelect(num)}
+              icon={num > 0 ? <PersonIcon /> : undefined}
+              color={String(num) === value ? "primary" : "default"}
+              variant={String(num) === value ? "filled" : "outlined"}
+              clickable
+              sx={{ fontWeight: 500, px: 1 }}
+            />
+          ))}
         </Stack>
       </DialogContent>
 
-      <DialogActions sx={{ pb: 2, px: 3, justifyContent: "center" }}>
+      <DialogActions sx={{ pb: 3, px: 3, justifyContent: "space-between" }}>
         <Button
-          onClick={() => {
-            setValue("0");
-            onClose?.();
-          }}
-          color="secondary"
-          variant="outlined"
-          sx={{ fontWeight: 600, px: 3, borderRadius: 2 }}
+          onClick={onClose}
+          color="inherit"
+          sx={{ borderRadius: 2, px: 3, color: "text.secondary" }}
         >
           ยกเลิก
         </Button>
         <Button
           onClick={handleConfirm}
           variant="contained"
-          color="primary"
-          sx={{ fontWeight: 700, px: 4, borderRadius: 2 }}
-          disabled={clampInt(value) < 0}
+          size="large"
+          sx={{ borderRadius: 2, px: 4, boxShadow: 2 }}
         >
-          ตกลง
+          ยืนยัน ({value} คน)
         </Button>
       </DialogActions>
     </Dialog>
