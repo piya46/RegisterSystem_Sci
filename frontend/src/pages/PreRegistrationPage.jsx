@@ -693,7 +693,7 @@ export default function PreRegistrationPage() {
                             <MenuItem key={opt.value} value={opt.value} sx={{ whiteSpace: 'normal', py: 1.5 }}>
                                 <Box>
                                     <Typography variant="subtitle2" fontWeight="bold" color="secondary.main">
-                                        รูปแบบสนับสนุนแบบที่ {opt.value.replace('package_', '')} : {opt.price.toLocaleString()} บาท
+                                        รูปแบบสนับสนุนแบบที่ {opt.value.replace('package_', '')} : {opt.price.toLocaleString()} บาท ของที่ระลึกสามารถรับได้ที่หน้างาน ณ จุดลงทะเบียนเข้าร่วมงาน ในวันที่ 21 กุมภาพันธ์ 2569
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
                                         {opt.label}
