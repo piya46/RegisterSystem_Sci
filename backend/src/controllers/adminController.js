@@ -228,12 +228,12 @@ exports.uploadAvatar = async (req, res) => {
     if (!admin) return res.status(404).json({ error: "User not found" });
 
     // ลบรูปเก่า (ถ้ามี)
-    if (admin.avatarUrl) { // [แก้ไข] ใช้ avatarUrl ให้ตรงกับ Schema
-      const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
-      if (fs.existsSync(oldPath)) {
+    if (admin.avatarUrl) {
+    const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
+    if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
-      }
     }
+}
 
     // [แก้ไข] บันทึกชื่อไฟล์ลง field avatarUrl
     admin.avatarUrl = req.file.filename;
