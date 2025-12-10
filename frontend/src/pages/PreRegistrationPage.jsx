@@ -767,7 +767,7 @@ export default function PreRegistrationPage() {
                                 startAdornment: <InputAdornment position="start">฿</InputAdornment>,
                                 sx: { fontSize: '1.2rem', fontWeight: 'bold' } 
                             }}
-                            helperText={wantPackage ? "กรุณาตรวจสอบยอดเงินให้ตรงกับ Package" : ""}
+                            helperText={wantPackage ? "" : ""}
                         />
                     </Grid>
                     <Grid item xs={6}>
