@@ -450,7 +450,7 @@ export default function PreRegistrationPage() {
               ลงทะเบียนสำเร็จ!
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึก E-Ticket ด้านล่างเพื่อใช้เข้างาน
+              ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึกบัตรเข้าร่วมงานด้านล่างเพื่อใช้เข้างาน
             </Typography>
           </Box>
 
@@ -486,7 +486,7 @@ export default function PreRegistrationPage() {
                  <Box display="flex" alignItems="center" gap={1.5}>
                     <ConfirmationNumberIcon sx={{ color: '#FFD700', fontSize: 32 }} />
                     <Typography variant="h6" fontWeight="bold" sx={{ letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                      E-TICKET
+                      บัตรเข้าร่วมงาน
                     </Typography>
                  </Box>
                   <Typography variant="caption" sx={{ opacity: 0.8, fontFamily: 'monospace', fontSize: '0.9rem' }}>
@@ -543,7 +543,7 @@ export default function PreRegistrationPage() {
                              <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}>
                                 <ApartmentIcon fontSize="small" color="action"/>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary">หน่วยงาน/ภาควิชา</Typography>
+                                    <Typography variant="caption" color="text.secondary">ภาควิชา</Typography>
                                     <Typography variant="body2" fontWeight="bold">
                                       {pickField(registeredParticipant, ["dept", "department"])}
                                     </Typography>
