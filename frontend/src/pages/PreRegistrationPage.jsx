@@ -8,7 +8,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton
 } from "@mui/material";
 
-// Icons เดิม (คงไว้ครบ)
+// Icons
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -26,8 +26,10 @@ import FactCheckIcon from '@mui/icons-material/FactCheck';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import AccessibleIcon from '@mui/icons-material/Accessible';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
-// Icons ใหม่สำหรับ Ticket และตัวเลือกความช่วยเหลือ
+// Icons ใหม่สำหรับ Ticket
 import PersonIcon from '@mui/icons-material/Person';
 import BadgeIcon from '@mui/icons-material/Badge';
 import ApartmentIcon from '@mui/icons-material/Apartment';
@@ -38,16 +40,15 @@ import WheelchairPickupIcon from '@mui/icons-material/WheelchairPickup';
 // Libraries
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
 import { listParticipantFields, createParticipant, createDonation } from "../utils/api";
 import dayjs from "dayjs";
 import Turnstile from "../components/Turnstile";
 
-// Animation & Effects (ของใหม่)
+// Animation & Effects
 import Confetti from 'react-confetti';
 import { motion } from 'framer-motion';
 
-// --- Configuration Constants (คงเดิม) ---
+// --- Configuration Constants ---
 const PACKAGE_OPTIONS = [
   { price: 2000, value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
   { price: 2000, value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
@@ -56,7 +57,7 @@ const PACKAGE_OPTIONS = [
 ];
 const SIZE_OPTIONS = ["SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL","6XL","7XL"];
 
-// ตัวเลือกความช่วยเหลือพิเศษ (Quick Options - ของใหม่)
+// ตัวเลือกความช่วยเหลือพิเศษ
 const ASSISTANCE_TAGS = [
     { label: "ใช้วีลแชร์/รถเข็น", icon: <WheelchairPickupIcon fontSize="small"/> },
     { label: "ไม้เท้าพยุงเดิน", icon: <AccessibleIcon fontSize="small"/> },
@@ -66,7 +67,7 @@ const ASSISTANCE_TAGS = [
     { label: "แพ้ถั่ว", icon: <WarningIcon fontSize="small"/> }
 ];
 
-// ข้อมูลตารางไซส์ (คงเดิม)
+// ข้อมูลตารางไซส์
 const SIZE_CHART_DATA = [
   { size: "SS", chest: 34, length: 23 },
   { size: "S",  chest: 36, length: 24 },
@@ -97,7 +98,7 @@ const MourningRibbon = () => (
   </Box>
 );
 
-// Component แสดงตารางไซส์ (แบบ Inline)
+// Component แสดงตารางไซส์
 const SizeChart = () => (
   <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, bgcolor: "#fff", maxWidth: 400 }}>
     <Table size="small" sx={{ "& .MuiTableCell-root": { px: 1, py: 0.5, fontSize: "0.9rem" } }}>
@@ -150,14 +151,14 @@ export default function PreRegistrationPage() {
   const [wantToDonate, setWantToDonate] = useState(false);
   const [donationAmount, setDonationAmount] = useState("");
   const [donationDate, setDonationDate] = useState(dayjs().format("YYYY-MM-DD"));
-  const [donationTime, setDonationTime] = useState(dayjs().format("HH:mm"));
+  const [donationTime, setDonationTime] = useState("");
 
   // Package Donation States
   const [wantPackage, setWantPackage] = useState(false);
   const [packageType, setPackageType] = useState("");
   const [packageSize, setPackageSize] = useState("");
 
-  // Special Assistance State (ปรับปรุงใหม่)
+  // Special Assistance State
   const [specialAssistance, setSpecialAssistance] = useState("");
   const [selectedAssistTags, setSelectedAssistTags] = useState([]);
 
@@ -222,7 +223,6 @@ export default function PreRegistrationPage() {
     setForm((f) => ({ ...f, [name]: value }));
   };
 
-  // จัดการ Toggle ปุ่มความช่วยเหลือพิเศษ
   const handleAssistTagToggle = (label) => {
     if (selectedAssistTags.includes(label)) {
         setSelectedAssistTags(prev => prev.filter(t => t !== label));
@@ -237,12 +237,19 @@ export default function PreRegistrationPage() {
   };
 
   const handlePackageChange = (e) => {
-    const selectedLabel = e.target.value;
-    setPackageType(selectedLabel);
+    const val = e.target.value;
+    setPackageType(val); // เก็บ value (เช่น general, package_A)
 
-    const foundPkg = PACKAGE_OPTIONS.find(p => p.label === selectedLabel);
-    if (foundPkg) {
-      setDonationAmount(foundPkg.price);
+    if (val === 'general') {
+        setWantPackage(false);
+        setPackageSize("");
+        // ไม่ Reset ยอดเงิน เพื่อให้ผู้ใช้กรอกเองได้สะดวก
+    } else {
+        const foundPkg = PACKAGE_OPTIONS.find(p => p.value === val);
+        if (foundPkg) {
+            setWantPackage(true);
+            setDonationAmount(foundPkg.price);
+        }
     }
   };
 
@@ -284,9 +291,26 @@ export default function PreRegistrationPage() {
         setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
         return;
       }
+      
+      if (!packageType) {
+         setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาเลือกรูปแบบการสนับสนุน (รับของที่ระลึก หรือ บริจาคทั่วไป)" });
+         return;
+      }
+
       if (wantPackage) {
-        if (!packageType || !packageSize) {
-           setErrorDialog({ open: true, type: "warning", title: "ข้อมูลแพ็กเกจไม่ครบ", msg: "กรุณาเลือกรูปแบบแพ็กเกจและขนาดเสื้อ" });
+        if (!packageSize) {
+           setErrorDialog({ open: true, type: "warning", title: "ข้อมูลแพ็กเกจไม่ครบ", msg: "กรุณาเลือกขนาดเสื้อ" });
+           return;
+        }
+        
+        const selectedPkg = PACKAGE_OPTIONS.find(p => p.value === packageType);
+        if (selectedPkg && parseFloat(donationAmount) < selectedPkg.price) {
+           setErrorDialog({ 
+             open: true, 
+             type: "warning", 
+             title: "ยอดเงินไม่เพียงพอ", 
+             msg: `แพ็กเกจที่ท่านเลือกมียอดสนับสนุนขั้นต่ำ ${selectedPkg.price.toLocaleString()} บาท กรุณาตรวจสอบยอดเงิน` 
+           });
            return;
         }
       }
@@ -317,7 +341,6 @@ export default function PreRegistrationPage() {
           finalForm['usr_add_post'] = "-";
         }
 
-        // รวมข้อมูลความช่วยเหลือพิเศษ (Tags + Text) เป็น String เดียว
         const combinedAssistance = [
             ...selectedAssistTags,
             specialAssistance.trim()
@@ -340,8 +363,14 @@ export default function PreRegistrationPage() {
                 const nameParts = fullName.trim().split(" ");
                 const firstName = nameParts[0] || "-";
                 const lastName = nameParts.slice(1).join(" ") || "-";
-                const transferDateTime = new Date(`${donationDate}T${donationTime}`);
+                const transferDateTime = new Date(`${donationDate}T${donationTime || '00:00'}`);
     
+                let finalPackageType = "";
+                if (wantPackage) {
+                    const pkgObj = PACKAGE_OPTIONS.find(p => p.value === packageType);
+                    finalPackageType = pkgObj ? pkgObj.label : packageType;
+                }
+
                 await createDonation({
                   userId: null,
                   firstName,
@@ -350,7 +379,7 @@ export default function PreRegistrationPage() {
                   transferDateTime,
                   source: "PRE_REGISTER",
                   isPackage: wantPackage,
-                  packageType: wantPackage ? packageType : "",
+                  packageType: finalPackageType,
                   size: wantPackage ? packageSize : ""
                 });
                 successMessage += " และบันทึกข้อมูลการสนับสนุนเรียบร้อยแล้ว";
@@ -363,7 +392,6 @@ export default function PreRegistrationPage() {
         setResult({ success: true, message: successMessage });
         setRegisteredParticipant(participant.data || participant);
         
-        // Reset Form
         setForm({});
         setBringFollowers(false);
         setFollowersCount(0);
@@ -372,6 +400,7 @@ export default function PreRegistrationPage() {
         setPackageType("");
         setPackageSize("");
         setDonationAmount("");
+        setDonationTime("");
         setSpecialAssistance("");
         setSelectedAssistTags([]);
         setMembershipOption(null);
@@ -410,6 +439,7 @@ export default function PreRegistrationPage() {
     setPackageType("");
     setPackageSize("");
     setDonationAmount("");
+    setDonationTime(""); 
     setSpecialAssistance("");
     setSelectedAssistTags([]);
     setMembershipOption(null);
@@ -419,178 +449,60 @@ export default function PreRegistrationPage() {
 
   function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return "-"; }
 
-  // ==========================================
-  // ส่วนแสดงผลเมื่อลงทะเบียนสำเร็จ (Ticket Preview) - ใหม่
-  // ==========================================
   if (registeredParticipant) {
-    return (
+     return (
       <Box sx={{ minHeight: "100vh", bgcolor: "#f8f9fa", position: 'relative', overflowX: 'hidden' }}>
         <MourningRibbon />
-        
-        {/* ลูกเล่น Confetti */}
-        <Confetti
-          width={window.innerWidth}
-          height={window.innerHeight}
-          recycle={false}
-          numberOfPieces={350}
-          gravity={0.15}
-        />
-
+        <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={350} gravity={0.15} />
         <Container maxWidth="sm" sx={{ mt: 6, mb: 8, position: 'relative', zIndex: 10 }}>
-           {/* Header ข้อความสำเร็จ */}
           <Box textAlign="center" mb={4}>
-             <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring", stiffness: 260, damping: 20 }}
-             >
+             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
                <CheckCircleIcon color="success" sx={{ fontSize: 72, mb: 1, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
              </motion.div>
-            <Typography variant="h4" gutterBottom fontWeight="900" color="primary.main" sx={{ letterSpacing: 0.5 }}>
-              ลงทะเบียนสำเร็จ!
-            </Typography>
-            <Typography variant="body1" color="text.secondary">
-              ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึกบัตรเข้าร่วมงานด้านล่างเพื่อใช้เข้างาน
-            </Typography>
+            <Typography variant="h4" gutterBottom fontWeight="900" color="primary.main" sx={{ letterSpacing: 0.5 }}>ลงทะเบียนสำเร็จ!</Typography>
+            <Typography variant="body1" color="text.secondary">ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึกบัตรเข้าร่วมงานด้านล่างเพื่อใช้เข้างาน</Typography>
           </Box>
-
-          {/* Ticket Card Animation */}
-          <motion.div
-            initial={{ opacity: 0, y: 50 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            whileHover={{ y: -8, transition: { duration: 0.2 } }}
-            style={{ perspective: 1000 }}
-          >
-            <Card
-              ref={ticketRef} 
-              elevation={8}
-              sx={{
-                borderRadius: 4,
-                overflow: 'hidden',
-                background: '#fff',
-                position: 'relative',
-                backgroundImage: 'radial-gradient(circle at 10% 20%, rgba(239, 246, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 90%)',
-              }}
-            >
-              {/* ส่วนหัวบัตร Theme สีน้ำเงิน/ทอง */}
-              <Box sx={{
-                background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
-                color: 'white',
-                p: 2.5,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderBottom: '4px solid #FFD700'
-              }}>
-                 <Box display="flex" alignItems="center" gap={1.5}>
-                    <ConfirmationNumberIcon sx={{ color: '#FFD700', fontSize: 32 }} />
-                    <Typography variant="h6" fontWeight="bold" sx={{ letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                      บัตรเข้าร่วมงาน
-                    </Typography>
-                 </Box>
-                  <Typography variant="caption" sx={{ opacity: 0.8, fontFamily: 'monospace', fontSize: '0.9rem' }}>
-                     #{registeredParticipant?.qrCode?.slice(0,8) || "REF-ID"}
-                  </Typography>
+          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }} whileHover={{ y: -8, transition: { duration: 0.2 } }} style={{ perspective: 1000 }}>
+            <Card ref={ticketRef} elevation={8} sx={{ borderRadius: 4, overflow: 'hidden', background: '#fff', position: 'relative', backgroundImage: 'radial-gradient(circle at 10% 20%, rgba(239, 246, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 90%)' }}>
+              <Box sx={{ background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', color: 'white', p: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '4px solid #FFD700' }}>
+                 <Box display="flex" alignItems="center" gap={1.5}><ConfirmationNumberIcon sx={{ color: '#FFD700', fontSize: 32 }} /><Typography variant="h6" fontWeight="bold" sx={{ letterSpacing: 1.5, textTransform: 'uppercase' }}>บัตรเข้าร่วมงาน</Typography></Box>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontFamily: 'monospace', fontSize: '0.9rem' }}>#{registeredParticipant?.qrCode?.slice(0,8) || "REF-ID"}</Typography>
               </Box>
-
               <CardContent sx={{ p: 3 }}>
                 <Grid container spacing={2} alignItems="center">
-                  {/* ฝั่งซ้าย: QR Code */}
                   <Grid item xs={12} sm={5} display="flex" flexDirection="column" alignItems="center" justifyContent="center">
-                     <Box sx={{
-                        p: 2,
-                        bgcolor: 'white',
-                        borderRadius: 3,
-                        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-                        border: '1px solid #e0e0e0'
-                     }}>
-                        <QRCodeSVG
-                          value={registeredParticipant?.qrCode || registeredParticipant?._id || "no-code"}
-                          size={140}
-                          level={"H"}
-                          includeMargin={true}
-                        />
+                     <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', border: '1px solid #e0e0e0' }}>
+                        <QRCodeSVG value={registeredParticipant?.qrCode || registeredParticipant?._id || "no-code"} size={140} level={"H"} includeMargin={true} />
                      </Box>
-                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, fontWeight: 500 }}>
-                        สแกน QR Code นี้หน้างาน
-                     </Typography>
+                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, fontWeight: 500 }}>สแกน QR Code นี้หน้างาน</Typography>
                   </Grid>
-
-                   {/* ฝั่งขวา: รายละเอียดผู้เข้าร่วม */}
                   <Grid item xs={12} sm={7}>
                      <Box ml={{ sm: 1 }} textAlign={{ xs: 'center', sm: 'left' }}>
-                        <Typography variant="subtitle2" color="text.secondary" gutterBottom display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={0.5}>
-                          <PersonIcon fontSize="small" color="primary" /> ชื่อผู้เข้าร่วม
-                        </Typography>
-                        <Typography variant="h5" fontWeight="800" color="text.primary" gutterBottom sx={{ mb: 2, lineHeight: 1.2 }}>
-                          {pickField(registeredParticipant, ["name", "fullName", "fullname"])}
-                        </Typography>
-
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={0.5}><PersonIcon fontSize="small" color="primary" /> ชื่อผู้เข้าร่วม</Typography>
+                        <Typography variant="h5" fontWeight="800" color="text.primary" gutterBottom sx={{ mb: 2, lineHeight: 1.2 }}>{pickField(registeredParticipant, ["name", "fullName", "fullname"])}</Typography>
                         <Divider sx={{ my: 2, borderStyle: 'dashed' }} />
-
                         <Stack spacing={1.5}>
-                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}>
-                                <BadgeIcon fontSize="small" color="action" />
-                                <Box>
-                                    <Typography variant="caption" color="text.secondary">รุ่นปี</Typography>
-                                    <Typography variant="body2" fontWeight="bold">
-                                      {pickField(registeredParticipant, ["date_year", "year"])}
-                                    </Typography>
-                                </Box>
-                             </Box>
-                             
-                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}>
-                                <ApartmentIcon fontSize="small" color="action"/>
-                                <Box>
-                                    <Typography variant="caption" color="text.secondary">ภาควิชา</Typography>
-                                    <Typography variant="body2" fontWeight="bold">
-                                      {pickField(registeredParticipant, ["dept", "department"])}
-                                    </Typography>
-                                </Box>
-                             </Box>
+                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}><BadgeIcon fontSize="small" color="action" /><Box><Typography variant="caption" color="text.secondary">รุ่นปี</Typography><Typography variant="body2" fontWeight="bold">{pickField(registeredParticipant, ["date_year", "year"])}</Typography></Box></Box>
+                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}><ApartmentIcon fontSize="small" color="action"/><Box><Typography variant="caption" color="text.secondary">ภาควิชา</Typography><Typography variant="body2" fontWeight="bold">{pickField(registeredParticipant, ["dept", "department"])}</Typography></Box></Box>
                         </Stack>
                      </Box>
                   </Grid>
                 </Grid>
               </CardContent>
-              {/* แถบสีตกแต่งด้านล่าง */}
               <Box sx={{ height: 12, background: 'linear-gradient(90deg, #FFD700 0%, #FF8C00 100%)' }} />
             </Card>
           </motion.div>
-
-          {/* ปุ่ม Action ต่างๆ */}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mt={5}>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              startIcon={<DownloadIcon />}
-              onClick={savePng}
-              sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 'bold', boxShadow: '0 8px 20px rgba(30, 60, 114, 0.25)', fontSize: '1rem' }}
-            >
-              บันทึกเป็นรูปภาพ
-            </Button>
-            
-            <Button
-              variant="outlined"
-              color="inherit"
-              size="large"
-              startIcon={<RestartAltIcon />}
-              onClick={handleReset}
-               sx={{ borderRadius: 3, px: 3, borderColor: '#999', color: '#555', "&:hover": { borderColor: '#333', bgcolor: '#f0f0f0' } }}
-            >
-              ลงทะเบียนท่านอื่นต่อ
-            </Button>
+            <Button variant="contained" color="primary" size="large" startIcon={<DownloadIcon />} onClick={savePng} sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 'bold', boxShadow: '0 8px 20px rgba(30, 60, 114, 0.25)', fontSize: '1rem' }}>บันทึกเป็นรูปภาพ</Button>
+            <Button variant="outlined" color="inherit" size="large" startIcon={<RestartAltIcon />} onClick={handleReset} sx={{ borderRadius: 3, px: 3, borderColor: '#999', color: '#555', "&:hover": { borderColor: '#333', bgcolor: '#f0f0f0' } }}>ลงทะเบียนท่านอื่นต่อ</Button>
           </Stack>
-
         </Container>
       </Box>
     );
   }
 
   // ==========================================
-  // ส่วนแสดงฟอร์มลงทะเบียน (Pre-Register Form) - พร้อม Animation
+  // Form Section
   // ==========================================
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: "relative" }}>
@@ -598,7 +510,6 @@ export default function PreRegistrationPage() {
       <MourningRibbon />
 
       <Container maxWidth="sm">
-        {/* Animated Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
             <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
@@ -625,7 +536,6 @@ export default function PreRegistrationPage() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
           <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             
-            {/* 1. ข้อมูลส่วนตัว */}
             <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
               {fieldGroups.personal.map((field) => (
                 <FieldInput key={field.name} field={field} value={form[field.name] ?? ""} onChange={handleInput} errorText={errors[field.name]} />
@@ -635,14 +545,12 @@ export default function PreRegistrationPage() {
               ))}
             </FormSection>
 
-            {/* 2. ข้อมูลติดต่อ */}
             <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>
               {fieldGroups.contact.map((field) => (
                 <FieldInput key={field.name} field={field} value={form[field.name] ?? ""} onChange={handleInput} errorText={errors[field.name]} />
               ))}
             </FormSection>
 
-            {/* 3. ผู้ติดตาม */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", border: "1px solid #ffe082" }}>
               <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
                 <GroupAddIcon color="warning" />
@@ -668,98 +576,190 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
-            {/* 4. Donation */}
-            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: wantToDonate ? "#e8f5e9" : "#f1f8e9", borderColor: wantToDonate ? "#66bb6a" : "#c5e1a5", transition: "all 0.3s" }}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
-                <VolunteerActivismIcon color="success" />
-                <Typography fontWeight={800} fontSize="1.1rem" color="success.dark">ร่วมสนับสนุนกิจกรรม</Typography>
-                <Chip label="ร่วมสนับสนุนเป็นทางเลือก" size="small" color="success" variant="outlined" sx={{ ml: "auto" }} />
-              </Stack>
-              <FormControlLabel 
-                sx={{ ml: 0 }} 
-                control={<Switch checked={wantToDonate} onChange={(e) => setWantToDonate(e.target.checked)} color="success" />} 
-                label={<Typography fontWeight={500}>{wantToDonate ? "ต้องการสนับสนุน" : "ไม่ประสงค์จะสนับสนุน"}</Typography>} 
-              />
-              <Collapse in={wantToDonate}>
-                <Box sx={{ mt: 2, p: 2, bgcolor: "#fff", borderRadius: 2, border: "1px dashed #81c784" }}>
-                  <Typography variant="body2" color="text.secondary" gutterBottom align="center">
-                    สแกน QR Code ด้านล่างเพื่อโอนเงินสนับสนุน
-                  </Typography>
-                  <Stack alignItems="center" sx={{ mb: 2 }}>
-                    <Box sx={{ width: 160, height: 160, bgcolor: "#eee", borderRadius: 2, overflow: 'hidden', mb: 1 }}>
-                        <img src="/donate.png" alt="QR" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            {/* Donation Section (Updated UI) */}
+            <Paper 
+                variant="elevation" 
+                elevation={3}
+                sx={{ 
+                    p: 3, 
+                    borderRadius: 4, 
+                    background: wantToDonate ? "linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%)" : "#f9f9f9",
+                    border: wantToDonate ? "2px solid #66bb6a" : "1px solid #e0e0e0",
+                    transition: "all 0.3s ease-in-out"
+                }}
+            >
+              <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
+                  <Stack direction="row" alignItems="center" spacing={1.5}>
+                    <Box sx={{ p: 1, borderRadius: '50%', bgcolor: wantToDonate ? '#4caf50' : '#bdbdbd', color: '#fff' }}>
+                        <VolunteerActivismIcon />
                     </Box>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>ธนาคารกสิกรไทย</Typography>
-                    <Stack direction="row" alignItems="center" spacing={1} sx={{ bgcolor: '#f5f5f5', px: 1.5, py: 0.5, borderRadius: 2 }}>
-                        <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: 1 }}>211-8-76814-3</Typography>
-                        <Tooltip title="กดเพื่อคัดลอก">
-                            <IconButton size="small" onClick={handleCopyAccount} color="primary"><ContentCopyIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                    </Stack>
-                    <Typography variant="caption" sx={{ mt: 0.5 }}>ชื่อบัญชี: น.ส เสาวดี อิสริยะโอภาส และ นาง นภาภรณ์ ลาชโรจน์ </Typography>
+                    <Box>
+                        <Typography variant="h6" fontWeight={800} color={wantToDonate ? "success.dark" : "text.secondary"}>
+                            ร่วมสนับสนุนกิจกรรม
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                            สมทบทุนจัดงานคืนสู่เหย้าชาววิทยาฯ
+                        </Typography>
+                    </Box>
                   </Stack>
-                  <Grid container spacing={2}>
-                    <Grid item xs={12}><TextField label="จำนวนเงินที่โอน (บาท)" type="number" fullWidth value={donationAmount} onChange={e => setDonationAmount(e.target.value)} size="small" /></Grid>
-                    <Grid item xs={6}><TextField label="วันที่โอน" type="date" fullWidth value={donationDate} onChange={e => setDonationDate(e.target.value)} InputLabelProps={{ shrink: true }} size="small" /></Grid>
-                    <Grid item xs={6}><TextField label="เวลาที่โอน" type="time" fullWidth value={donationTime} onChange={e => setDonationTime(e.target.value)} InputLabelProps={{ shrink: true }} size="small" /></Grid>
+                  <Switch checked={wantToDonate} onChange={(e) => setWantToDonate(e.target.checked)} color="success" />
+              </Stack>
+
+              <Collapse in={wantToDonate}>
+                <Box sx={{ mt: 3 }}>
+                  
+                  {/* Dropdown เลือกรูปแบบ (Package Selection) - อยู่ด้านบน */}
+                  <Stack spacing={2} sx={{ mb: 3 }}>
+                    <Typography variant="subtitle2" fontWeight="bold" color="text.secondary">
+                        รูปแบบการสนับสนุน <span style={{color:'red'}}>*</span>
+                    </Typography>
+                    <TextField 
+                      select 
+                      label="กรุณาเลือกรูปแบบ" 
+                      fullWidth 
+                      value={packageType} 
+                      onChange={handlePackageChange} 
+                      size="small"
+                      sx={{ bgcolor: '#fff' }}
+                      SelectProps={{ displayEmpty: true }}
+                    >
+                      <MenuItem value="" disabled><em>-- กรุณาเลือก --</em></MenuItem>
+                      
+                      <MenuItem value="general" sx={{ py: 1.5 }}>
+                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <VolunteerActivismIcon color="action" fontSize="small" />
+                            <Typography fontWeight="bold">บริจาคทั่วไป (ไม่รับของที่ระลึก)</Typography>
+                         </Box>
+                      </MenuItem>
+
+                      <Divider />
+
+                      {PACKAGE_OPTIONS.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value} sx={{ whiteSpace: 'normal', py: 1.5 }}>
+                            <Box>
+                                <Typography variant="subtitle2" fontWeight="bold" color="secondary.main">
+                                    Package {opt.value.replace('package_', '')}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
+                                    {opt.label}
+                                </Typography>
+                            </Box>
+                        </MenuItem>
+                      ))}
+                    </TextField>
+
+                    {/* แสดงช่องเลือกไซส์ เฉพาะเมื่อเลือก Package */}
+                    <Collapse in={wantPackage}>
+                        <Box sx={{ p: 2, bgcolor: "#f3e5f5", borderRadius: 2, border: '1px solid #e1bee7' }}>
+                            <Stack spacing={2}>
+                                <Stack direction="row" alignItems="center" spacing={1}>
+                                    <CardGiftcardIcon color="secondary" fontSize="small" />
+                                    <Typography variant="body2" fontWeight="bold" color="secondary.dark">
+                                        ท่านเลือกรับของที่ระลึก
+                                    </Typography>
+                                </Stack>
+                                <TextField 
+                                    select 
+                                    label="เลือกขนาดเสื้อ (Size)" 
+                                    fullWidth 
+                                    value={packageSize} 
+                                    onChange={(e) => setPackageSize(e.target.value)} 
+                                    size="small"
+                                    sx={{ bgcolor: '#fff' }}
+                                >
+                                    {SIZE_OPTIONS.map((s) => (
+                                        <MenuItem key={s} value={s}>{s}</MenuItem>
+                                    ))}
+                                </TextField>
+                                <SizeChart />
+                            </Stack>
+                        </Box>
+                    </Collapse>
+                  </Stack>
+
+                  <Divider sx={{ my: 2 }}>
+                      <Chip label="ข้อมูลการโอนเงิน" size="small" />
+                  </Divider>
+
+                  {/* QR Code Section */}
+                  <Box sx={{ mt: 3, mb: 3, p: 2, bgcolor: "#fff", borderRadius: 3, border: "1px dashed #bdbdbd", textAlign: 'center' }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        สแกน QR Code ด้านล่างเพื่อโอนเงินผ่านแอปธนาคาร
+                      </Typography>
+                      <Box 
+                        sx={{ 
+                            width: 180, 
+                            height: 180, 
+                            bgcolor: "#fff", 
+                            borderRadius: 2, 
+                            overflow: 'hidden', 
+                            mx: 'auto', 
+                            mb: 2,
+                            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                            border: "1px solid #eee"
+                        }}
+                      >
+                          <img src="/donate.png" alt="QR Code" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                      </Box>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>ธนาคารกสิกรไทย</Typography>
+                      <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} sx={{ mt: 1, bgcolor: '#f5f5f5', px: 2, py: 0.5, borderRadius: 4, width: 'fit-content', mx: 'auto' }}>
+                          <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 700, letterSpacing: 1 }}>211-8-76814-3</Typography>
+                          <Tooltip title="กดเพื่อคัดลอก">
+                              <IconButton size="small" onClick={handleCopyAccount} color="primary"><ContentCopyIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                      </Stack>
+                      <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary' }}>ชื่อบัญชี: น.ส เสาวดี อิสริยะโอภาส และ นาง นภาภรณ์ ลาชโรจน์ </Typography>
+                  </Box>
+
+                  {/* Amount, Date, Time Inputs */}
+                  <Grid container spacing={2} sx={{ mt: 1 }}>
+                    <Grid item xs={12}>
+                        <TextField 
+                            label="จำนวนเงินที่โอน (บาท)" 
+                            type="number" 
+                            fullWidth 
+                            value={donationAmount} 
+                            onChange={e => setDonationAmount(e.target.value)} 
+                            InputProps={{ 
+                                startAdornment: <InputAdornment position="start">฿</InputAdornment>,
+                                sx: { fontSize: '1.2rem', fontWeight: 'bold' } 
+                            }}
+                            helperText={wantPackage ? "กรุณาตรวจสอบยอดเงินให้ตรงกับ Package" : ""}
+                        />
+                    </Grid>
+                    <Grid item xs={6}>
+                        <TextField 
+                            label="วันที่โอน" 
+                            type="date" 
+                            fullWidth 
+                            value={donationDate} 
+                            onChange={e => setDonationDate(e.target.value)} 
+                            InputLabelProps={{ shrink: true }} 
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><CalendarMonthIcon fontSize="small" /></InputAdornment>
+                            }}
+                        />
+                    </Grid>
+                    <Grid item xs={6}>
+                        {/* Time Picker */}
+                        <TextField 
+                            label="เวลาที่โอน" 
+                            type="time" 
+                            fullWidth 
+                            value={donationTime} 
+                            onChange={e => setDonationTime(e.target.value)} 
+                            InputLabelProps={{ shrink: true }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start"><AccessTimeIcon fontSize="small" /></InputAdornment>
+                            }}
+                        />
+                    </Grid>
                   </Grid>
 
-                  {/* 4.1 Donation Package Selection */}
-                  <Divider sx={{ my: 2, borderStyle: 'dashed' }} />
-                  <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
-                    <CardGiftcardIcon color="secondary" />
-                    <Typography fontWeight={700} color="secondary.dark">ต้องการสนับสนุนแบบ Package สามารถรับของสมนาคุณ ณ จุดลงทะเบียนหน้างานในวันที่ 21 กุมภาพันธ์ 2568</Typography>
-                  </Stack>
-                  <FormControlLabel 
-                    control={<Switch checked={wantPackage} onChange={(e) => setWantPackage(e.target.checked)} color="secondary" />} 
-                    label={<Typography variant="body2">{wantPackage ? "ต้องการสนับสนุนทั่วไป กรุณาคลิก" : "ต้องการสนับสนุนแบบ Package กรุณาคลิก"}</Typography>} 
-                  />
-                  <Collapse in={wantPackage}>
-                    <Box sx={{ mt: 1.5, p: 2, bgcolor: "#f3e5f5", borderRadius: 2 }}>
-                      <Stack spacing={2}>
-                        <TextField 
-                          select 
-                          label="เลือกรูปแบบ Package" 
-                          fullWidth 
-                          value={packageType} 
-                          onChange={handlePackageChange} 
-                          size="small"
-                          sx={{ bgcolor: '#fff' }}
-                        >
-                          {PACKAGE_OPTIONS.map((opt) => (
-                            <MenuItem key={opt.value} value={opt.label} sx={{ whiteSpace: 'normal', py: 1 }}>
-                                {opt.label}
-                            </MenuItem>
-                          ))}
-                        </TextField>
-                        
-                        <Stack spacing={2}>
-                            <TextField 
-                              select 
-                              label="เลือกขนาดเสื้อ (Size)" 
-                              fullWidth 
-                              value={packageSize} 
-                              onChange={(e) => setPackageSize(e.target.value)} 
-                              size="small"
-                              sx={{ bgcolor: '#fff' }}
-                            >
-                               {SIZE_OPTIONS.map((s) => (
-                                <MenuItem key={s} value={s}>{s}</MenuItem>
-                               ))}
-                            </TextField>
-                            
-                            {/* ตารางไซส์ */}
-                            <SizeChart />
-                        </Stack>
-
-                      </Stack>
-                    </Box>
-                  </Collapse>
                 </Box>
               </Collapse>
             </Paper>
 
-            {/* 5. สมาชิกสมาคม */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9" }}>
                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                   <SecurityIcon color="primary" />
@@ -815,14 +815,11 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
-            {/* 6. Special Assistance (เพิ่มใหม่: Quick Options) */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#ffebee", border: "1px solid #ef9a9a" }}>
               <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                 <AccessibleIcon color="error" />
                 <Typography fontWeight={800} fontSize="1.1rem" color="#c62828">ความช่วยเหลือพิเศษ</Typography>
               </Stack>
-              
-              {/* Quick Select Options */}
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500 }}>
                   เลือกจากหัวข้อต่อไปนี้ สามารถระบุเพิ่มเติมได้ (เลือกได้มากกว่า 1 ข้อ):
               </Typography>
@@ -838,12 +835,7 @@ export default function PreRegistrationPage() {
                               color={isSelected ? "error" : "default"}
                               variant={isSelected ? "filled" : "outlined"}
                               onClick={() => handleAssistTagToggle(tag.label)}
-                              sx={{ 
-                                  borderRadius: 2, 
-                                  fontWeight: isSelected ? 'bold' : 'normal',
-                                  transition: 'all 0.2s',
-                                  '&:hover': { bgcolor: isSelected ? 'error.dark' : '#ffebee' }
-                              }}
+                              sx={{ borderRadius: 2, fontWeight: isSelected ? 'bold' : 'normal', transition: 'all 0.2s', '&:hover': { bgcolor: isSelected ? 'error.dark' : '#ffebee' } }}
                           />
                       );
                   })}
@@ -862,23 +854,14 @@ export default function PreRegistrationPage() {
               />
             </Paper>
 
-            {/* 7. หมายเหตุ PDPA */}
             <Alert severity="info" icon={<InfoIcon />} sx={{ bgcolor: "#e1f5fe", color: "#01579b", borderRadius: 2, "& .MuiAlert-icon": { color: "#0288d1" } }}>
                 <Typography variant="body2" sx={{ fontWeight: 500 }}>
                     <strong>หมายเหตุ:</strong> ภายในงานจะมีการบันทึกภาพและวิดีโอ เพื่อใช้ในการประชาสัมพันธ์กิจกรรมของสมาคมนิสิตเก่าวิทยาศาสตร์ฯ
                 </Typography>
             </Alert>
 
-            {/* Turnstile Widget - FIXED */}
-            <Turnstile 
-                ref={turnstileRef} 
-                size="invisible" 
-                action="pre_register" 
-                onVerify={(t) => setCfToken(t)} 
-                onError={() => setCfToken("")} 
-            />
+            <Turnstile ref={turnstileRef} size="invisible" action="pre_register" onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} />
             
-            {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
               <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
                 {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
@@ -890,7 +873,6 @@ export default function PreRegistrationPage() {
           </motion.div>
         )}
         
-        {/* Review Dialog */}
         <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
             <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
                 <Stack direction="row" alignItems="center" spacing={1}>
@@ -929,7 +911,6 @@ export default function PreRegistrationPage() {
                           )}
                         </>
                     )}
-                    {/* แสดงผลความช่วยเหลือพิเศษที่เลือก */}
                     {(selectedAssistTags.length > 0 || specialAssistance) && (
                         <Box>
                             <Typography variant="caption" fontWeight={700}>ความช่วยเหลือพิเศษ:</Typography>
@@ -964,7 +945,6 @@ export default function PreRegistrationPage() {
           </DialogContent>
         </Dialog>
         
-        {/* Toast Notification */}
         <Snackbar open={snackbarOpen} autoHideDuration={2000} onClose={() => setSnackbarOpen(false)} message="คัดลอกเลขบัญชีแล้ว" anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />
 
       </Container>
