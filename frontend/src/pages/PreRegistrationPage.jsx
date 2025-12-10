@@ -708,7 +708,7 @@ export default function PreRegistrationPage() {
                   <Divider sx={{ my: 2, borderStyle: 'dashed' }} />
                   <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
                     <CardGiftcardIcon color="secondary" />
-                    <Typography fontWeight={700} color="secondary.dark">รับของที่ระลึก (Package) ณ จุดลงทะเบียนหน้างานในวันที่ 21 กุมภาพันธ์ 2568</Typography>
+                    <Typography fontWeight={700} color="secondary.dark">ต้องการสนับสนุนแบบ Package สามารถรับของสมนาคุณ ณ จุดลงทะเบียนหน้างานในวันที่ 21 กุมภาพันธ์ 2568</Typography>
                   </Stack>
                   <FormControlLabel 
                     control={<Switch checked={wantPackage} onChange={(e) => setWantPackage(e.target.checked)} color="secondary" />} 
