@@ -1,4 +1,4 @@
-// utils/upload.js
+// backend/src/utils/upload.js
 const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
@@ -14,9 +14,10 @@ const storage = multer.diskStorage({
     cb(null, avatarPath);
   },
   filename: (req, file, cb) => {
-    // เก็บเป็น userId + นามสกุลเดิม
+    // [แก้ไข] เพิ่ม timestamp (Date.now()) ต่อท้าย ID 
+    // เพื่อให้ชื่อไฟล์ไม่ซ้ำเดิม Browser จะได้โหลดรูปใหม่ทันที
     const ext = path.extname(file.originalname);
-    cb(null, `${req.user._id}${ext}`);
+    cb(null, `${req.user._id}-${Date.now()}${ext}`);
   }
 });
 
