@@ -7,6 +7,8 @@ import {
   Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton
 } from "@mui/material";
+
+// Icons เดิม (คงไว้ครบ)
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import GroupAddIcon from "@mui/icons-material/GroupAdd";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -20,22 +22,32 @@ import HomeIcon from '@mui/icons-material/Home';
 import EventIcon from '@mui/icons-material/Event';
 import SchoolIcon from '@mui/icons-material/School';
 import DownloadIcon from "@mui/icons-material/Download";
-import PictureAsPdfIcon from "@mui/icons-material/PictureAsPdf";
 import FactCheckIcon from '@mui/icons-material/FactCheck';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import AccessibleIcon from '@mui/icons-material/Accessible';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 
+// Icons ใหม่สำหรับ Ticket และตัวเลือกความช่วยเหลือ
+import PersonIcon from '@mui/icons-material/Person';
+import BadgeIcon from '@mui/icons-material/Badge';
+import ApartmentIcon from '@mui/icons-material/Apartment';
+import ConfirmationNumberIcon from '@mui/icons-material/ConfirmationNumber';
+import RestaurantIcon from '@mui/icons-material/Restaurant';
+import WheelchairPickupIcon from '@mui/icons-material/WheelchairPickup';
+
+// Libraries
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
 import { jsPDF } from "jspdf";
 import { listParticipantFields, createParticipant, createDonation } from "../utils/api";
 import dayjs from "dayjs";
+import Turnstile from "../components/Turnstile";
 
-// [FIX 1] Import Turnstile without named export
-import Turnstile from "../components/Turnstile"; 
+// Animation & Effects (ของใหม่)
+import Confetti from 'react-confetti';
+import { motion } from 'framer-motion';
 
-// --- Configuration Constants ---
+// --- Configuration Constants (คงเดิม) ---
 const PACKAGE_OPTIONS = [
   { price: 2000, value: "package_A", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีน้ำเงิน (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
   { price: 2000, value: "package_B", label: "สนับสนุนเงิน 2,000 บาท รับเสื้องานคืนเหย้า POLO สีชมพู (คอปก) 1 ตัว และ ตุ๊กตาเสือเหลือง_ผ้านุ่ม (ขนาด 12 นิ้ว) 1 ตัว" },
@@ -44,7 +56,17 @@ const PACKAGE_OPTIONS = [
 ];
 const SIZE_OPTIONS = ["SS", "S", "M", "L", "XL", "2XL", "3XL", "4XL", "5XL","6XL","7XL"];
 
-// ข้อมูลตารางไซส์
+// ตัวเลือกความช่วยเหลือพิเศษ (Quick Options - ของใหม่)
+const ASSISTANCE_TAGS = [
+    { label: "ใช้วีลแชร์/รถเข็น", icon: <WheelchairPickupIcon fontSize="small"/> },
+    { label: "ไม้เท้าพยุงเดิน", icon: <AccessibleIcon fontSize="small"/> },
+    { label: "อาหารฮาลาล", icon: <RestaurantIcon fontSize="small"/> },
+    { label: "อาหารมังสวิรัติ", icon: <RestaurantIcon fontSize="small"/> },
+    { label: "แพ้อาหารทะเล", icon: <WarningIcon fontSize="small"/> },
+    { label: "แพ้ถั่ว", icon: <WarningIcon fontSize="small"/> }
+];
+
+// ข้อมูลตารางไซส์ (คงเดิม)
 const SIZE_CHART_DATA = [
   { size: "SS", chest: 34, length: 23 },
   { size: "S",  chest: 36, length: 24 },
@@ -103,6 +125,7 @@ const SizeChart = () => (
 );
 
 export default function PreRegistrationPage() {
+  // State Management
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(false);
@@ -134,11 +157,11 @@ export default function PreRegistrationPage() {
   const [packageType, setPackageType] = useState("");
   const [packageSize, setPackageSize] = useState("");
 
-  // Special Assistance State
+  // Special Assistance State (ปรับปรุงใหม่)
   const [specialAssistance, setSpecialAssistance] = useState("");
+  const [selectedAssistTags, setSelectedAssistTags] = useState([]);
 
   const ticketRef = useRef();
-  // [FIX 2] Create Ref for Turnstile
   const turnstileRef = useRef();
 
   useEffect(() => {
@@ -166,7 +189,6 @@ export default function PreRegistrationPage() {
         : []
     }));
 
-    // เรียงลำดับ: ชื่อ -> ชื่อเล่น -> ภาควิชา -> ปี
     const personalOrder = ['name', 'nickname', 'dept', 'date_year'];
     const personal = processed
         .filter(f => personalOrder.includes(f.name))
@@ -193,7 +215,6 @@ export default function PreRegistrationPage() {
       return;
     }
     
-    // เคลียร์ error เมื่อเริ่มพิมพ์ใหม่
     if (errors[name]) {
         setErrors(prev => { const next = { ...prev }; delete next[name]; return next; });
     }
@@ -201,12 +222,20 @@ export default function PreRegistrationPage() {
     setForm((f) => ({ ...f, [name]: value }));
   };
 
+  // จัดการ Toggle ปุ่มความช่วยเหลือพิเศษ
+  const handleAssistTagToggle = (label) => {
+    if (selectedAssistTags.includes(label)) {
+        setSelectedAssistTags(prev => prev.filter(t => t !== label));
+    } else {
+        setSelectedAssistTags(prev => [...prev, label]);
+    }
+  };
+
   const handleCopyAccount = () => {
     navigator.clipboard.writeText("2118768143");
     setSnackbarOpen(true);
   };
 
-  // Function จัดการเมื่อเลือกแพ็กเกจ -> อัปเดตยอดเงินอัตโนมัติ
   const handlePackageChange = (e) => {
     const selectedLabel = e.target.value;
     setPackageType(selectedLabel);
@@ -217,14 +246,10 @@ export default function PreRegistrationPage() {
     }
   };
 
-  // --- Step 1: ตรวจสอบข้อมูลเบื้องต้น ---
   const handleCheckInfo = (e) => {
     e.preventDefault();
-    
-    // 1. ตรวจสอบ Error ค้างเก่า (เช่น ปีการศึกษาผิด)
     if (Object.keys(errors).length > 0) return;
 
-    // 2. ตรวจสอบ Required Fields (Dynamic)
     const missingFields = fields.filter(f => f.required && f.enabled && !form[f.name]);
     if (missingFields.length > 0) {
         const newErrors = {};
@@ -242,13 +267,11 @@ export default function PreRegistrationPage() {
         return;
     }
 
-    // 3. ตรวจสอบ Membership
     if (!membershipOption) {
       setErrorDialog({ open: true, type: "warning", title: "กรุณาระบุข้อมูล", msg: "กรุณาเลือกสมาชิกสมาคมฯ ของท่าน" });
       return;
     }
 
-    // 4. ตรวจสอบที่อยู่เฉพาะเมื่อเลือกสมัคร (1 หรือ 2)
     if (membershipOption !== 'none') {
         if (!form['usr_add'] || !form['usr_add_post']) {
              setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณากรอกที่อยู่และรหัสไปรษณีย์เพื่อประกอบการสมัครสมาชิก" });
@@ -256,13 +279,11 @@ export default function PreRegistrationPage() {
         }
     }
 
-    // 5. ตรวจสอบ Donation
     if (wantToDonate) {
       if (!donationAmount || parseFloat(donationAmount) <= 0) {
         setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
         return;
       }
-      // ตรวจสอบ Package หากเลือก
       if (wantPackage) {
         if (!packageType || !packageSize) {
            setErrorDialog({ open: true, type: "warning", title: "ข้อมูลแพ็กเกจไม่ครบ", msg: "กรุณาเลือกรูปแบบแพ็กเกจและขนาดเสื้อ" });
@@ -274,11 +295,9 @@ export default function PreRegistrationPage() {
     setReviewOpen(true);
   };
 
-  // --- Step 2: ยืนยันการลงทะเบียน ---
   const handleConfirmSubmit = () => {
     setReviewOpen(false);
     setPendingSubmit(true);
-    // [FIX 3] Call execute via Ref
     turnstileRef.current?.execute();
   };
 
@@ -293,18 +312,23 @@ export default function PreRegistrationPage() {
         const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
 
         const finalForm = { ...form };
-        // ✅ [Fix] ถ้าไม่สมัคร ให้ใส่ "-" อัตโนมัติ เพื่อไม่ให้ติด required หลังบ้าน
         if (membershipOption === 'none') {
           finalForm['usr_add'] = "-";
           finalForm['usr_add_post'] = "-";
         }
+
+        // รวมข้อมูลความช่วยเหลือพิเศษ (Tags + Text) เป็น String เดียว
+        const combinedAssistance = [
+            ...selectedAssistTags,
+            specialAssistance.trim()
+        ].filter(Boolean).join(", ");
 
         const payload = { 
           ...finalForm, 
           followers: count, 
           cfToken, 
           consent: finalConsent,
-          specialAssistance: specialAssistance.trim() // ส่งข้อมูลความช่วยเหลือพิเศษ
+          specialAssistance: combinedAssistance
         };
         const participant = await createParticipant(payload);
         
@@ -325,7 +349,6 @@ export default function PreRegistrationPage() {
                   amount: parseFloat(donationAmount),
                   transferDateTime,
                   source: "PRE_REGISTER",
-                  // ส่งข้อมูลแพ็กเกจ
                   isPackage: wantPackage,
                   packageType: wantPackage ? packageType : "",
                   size: wantPackage ? packageSize : ""
@@ -339,15 +362,18 @@ export default function PreRegistrationPage() {
 
         setResult({ success: true, message: successMessage });
         setRegisteredParticipant(participant.data || participant);
+        
+        // Reset Form
         setForm({});
         setBringFollowers(false);
         setFollowersCount(0);
         setWantToDonate(false);
-        setWantPackage(false); // Reset package state
+        setWantPackage(false);
         setPackageType("");
         setPackageSize("");
         setDonationAmount("");
-        setSpecialAssistance(""); // Reset special assistance
+        setSpecialAssistance("");
+        setSelectedAssistTags([]);
         setMembershipOption(null);
         setErrors({});
       } catch (err) {
@@ -360,7 +386,6 @@ export default function PreRegistrationPage() {
           msg: isSecurity ? "ระบบไม่สามารถยืนยันตัวตนของคุณได้ กรุณาลองใหม่อีกครั้ง" : errorMsg
         });
         
-        // [FIX 4] Reset via Ref
         turnstileRef.current?.reset();
       } finally {
         setLoading(false);
@@ -372,7 +397,6 @@ export default function PreRegistrationPage() {
     // eslint-disable-next-line
   }, [cfToken, pendingSubmit]);
 
-  const savePdf = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const imgData = canvas.toDataURL("image/png"); const pdf = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" }); const pageWidth = pdf.internal.pageSize.getWidth(); const imgWidth = 360; const imgHeight = (canvas.height * imgWidth) / canvas.width; const x = (pageWidth - imgWidth) / 2; const y = 60; pdf.addImage(imgData, "PNG", x, y, imgWidth, imgHeight); pdf.save("E-Ticket.pdf"); }};
   const savePng = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const link = document.createElement("a"); link.href = canvas.toDataURL("image/png"); link.download = "E-Ticket.png"; link.click(); }};
   
   const handleReset = () => {
@@ -387,38 +411,218 @@ export default function PreRegistrationPage() {
     setPackageSize("");
     setDonationAmount("");
     setSpecialAssistance("");
+    setSelectedAssistTags([]);
     setMembershipOption(null);
     setErrors({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return "-"; }
+
+  // ==========================================
+  // ส่วนแสดงผลเมื่อลงทะเบียนสำเร็จ (Ticket Preview) - ใหม่
+  // ==========================================
+  if (registeredParticipant) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: "#f8f9fa", position: 'relative', overflowX: 'hidden' }}>
+        <MourningRibbon />
+        
+        {/* ลูกเล่น Confetti */}
+        <Confetti
+          width={window.innerWidth}
+          height={window.innerHeight}
+          recycle={false}
+          numberOfPieces={350}
+          gravity={0.15}
+        />
+
+        <Container maxWidth="sm" sx={{ mt: 6, mb: 8, position: 'relative', zIndex: 10 }}>
+           {/* Header ข้อความสำเร็จ */}
+          <Box textAlign="center" mb={4}>
+             <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: "spring", stiffness: 260, damping: 20 }}
+             >
+               <CheckCircleIcon color="success" sx={{ fontSize: 72, mb: 1, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
+             </motion.div>
+            <Typography variant="h4" gutterBottom fontWeight="900" color="primary.main" sx={{ letterSpacing: 0.5 }}>
+              ลงทะเบียนสำเร็จ!
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึก E-Ticket ด้านล่างเพื่อใช้เข้างาน
+            </Typography>
+          </Box>
+
+          {/* Ticket Card Animation */}
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2 }}
+            whileHover={{ y: -8, transition: { duration: 0.2 } }}
+            style={{ perspective: 1000 }}
+          >
+            <Card
+              ref={ticketRef} 
+              elevation={8}
+              sx={{
+                borderRadius: 4,
+                overflow: 'hidden',
+                background: '#fff',
+                position: 'relative',
+                backgroundImage: 'radial-gradient(circle at 10% 20%, rgba(239, 246, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 90%)',
+              }}
+            >
+              {/* ส่วนหัวบัตร Theme สีน้ำเงิน/ทอง */}
+              <Box sx={{
+                background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+                color: 'white',
+                p: 2.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                borderBottom: '4px solid #FFD700'
+              }}>
+                 <Box display="flex" alignItems="center" gap={1.5}>
+                    <ConfirmationNumberIcon sx={{ color: '#FFD700', fontSize: 32 }} />
+                    <Typography variant="h6" fontWeight="bold" sx={{ letterSpacing: 1.5, textTransform: 'uppercase' }}>
+                      E-TICKET
+                    </Typography>
+                 </Box>
+                  <Typography variant="caption" sx={{ opacity: 0.8, fontFamily: 'monospace', fontSize: '0.9rem' }}>
+                     #{registeredParticipant?.qrCode?.slice(0,8) || "REF-ID"}
+                  </Typography>
+              </Box>
+
+              <CardContent sx={{ p: 3 }}>
+                <Grid container spacing={2} alignItems="center">
+                  {/* ฝั่งซ้าย: QR Code */}
+                  <Grid item xs={12} sm={5} display="flex" flexDirection="column" alignItems="center" justifyContent="center">
+                     <Box sx={{
+                        p: 2,
+                        bgcolor: 'white',
+                        borderRadius: 3,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+                        border: '1px solid #e0e0e0'
+                     }}>
+                        <QRCodeSVG
+                          value={registeredParticipant?.qrCode || registeredParticipant?._id || "no-code"}
+                          size={140}
+                          level={"H"}
+                          includeMargin={true}
+                        />
+                     </Box>
+                     <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, fontWeight: 500 }}>
+                        สแกน QR Code นี้หน้างาน
+                     </Typography>
+                  </Grid>
+
+                   {/* ฝั่งขวา: รายละเอียดผู้เข้าร่วม */}
+                  <Grid item xs={12} sm={7}>
+                     <Box ml={{ sm: 1 }} textAlign={{ xs: 'center', sm: 'left' }}>
+                        <Typography variant="subtitle2" color="text.secondary" gutterBottom display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={0.5}>
+                          <PersonIcon fontSize="small" color="primary" /> ชื่อผู้เข้าร่วม
+                        </Typography>
+                        <Typography variant="h5" fontWeight="800" color="text.primary" gutterBottom sx={{ mb: 2, lineHeight: 1.2 }}>
+                          {pickField(registeredParticipant, ["name", "fullName", "fullname"])}
+                        </Typography>
+
+                        <Divider sx={{ my: 2, borderStyle: 'dashed' }} />
+
+                        <Stack spacing={1.5}>
+                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}>
+                                <BadgeIcon fontSize="small" color="action" />
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">รุ่นปี</Typography>
+                                    <Typography variant="body2" fontWeight="bold">
+                                      {pickField(registeredParticipant, ["date_year", "year"])}
+                                    </Typography>
+                                </Box>
+                             </Box>
+                             
+                             <Box display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={1}>
+                                <ApartmentIcon fontSize="small" color="action"/>
+                                <Box>
+                                    <Typography variant="caption" color="text.secondary">หน่วยงาน/ภาควิชา</Typography>
+                                    <Typography variant="body2" fontWeight="bold">
+                                      {pickField(registeredParticipant, ["dept", "department"])}
+                                    </Typography>
+                                </Box>
+                             </Box>
+                        </Stack>
+                     </Box>
+                  </Grid>
+                </Grid>
+              </CardContent>
+              {/* แถบสีตกแต่งด้านล่าง */}
+              <Box sx={{ height: 12, background: 'linear-gradient(90deg, #FFD700 0%, #FF8C00 100%)' }} />
+            </Card>
+          </motion.div>
+
+          {/* ปุ่ม Action ต่างๆ */}
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mt={5}>
+            <Button
+              variant="contained"
+              color="primary"
+              size="large"
+              startIcon={<DownloadIcon />}
+              onClick={savePng}
+              sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 'bold', boxShadow: '0 8px 20px rgba(30, 60, 114, 0.25)', fontSize: '1rem' }}
+            >
+              บันทึกเป็นรูปภาพ
+            </Button>
+            
+            <Button
+              variant="outlined"
+              color="inherit"
+              size="large"
+              startIcon={<RestartAltIcon />}
+              onClick={handleReset}
+               sx={{ borderRadius: 3, px: 3, borderColor: '#999', color: '#555', "&:hover": { borderColor: '#333', bgcolor: '#f0f0f0' } }}
+            >
+              ลงทะเบียนท่านอื่นต่อ
+            </Button>
+          </Stack>
+
+        </Container>
+      </Box>
+    );
+  }
+
+  // ==========================================
+  // ส่วนแสดงฟอร์มลงทะเบียน (Pre-Register Form) - พร้อม Animation
+  // ==========================================
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: "relative" }}>
       
       <MourningRibbon />
 
       <Container maxWidth="sm">
-        <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
-          <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
-            <Avatar src="/logo.svg" alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
-            <Box>
-              <Typography variant="h6" fontWeight={900} color="primary" sx={{ letterSpacing: .5, lineHeight: 1.3 }}>
-                ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า <br /> 
-                "เสือเหลืองคืนถิ่น" <br /> 
-                Atoms In Ground Stage 109
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, lineHeight: 1.5 }}>
-                <strong>สถานที่จัดงาน:</strong> ภายในคณะวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย <br />
-                <strong>วันเสาร์ที่ 21 กุมภาพันธ์ 2569</strong> <br/>
-                เวลา 17:00 - 22:00 น.
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
+        {/* Animated Header */}
+        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
+            <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
+                <Avatar src="/logo.svg" alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
+                <Box>
+                <Typography variant="h6" fontWeight={900} color="primary" sx={{ letterSpacing: .5, lineHeight: 1.3 }}>
+                    ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า <br /> 
+                    "เสือเหลืองคืนถิ่น" <br /> 
+                    Atoms In Ground Stage 109
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1, lineHeight: 1.5 }}>
+                    <strong>สถานที่จัดงาน:</strong> ภายในคณะวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย <br />
+                    <strong>วันเสาร์ที่ 21 กุมภาพันธ์ 2569</strong> <br/>
+                    เวลา 17:00 - 22:00 น.
+                </Typography>
+                </Box>
+            </Stack>
+            </Paper>
+        </motion.div>
 
         {fetchingFields && <Box sx={{ mt: 2, textAlign: 'center' }}><CircularProgress color="warning" /></Box>}
 
-        {!registeredParticipant && !fetchingFields && (
+        {!fetchingFields && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
           <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             
             {/* 1. ข้อมูลส่วนตัว */}
@@ -469,7 +673,7 @@ export default function PreRegistrationPage() {
               <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
                 <VolunteerActivismIcon color="success" />
                 <Typography fontWeight={800} fontSize="1.1rem" color="success.dark">ร่วมสนับสนุนกิจกรรม</Typography>
-                <Chip label="Optional" size="small" color="success" variant="outlined" sx={{ ml: "auto" }} />
+                <Chip label="ร่วมสนับสนุนเป็นทางเลือก" size="small" color="success" variant="outlined" sx={{ ml: "auto" }} />
               </Stack>
               <FormControlLabel 
                 sx={{ ml: 0 }} 
@@ -492,7 +696,7 @@ export default function PreRegistrationPage() {
                             <IconButton size="small" onClick={handleCopyAccount} color="primary"><ContentCopyIcon fontSize="small" /></IconButton>
                         </Tooltip>
                     </Stack>
-                    <Typography variant="caption" sx={{ mt: 0.5 }}>ชื่อบัญชี: น.ส.เสาวดี อ. และ นางนภาภรณ์ ล.</Typography>
+                    <Typography variant="caption" sx={{ mt: 0.5 }}>ชื่อบัญชี: น.ส เสาวดี อิสริยะโอภาส และ นาง นภาภรณ์ ลาชโรจน์ </Typography>
                   </Stack>
                   <Grid container spacing={2}>
                     <Grid item xs={12}><TextField label="จำนวนเงินที่โอน (บาท)" type="number" fullWidth value={donationAmount} onChange={e => setDonationAmount(e.target.value)} size="small" /></Grid>
@@ -508,7 +712,7 @@ export default function PreRegistrationPage() {
                   </Stack>
                   <FormControlLabel 
                     control={<Switch checked={wantPackage} onChange={(e) => setWantPackage(e.target.checked)} color="secondary" />} 
-                    label={<Typography variant="body2">{wantPackage ? "ต้องการรับของที่ระลึก" : "ไม่รับของที่ระลึก (บริจาคทั่วไป)"}</Typography>} 
+                    label={<Typography variant="body2">{wantPackage ? "ต้องการบริจาคเป็น Package" : "บริจาคทั่วไป"}</Typography>} 
                   />
                   <Collapse in={wantPackage}>
                     <Box sx={{ mt: 1.5, p: 2, bgcolor: "#f3e5f5", borderRadius: 2 }}>
@@ -570,7 +774,7 @@ export default function PreRegistrationPage() {
                         <Box>
                             <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
-                                (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบงาน)
+                                (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบกิจกรรม)
                             </Typography>
                         </Box>
                     }
@@ -582,7 +786,7 @@ export default function PreRegistrationPage() {
                       <Box>
                         <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>สมัครสมาชิกสมาคมฯ</Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
-                          (สมัครฟรีไม่มีค่าใช้จ่าย กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบงาน)
+                          (สมัครฟรีไม่มีค่าใช้จ่าย กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบกิจกรรม)
                         </Typography>
                       </Box>
                     } 
@@ -611,21 +815,50 @@ export default function PreRegistrationPage() {
               </Collapse>
             </Paper>
 
-            {/* 6. Special Assistance (เพิ่มใหม่) */}
+            {/* 6. Special Assistance (เพิ่มใหม่: Quick Options) */}
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#ffebee", border: "1px solid #ef9a9a" }}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                 <AccessibleIcon color="error" />
                 <Typography fontWeight={800} fontSize="1.1rem" color="#c62828">ความช่วยเหลือพิเศษ</Typography>
               </Stack>
+              
+              {/* Quick Select Options */}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1, fontWeight: 500 }}>
+                  เลือกจากหัวข้อต่อไปนี้ สามารถระบุเพิ่มเติมได้ (เลือกได้มากกว่า 1 ข้อ):
+              </Typography>
+              <Stack direction="row" flexWrap="wrap" gap={1} mb={2}>
+                  {ASSISTANCE_TAGS.map((tag) => {
+                      const isSelected = selectedAssistTags.includes(tag.label);
+                      return (
+                          <Chip
+                              key={tag.label}
+                              icon={tag.icon}
+                              label={tag.label}
+                              clickable
+                              color={isSelected ? "error" : "default"}
+                              variant={isSelected ? "filled" : "outlined"}
+                              onClick={() => handleAssistTagToggle(tag.label)}
+                              sx={{ 
+                                  borderRadius: 2, 
+                                  fontWeight: isSelected ? 'bold' : 'normal',
+                                  transition: 'all 0.2s',
+                                  '&:hover': { bgcolor: isSelected ? 'error.dark' : '#ffebee' }
+                              }}
+                          />
+                      );
+                  })}
+              </Stack>
+
               <TextField 
                 multiline
                 rows={2}
-                label="ท่านต้องการความช่วยเหลืออะไรพิเศษไหม? (ถ้ามี)"
+                label="ท่านต้องการความช่วยเหลืออะไรพิเศษไหม? (ระบุเพิ่มเติม)"
                 placeholder="เช่น ต้องการรถเข็น, แพ้อาหาร, หรืออื่นๆ"
                 fullWidth
                 value={specialAssistance}
                 onChange={(e) => setSpecialAssistance(e.target.value)}
                 sx={{ bgcolor: "#fff" }}
+                helperText="เจ้าหน้าที่จะเตรียมการดูแลท่านอย่างดีที่สุดตามข้อมูลที่ได้รับ"
               />
             </Paper>
 
@@ -636,11 +869,9 @@ export default function PreRegistrationPage() {
                 </Typography>
             </Alert>
 
-            {/* [FIX 5] Use Ref for Turnstile */}
+            {/* Turnstile Widget */}
             <Turnstile ref={turnstileRef} invisible onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} options={{ action: "pre_register" }} />
             
-            {result && <Alert severity="success" iconMapping={{ success: <CheckCircleIcon fontSize="inherit" /> }} sx={{ fontWeight: 600, borderRadius: 2 }}>{result.message}</Alert>}
-
             {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
               <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
@@ -650,6 +881,7 @@ export default function PreRegistrationPage() {
             </Stack>
 
           </Box>
+          </motion.div>
         )}
         
         {/* Review Dialog */}
@@ -691,8 +923,17 @@ export default function PreRegistrationPage() {
                           )}
                         </>
                     )}
-                    {specialAssistance && (
-                        <InfoRow label="ความช่วยเหลือพิเศษ" value={specialAssistance} />
+                    {/* แสดงผลความช่วยเหลือพิเศษที่เลือก */}
+                    {(selectedAssistTags.length > 0 || specialAssistance) && (
+                        <Box>
+                            <Typography variant="caption" fontWeight={700}>ความช่วยเหลือพิเศษ:</Typography>
+                            {selectedAssistTags.length > 0 && (
+                                <Stack direction="row" flexWrap="wrap" gap={0.5} mt={0.5} mb={0.5}>
+                                    {selectedAssistTags.map(tag => <Chip key={tag} label={tag} size="small" color="error" variant="outlined" />)}
+                                </Stack>
+                            )}
+                             <Typography variant="body2">{specialAssistance || "-"}</Typography>
+                        </Box>
                     )}
                 </Stack>
             </DialogContent>
@@ -703,30 +944,6 @@ export default function PreRegistrationPage() {
                 </Button>
             </DialogActions>
         </Dialog>
-
-        {/* Ticket Preview */}
-        {registeredParticipant && (
-           <Card elevation={6} sx={{ mt: 4, borderRadius: 4 }}>
-             <CardContent>
-              <Box ref={ticketRef} sx={{ textAlign: "center", p: { xs: 2, md: 3 }, border: "2px solid #1976d2", borderRadius: 3, background: "linear-gradient(135deg, #fafbff 80%, #e3eefe 100%)", boxShadow: "0 2px 18px #b3d6f833", position: "relative", overflow: "hidden" }}>
-                <Avatar src="/logo.svg" alt="logo" sx={{ width: 72, height: 72, position: "absolute", right: 12, top: 12, bgcolor: "#fff", border: "2px solid #1976d244" }} />
-                <Typography variant="h6" color="primary" fontWeight={900} sx={{ mb: 1 }}>E-Ticket เข้างาน</Typography>
-                <Divider sx={{ mb: 2 }} />
-                <Stack alignItems="center" sx={{ my: 2 }}><QRCodeSVG value={registeredParticipant?.qrCode || registeredParticipant?._id || ""} size={220} level="H" includeMargin style={{ background: "#fff", padding: 8, borderRadius: 16 }} /></Stack>
-                <InfoRow label="ชื่อ" value={pickField(registeredParticipant, ["name", "fullName", "fullname", "firstName"])}/>
-                <InfoRow label="เบอร์โทร" value={pickField(registeredParticipant, ["phone", "tel", "mobile"])}/>
-                <InfoRow label="ภาควิชา" value={pickField(registeredParticipant, ["dept", "department"])}/>
-                <InfoRow label="ปีการศึกษา" value={pickField(registeredParticipant, ["date_year", "year", "academicYear"])}/>
-                <InfoRow label="ผู้ติดตาม" value={Number.isFinite(+registeredParticipant?.followers) ? +registeredParticipant.followers : (Number.isFinite(+registeredParticipant?.fields?.followers) ? +registeredParticipant.fields.followers : 0)} />
-              </Box>
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="center" sx={{ mt: 2 }}>
-                <Tooltip title="ดาวน์โหลดเป็น PDF"><Button variant="contained" onClick={savePdf} startIcon={<PictureAsPdfIcon />} sx={{ borderRadius: 3 }}>บันทึกเป็น PDF</Button></Tooltip>
-                <Tooltip title="ดาวน์โหลดเป็น PNG"><Button variant="outlined" onClick={savePng} startIcon={<DownloadIcon />} sx={{ borderRadius: 3 }}>บันทึกเป็น PNG</Button></Tooltip>
-                <Button variant="text" onClick={handleReset} startIcon={<RestartAltIcon />} sx={{ borderRadius: 3 }}>เริ่มกรอกข้อมูลใหม่</Button>
-              </Stack>
-            </CardContent>
-           </Card>
-        )}
 
         <Dialog open={errorDialog.open} onClose={() => setErrorDialog({ ...errorDialog, open: false })} PaperProps={{ sx: { borderRadius: 4, p: 1, maxWidth: 360, textAlign: 'center', borderTop: errorDialog.type === 'security' ? '6px solid #FF3B30' : '6px solid #FF9800' } }}>
           <DialogContent>
@@ -803,4 +1020,3 @@ function FieldInput({ field, value, onChange, errorText }) {
 }
 
 function InfoRow({ label, value }) { return (<Stack direction="row" justifyContent="center" spacing={1} sx={{ mb: .5 }}><Typography sx={{ fontWeight: 700 }}>{label}:</Typography><Typography>{value || "-"}</Typography></Stack>); }
-function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return ""; }
