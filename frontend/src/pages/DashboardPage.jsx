@@ -29,7 +29,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
-import { getDonationSummary, getDashboardSummary } from "../utils/api";
+import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
 
 // [NEW] Import Library สำหรับทำ Excel
 import * as XLSX from 'xlsx';
@@ -243,31 +243,30 @@ export default function DashboardPage() {
 // [FINAL FIXED] ฟังก์ชัน Download Excel สำหรับโครงสร้างข้อมูลที่มี fields
   async function handleDownloadExcel() {
     try {
-      const res = await fetch("/api/participants?all=true", {
+      // [แก้ไข] เปลี่ยนจาก fetch เป็น api.get เพื่อให้ใช้ Base URL ที่ถูกต้อง
+      const res = await api.get("/participants", {
+        params: { all: true },
         headers: { Authorization: `Bearer ${token}` }
       });
 
-      if (!res.ok) throw new Error("ไม่สามารถดึงข้อมูลได้ (API Error)");
-      
-      const responseJson = await res.json();
-      const participants = Array.isArray(responseJson) ? responseJson : (responseJson.data || []);
+      // Axios จะ return data มาใน res.data เลย ไม่ต้องรอ .json()
+      const participants = Array.isArray(res.data) ? res.data : (res.data.data || []);
 
       if (participants.length === 0) {
         alert("ไม่พบข้อมูลสำหรับดาวน์โหลด");
         return;
       }
 
-      // 1. Map สถานะ (ตรงกับ JSON เป๊ะๆ)
+      // 1. Map สถานะ
       const statusMap = {
         'registered': 'ลงทะเบียนแล้ว',
-        'checkedIn': 'เช็คอินแล้ว', // ใน JSON เป็น camelCase
+        'checkedIn': 'เช็คอินแล้ว',
         'pending': 'รอตรวจสอบ',
         'cancelled': 'ยกเลิก'
       };
 
-      // 2. Map ข้อมูล (เจาะเข้าไปใน .fields)
+      // 2. Map ข้อมูล
       const excelData = participants.map((item, index) => {
-        // ดึงข้อมูลส่วนตัวจาก fields (ถ้าไม่มีให้กัน error ไว้ด้วย {})
         const f = item.fields || {};
         
         return {
@@ -288,25 +287,14 @@ export default function DashboardPage() {
         };
       });
 
-      // 3. สร้างไฟล์ Excel
+      // 3. สร้างไฟล์ Excel (ส่วนนี้เหมือนเดิม)
       const worksheet = XLSX.utils.json_to_sheet(excelData);
 
-      // จัดความกว้างคอลัมน์ให้สวยงาม
       worksheet['!cols'] = [
-        { wch: 6 },  // ลำดับ
-        { wch: 25 }, // ชื่อ
-        { wch: 10 }, // ชื่อเล่น
-        { wch: 15 }, // เบอร์
-        { wch: 20 }, // อีเมล
-        { wch: 25 }, // คณะ
-        { wch: 10 }, // รุ่น
-        { wch: 15 }, // สถานะ
-        { wch: 15 }, // ประเภท
-        { wch: 10 }, // ผู้ติดตาม
-        { wch: 15 }, // ช่วยเหลือ
-        { wch: 20 }, // เวลาลงทะเบียน
-        { wch: 20 }, // เวลาเช็คอิน
-        { wch: 15 }  // จุดลงทะเบียน
+        { wch: 6 }, { wch: 25 }, { wch: 10 }, { wch: 15 }, 
+        { wch: 20 }, { wch: 25 }, { wch: 10 }, { wch: 15 }, 
+        { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, 
+        { wch: 20 }, { wch: 15 }
       ];
 
       const workbook = XLSX.utils.book_new();
@@ -316,7 +304,7 @@ export default function DashboardPage() {
 
     } catch (e) {
       console.error(e);
-      alert("เกิดข้อผิดพลาด: " + e.message);
+      alert("เกิดข้อผิดพลาด: " + (e.response?.data?.error || e.message));
     }
   }
 
