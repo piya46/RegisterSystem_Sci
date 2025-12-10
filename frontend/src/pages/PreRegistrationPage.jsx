@@ -676,7 +676,7 @@ export default function PreRegistrationPage() {
                         <Box display="flex" alignItems="center" gap={1}>
                             <CardGiftcardIcon color="secondary" />
                             <Typography variant="subtitle1" fontWeight="bold" color="secondary.main">
-                                กรุณาเลือกณุปแบบสนับสนุนที่ต้องการ
+                                กรุณาเลือกรูปแบบสนับสนุนที่ต้องการ
                             </Typography>
                         </Box>
                         
