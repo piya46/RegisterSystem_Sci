@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
 const auditLog = require('../helpers/auditLog');
-const sendTicketMail = require('../utils/sendTicketMail');
+const { sendTicketMail } = require('../utils/sendTicketMail');
 const verifyTurnstile = require('../utils/verifyTurnstile'); 
 
 function checkAdmin(req, res) {

@@ -1,9 +1,10 @@
-const Admin = require('../models/admin');
+// const Admin = require('../models/admin');
 const bcrypt = require('bcrypt');
 const auditLog = require('../helpers/auditLog');
-const sendMail = require('../utils/sendMail');
+const { sendResetPasswordMail } = require('../utils/sendTicketMail');
 const path = require("path");
 const fs = require("fs");
+const logger = require('../utils/logger'); // Added logger import if it was missing/used in createAdmin
 
 exports.createAdmin = async (req,res) => {
     const {username, password, role, email, fullName} = req.body;
@@ -17,7 +18,10 @@ exports.createAdmin = async (req,res) => {
     await admin.save();
     auditLog({ req, action: 'CREATE_ADMIN', detail: `username=${username}` });
     res.json({ message: 'Admin created', admin: { ...admin.toObject(), passwordHash: undefined } });
-    logger.info(`[ADMIN][${req.user.username}] CREATE_ADMIN username=${username}`);
+    // Ensure logger is defined or imported, otherwise this line might error
+    if (typeof logger !== 'undefined') {
+        logger.info(`[ADMIN][${req.user.username}] CREATE_ADMIN username=${username}`);
+    }
 };
 
 exports.listAdmins = async (req, res) => {
@@ -85,10 +89,11 @@ exports.resetPassword = async (req, res) => {
 
   auditLog({ req, action: 'RESET_PASSWORD', detail: `Reset for user=${target.username}` });
   try {
-    await sendMail(
+    // [FIXED] Updated arguments to match the new sendResetPasswordMail signature
+    await sendResetPasswordMail(
       target.email,
-      'Your password has been reset',
-      `Your new password: ${newPassword}`
+      newPassword,
+      target.username
     );
   } catch (err) {
     auditLog({ req, action: 'RESET_PASSWORD_EMAIL_FAIL', detail: `to=${target.email}`, error: err.message, status: 500 });

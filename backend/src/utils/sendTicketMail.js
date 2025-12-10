@@ -1,177 +1,154 @@
-// const sendMail = require('./sendMail');
-
-// module.exports = async function sendTicketMail(toEmail, participant) {
-//   try {
-//     const qrText = participant.qrCode || participant._id || 'no-code';
-
-//     // สร้าง URL ของรูป QR code จาก API
-//     const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(qrText)}`;
-
-//     const html = `
-//       <div style="font-family:sans-serif;max-width:500px;margin:auto">
-//         <h2>นี่คือ E-Ticket สำหรับเข้างานของคุณ</h2>
-//         <p>กรุณาแสดง QR Code ด้านล่างให้เจ้าหน้าที่สแกนในวันงาน</p>
-//         <img src="${qrImageUrl}" style="width:220px;height:220px;border:1px solid #eee" alt="QR Code"/>
-//         <p style="margin-top:2em"><b>เลขตั๋ว (Ticket ID):</b> ${qrText}</p>
-//         <p>หากมีปัญหาโปรดติดต่อทีมงาน</p>
-//       </div>
-//     `;
-
-//     return sendMail(
-//       toEmail,
-//       'E-Ticket งานคืนเหย้า (สำหรับเข้างาน)',
-//       'นี่คือ E-Ticket สำหรับเข้างาน กรุณาแสดง QR Code ในอีเมลนี้เพื่อเข้างาน',
-//       html
-//     );
-//   } catch (error) {
-//     console.error("Error sending ticket mail:", error);
-//     throw error;
-//   }
-// };
-
 const sendMail = require('./sendMail');
 
-module.exports = async function sendTicketMail(toEmail, participant) {
+/**
+ * ส่งอีเมล E-Ticket พร้อม QR Code (ปรับโฉมใหม่สวยงาม Modern Gold Theme)
+ */
+exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
   try {
     const qrText = participant.qrCode || participant._id || 'no-code';
     const name = participant.fields?.name || "-";
     const year = participant.fields?.date_year || "-";
     const dept = participant.fields?.dept || "-";
 
-    // QR PNG (ดาวน์โหลด/แสดง)
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(qrText)}`;
-
-    // mailto สำหรับติดต่อทีมงาน (subject พร้อม Ticket ID)
-    const contactMailto = `mailto:contact@pstpyst.com?subject=ปัญหาเกี่ยวกับ%20Ticket%20ID%3A%20${encodeURIComponent(qrText)}&body=โปรดแจ้งรายละเอียดปัญหาของคุณที่นี่%0A%0ATicket ID: ${encodeURIComponent(qrText)}`;
+    // สร้าง URL รูป QR Code (ใช้ API ที่เชื่อถือได้)
+    // เพิ่ม margin และกำหนดสีพื้นหลังเพื่อให้ดูสะอาดตา
+    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&bgcolor=ffffff&data=${encodeURIComponent(qrText)}`;
+    
+    // ลิงก์สำหรับติดต่อแจ้งปัญหา
+    const contactUrl = `mailto:piyaton56@gmail.com?subject=Help%20Ticket%20${qrText}`;
 
     const html = `
-      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; background: #fff8e1; padding: 32px 12px; color: #5a4400; max-width: 420px; margin: auto; border-radius: 14px; box-shadow: 0 10px 28px rgba(255, 193, 7, 0.3);">
-        <div style="text-align: center; margin-bottom: 22px;">
-          <h1 style="font-weight: 700; font-size: 28px; margin: 0;">🎫 E-Ticket</h1>
-          <p style="font-weight: 600; font-size: 16px; margin: 6px 0 0;">งานคืนเหย้า</p>
-        </div>
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>E-Ticket</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+        <div style="padding: 40px 20px; background-color: #f4f4f4;">
+          <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,0.08);">
+            
+            <div style="background: linear-gradient(135deg, #FFC107 0%, #FF8F00 100%); padding: 40px 20px; text-align: center;">
+              <h1 style="margin: 0; color: #ffffff; font-size: 28px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                🎟 บัตรเข้าร่วมงาน
+              </h1>
+              <p style="margin: 8px 0 0; color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 500;">
+                งานคืนเหย้า "เสือเหลืองคืนถิ่น"
+              </p>
+            </div>
 
-        <div style="text-align: center; margin-bottom: 24px;">
-          <img src="${qrImageUrl}" alt="QR Code" style="width: 220px; height: 220px; border-radius: 12px; border: 3px solid #ffca28; box-shadow: 0 0 18px #ffca2833;" />
-          <div>
-            <a href="${qrImageUrl}" download="E-Ticket_${name}_${qrText}.png"
-              style="display: inline-block; margin-top: 12px; background: #ffca28; color: #4a3e00; font-weight: 700; text-decoration: none; padding: 10px 24px; border-radius: 24px; font-size: 14px; box-shadow: 0 6px 12px rgba(255, 202, 40, 0.45); transition: background-color 0.3s;">
-              ⬇ ดาวน์โหลด QR E-Ticket
-            </a>
+            <div style="padding: 40px 30px; text-align: center;">
+              
+              <p style="font-size: 20px; color: #333; margin: 0 0 5px;">
+                สวัสดีคุณ <strong>${name}</strong> 👋
+              </p>
+              <p style="color: #666; font-size: 15px; line-height: 1.6; margin-top: 0;">
+                ขอบคุณที่ลงทะเบียนเข้าร่วมงาน<br>กรุณาแสดง QR Code นี้ให้เจ้าหน้าที่สแกนเพื่อเข้างาน
+              </p>
+
+              <div style="margin: 30px 0;">
+                <div style="display: inline-block; padding: 15px; border: 2px dashed #FFB300; border-radius: 16px; background-color: #fff;">
+                  <img src="${qrImageUrl}" alt="QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;" />
+                </div>
+                <div style="margin-top: 12px;">
+                  <span style="background-color: #FFF8E1; color: #FF8F00; padding: 6px 16px; border-radius: 20px; font-family: monospace; font-size: 14px; font-weight: bold; border: 1px solid #FFECB3;">
+                    ${qrText}
+                  </span>
+                </div>
+              </div>
+
+              <div style="background-color: #FFFDE7; border-radius: 12px; padding: 25px; margin-bottom: 30px; text-align: left; border: 1px solid #FFF9C4;">
+                <table width="100%" style="border-collapse: collapse;">
+                  <tr>
+                    <td style="padding: 10px 0; color: #795548; font-size: 14px; border-bottom: 1px solid #FFF59D;">ชื่อ-นามสกุล</td>
+                    <td style="padding: 10px 0; color: #333; font-weight: bold; text-align: right; border-bottom: 1px solid #FFF59D;">${name}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; color: #795548; font-size: 14px; border-bottom: 1px solid #FFF59D;">ภาควิชา</td>
+                    <td style="padding: 10px 0; color: #333; font-weight: bold; text-align: right; border-bottom: 1px solid #FFF59D;">${dept}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 10px 0; color: #795548; font-size: 14px;">รุ่นปีการศึกษา</td>
+                    <td style="padding: 10px 0; color: #333; font-weight: bold; text-align: right;">${year}</td>
+                  </tr>
+                </table>
+              </div>
+
+              <a href="${qrImageUrl}" download="E-Ticket.png" style="display: inline-block; background-color: #FFC107; color: #000; text-decoration: none; padding: 15px 35px; border-radius: 50px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 193, 7, 0.4); transition: transform 0.2s;">
+                ⬇️ บันทึก QR Code
+              </a>
+              
+              <p style="margin-top: 25px; font-size: 13px; color: #999;">
+                หมายเหตุ: คุณสามารถแคปหน้าจอนี้เก็บไว้ในมือถือเพื่อความสะดวกรวดเร็ว
+              </p>
+            </div>
+
+            <div style="background-color: #3E2723; color: #BCAAA4; padding: 25px; text-align: center; font-size: 12px;">
+              <p style="margin: 0 0 10px;">พบปัญหาในการใช้งาน? <a href="${contactUrl}" style="color: #FFC107; text-decoration: none;">ติดต่อทีมงาน</a></p>
+              <p style="margin: 0; opacity: 0.7;">&copy; 2026 Register System Sci. All rights reserved.</p>
+            </div>
           </div>
         </div>
-
-        <div style="background: #fff3cd; padding: 14px 20px; border-radius: 14px; color: #664d03; font-weight: 600; font-size: 15px; line-height: 1.4;">
-          <p style="margin: 4px 0;"><b>ชื่อ:</b> ${name}</p>
-          <p style="margin: 4px 0;"><b>ปีการศึกษา:</b> ${year}</p>
-          <p style="margin: 4px 0;"><b>สาขา:</b> ${dept}</p>
-        </div>
-
-        <p style="margin-top: 18px; font-size: 14px; font-weight: 600; color: #a68400; text-align: center;">
-          Ticket ID: <span style="color: #ffb300; font-weight: 700;">${qrText}</span>
-        </p>
-
-        <p style="font-size: 14px; line-height: 1.5; color: #6b5300; text-align: center; margin-top: 6px;">
-          กรุณาแสดง QR Code ด้านบนให้เจ้าหน้าที่ในวันงาน
-        </p>
-
-        <hr style="border: none; border-bottom: 1px solid #ffecb3; margin: 24px 0;" />
-
-        <div style="text-align: center;">
-          <a href="${contactMailto}"
-            style="background: #ffd54f; color: #5a4400; font-weight: 700; font-size: 15px; padding: 12px 28px; border-radius: 28px; text-decoration: none; box-shadow: 0 6px 14px rgba(255, 213, 79, 0.4); display: inline-block; transition: background-color 0.3s;">
-            📧 ติดต่อทีมงาน (แจ้งปัญหา)
-          </a>
-        </div>
-      </div>
+      </body>
+      </html>
     `;
 
-   return sendMail(
-  toEmail,
-  'E-Ticket งานคืนเหย้า (สำหรับเข้างาน)',
-  'นี่คือ E-Ticket สำหรับเข้างาน กรุณาแสดง QR Code ในอีเมลนี้เพื่อเข้างาน',
-  html,
-  {
-    headers: {
-      'Sensitivity': 'Company-Confidential',
-      'X-Priority': '1 (Highest)',
-      'X-MSMail-Priority': 'High',
-      'Importance': 'High'
-    }
-  }
-);
-
-
+    return sendMail(
+      toEmail,
+      `🎫 E-Ticket ของคุณ: ${name}`,
+      `นี่คือ E-Ticket สำหรับเข้างานของคุณ (${qrText}) กรุณาเปิดดูในโหมด HTML`,
+      html
+    );
   } catch (error) {
     console.error("Error sending ticket mail:", error);
     throw error;
   }
 };
 
-async function sendResetPasswordMail(toEmail, newPassword, username) {
+/**
+ * ส่งอีเมลแจ้ง Reset Password (ปรับโฉมใหม่ให้เข้ากัน)
+ */
+exports.sendResetPasswordMail = async function sendResetPasswordMail(toEmail, newPassword, username) {
   try {
     const html = `
-      <div style="
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        max-width: 480px;
-        margin: auto;
-        padding: 24px;
-        background: #fff8e1;
-        border: 2px solid #fbc02d;
-        border-radius: 12px;
-        color: #4a3400;
-      ">
-        <h2 style="text-align: center; color: #fbc02d; margin-bottom: 16px;">
-          รีเซ็ตรหัสผ่านเสร็จสมบูรณ์
-        </h2>
-        <p>สวัสดีคุณ <strong>${username}</strong>,</p>
-        <p>รหัสผ่านใหม่ของคุณได้รับการตั้งค่าเรียบร้อยแล้ว กรุณาใช้รหัสผ่านด้านล่างเพื่อเข้าสู่ระบบ:</p>
-        <div style="
-          background: #fbc02d;
-          color: #4a3400;
-          font-weight: bold;
-          font-size: 1.2rem;
-          text-align: center;
-          padding: 12px 0;
-          border-radius: 8px;
-          letter-spacing: 2px;
-          margin: 16px 0;
-          user-select: all;
-        ">
-          ${newPassword}
+      <div style="background-color: #f4f4f4; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">
+        <div style="max-width: 500px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.1);">
+          
+          <div style="background: #D32F2F; padding: 30px; text-align: center;">
+            <h2 style="color: #fff; margin: 0; font-size: 24px;">🔐 Password Reset</h2>
+          </div>
+
+          <div style="padding: 40px 30px; text-align: center;">
+            <p style="font-size: 16px; color: #333; margin-top: 0;">เรียนคุณ <strong>${username}</strong></p>
+            <p style="color: #666; margin-bottom: 30px; line-height: 1.5;">
+              รหัสผ่านของคุณถูกรีเซ็ตเรียบร้อยแล้ว<br>กรุณาใช้รหัสผ่านชั่วคราวด้านล่างนี้เพื่อเข้าสู่ระบบ
+            </p>
+
+            <div style="background: #FFEBEE; color: #C62828; font-size: 28px; font-weight: bold; letter-spacing: 3px; padding: 20px; border-radius: 8px; border: 2px dashed #EF9A9A; display: inline-block; margin-bottom: 30px;">
+              ${newPassword}
+            </div>
+
+            <p style="font-size: 14px; color: #D32F2F; background: #FFEBEE; padding: 10px; border-radius: 6px; display: inline-block;">
+              ⚠️ เพื่อความปลอดภัย กรุณาเปลี่ยนรหัสผ่านทันทีหลังจากเข้าสู่ระบบ
+            </p>
+          </div>
+
+          <div style="background: #FAFAFA; padding: 20px; text-align: center; font-size: 12px; color: #aaa; border-top: 1px solid #eee;">
+            หากคุณไม่ได้เป็นผู้ร้องขอการเปลี่ยนรหัสผ่าน กรุณาติดต่อผู้ดูแลระบบทันที
+          </div>
         </div>
-        <p>แนะนำให้เปลี่ยนรหัสผ่านของคุณทันทีหลังจากเข้าสู่ระบบเพื่อความปลอดภัยสูงสุด</p>
-        <hr style="border: none; border-top: 1px solid #fbc02d; margin: 24px 0;" />
-        <p style="font-size: 0.85rem; color: #a17c00; text-align: center;">
-          หากคุณไม่ได้ร้องขอการเปลี่ยนแปลงนี้ โปรดติดต่อฝ่ายสนับสนุนทันที
-        </p>
-        <p style="text-align: center; margin-top: 32px;">
-          <a href="mailto:contact@pstpyst.com?subject=ปัญหาเรื่องรีเซ็ตรหัสผ่าน&body=Username: ${username}" 
-             style="
-               background: #fbc02d;
-               color: #4a3400;
-               padding: 10px 20px;
-               border-radius: 6px;
-               text-decoration: none;
-               font-weight: 600;
-               font-size: 1rem;
-               box-shadow: 0 4px 10px rgba(251, 192, 45, 0.5);
-               display: inline-block;
-             ">
-            ติดต่อฝ่ายสนับสนุน
-          </a>
-        </p>
       </div>
     `;
 
     await sendMail(
       toEmail,
-      'แจ้งรีเซ็ตรหัสผ่านของคุณ - งานเสือเหลือง',
-      'รหัสผ่านใหม่ของคุณถูกรีเซ็ตแล้ว กรุณาตรวจสอบในอีเมลนี้',
+      'แจ้งการรีเซ็ตรหัสผ่าน (Password Reset)',
+      `รหัสผ่านใหม่ของคุณคือ: ${newPassword}`,
       html
     );
   } catch (err) {
     console.error("Error sending reset password mail:", err);
     throw err;
   }
-}
+};
