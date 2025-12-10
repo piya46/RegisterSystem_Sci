@@ -712,7 +712,7 @@ export default function PreRegistrationPage() {
                   </Stack>
                   <FormControlLabel 
                     control={<Switch checked={wantPackage} onChange={(e) => setWantPackage(e.target.checked)} color="secondary" />} 
-                    label={<Typography variant="body2">{wantPackage ? "ต้องการบริจาคเป็น Package" : "บริจาคทั่วไป"}</Typography>} 
+                    label={<Typography variant="body2">{wantPackage ? "ต้องการสนับสนุนทั่วไป กรุณาคลิก" : "ต้องการสนับสนุนแบบ Package กรุณาคลิก"}</Typography>} 
                   />
                   <Collapse in={wantPackage}>
                     <Box sx={{ mt: 1.5, p: 2, bgcolor: "#f3e5f5", borderRadius: 2 }}>
