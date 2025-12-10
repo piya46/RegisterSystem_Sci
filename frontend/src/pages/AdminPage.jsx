@@ -93,6 +93,7 @@ export default function AdminPage() {
   const [passwordTarget, setPasswordTarget] = useState(null);
   const intervalRef = useRef(null);
   const navigate = useNavigate();
+  const [pointsList, setPointsList] = useState([]);
 
   const fetchAdmins = useCallback(() => {
     if (!token) return;
@@ -102,6 +103,12 @@ export default function AdminPage() {
       .catch(() => setAdmins([]))
       .finally(() => setFetching(false));
     setRefreshCountdown(AUTO_REFRESH_SEC);
+  }, [token]);
+
+  useEffect(() => {
+    api.listRegistrationPoints(token)
+       .then(res => setPointsList(res.data || res || []))
+       .catch(err => console.error("Load points failed", err));
   }, [token]);
 
   useEffect(() => {
@@ -417,6 +424,7 @@ export default function AdminPage() {
         onSave={handleDialogSave}
         initialData={editData}
         isEdit={!!editData}
+        pointsList={pointsList}
       />
       
       {/* Dialog เปลี่ยน/รีเซ็ตรหัสผ่าน */}

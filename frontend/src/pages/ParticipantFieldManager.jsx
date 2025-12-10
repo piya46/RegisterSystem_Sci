@@ -179,8 +179,8 @@ export default function ParticipantFieldManager() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={2} sx={{ mt: { xs: 2, sm: 0 } }}>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate("/settings")} sx={{ borderRadius: 2, textTransform: "none" }}>
-            กลับสู่ตั้งค่า
+          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate("/dashboard")} sx={{ borderRadius: 2, textTransform: "none" }}>
+            กลับหน้าหลัก
           </Button>
           <Button 
             variant="contained" 

@@ -27,13 +27,14 @@ const Y = {
 };
 
 export default function AdminUserDialog({
-  open, onClose, onSave, initialData, isEdit
+  open, onClose, onSave, initialData, isEdit, pointsList = []
 }) {
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("staff");
   const [password, setPassword] = useState("");
+  const [selectedPoints, setSelectedPoints] = useState([]);
 
   const [errors, setErrors] = useState({});
 
@@ -43,12 +44,14 @@ export default function AdminUserDialog({
       setFullName(initialData.fullName || "");
       setEmail(initialData.email || "");
       setRole(Array.isArray(initialData.role) ? initialData.role[0] : initialData.role || "staff");
+      setSelectedPoints(initialData.registrationPoints || []);
       setPassword("");
     } else {
       setUsername("");
       setFullName("");
       setEmail("");
       setRole("staff");
+      setSelectedPoints([]);
       setPassword("");
     }
     setErrors({});
@@ -89,6 +92,7 @@ export default function AdminUserDialog({
       fullName: fullName.trim(),
       email: email.trim(),
       role,
+      registrationPoints: selectedPoints,
       ...(!isEdit && password ? { password } : {})
     });
   };
@@ -226,6 +230,40 @@ export default function AdminUserDialog({
               </MenuItem>
             ))}
           </TextField>
+
+          {/* ส่วนเลือกจุดรับผิดชอบ (แสดงเฉพาะเมื่อไม่ใช่ Admin) */}
+          {(role === 'staff' || role === 'kiosk') && (
+            <TextField
+              select
+              label="Assigned Registration Points"
+              value={selectedPoints}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedPoints(typeof val === 'string' ? val.split(',') : val);
+              }}
+              fullWidth
+              margin="dense"
+              SelectProps={{
+                multiple: true,
+                renderValue: (selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selected.map((value) => {
+                      const point = pointsList.find(p => (p._id || p.id) === value);
+                      return <Chip key={value} label={point?.name || "Unknown"} size="small" />;
+                    })}
+                  </Box>
+                )
+              }}
+              helperText="เลือกจุดที่ Staff คนนี้สามารถทำงานได้"
+              sx={tfStyle}
+            >
+              {pointsList.map((point) => (
+                <MenuItem key={point._id || point.id} value={point._id || point.id}>
+                  {point.name}
+                </MenuItem>
+              ))}
+            </TextField>
+          )}
 
           {!isEdit ? (
             <>

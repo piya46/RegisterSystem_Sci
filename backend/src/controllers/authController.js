@@ -89,7 +89,7 @@ exports.getMe = async (req, res) => {
     role: admin.role,
     email: admin.email,
     fullName: admin.fullName,
-    avartarUrl: admin.avatarUrl,
+    avatarUrl: admin.avatarUrl,
   });
 };
 

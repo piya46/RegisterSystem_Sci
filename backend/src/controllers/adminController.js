@@ -42,32 +42,67 @@ exports.listAdmins = async (req, res) => {
 
 exports.deleteAdmin = async (req, res) => {
   try {
-    const admin = await Admin.findById(req.params.id);
+    const targetId = req.params.id;
+    const admin = await Admin.findById(targetId);
+    
     if (!admin) {
-      auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `targetId=${req.params.id} not found`, status: 404 });
-      return res.status(404).json({ error: 'Admin not found' });
+      auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `targetId=${targetId} not found`, status: 404 });
+      return res.status(404).json({ error: 'User not found' });
     }
-    if (req.user && req.user._id.toString() === req.params.id) {
+
+    // [เพิ่ม] ห้ามลบตัวเอง
+    if (req.user && req.user._id.toString() === targetId) {
       return res.status(400).json({ error: "You can't delete yourself!" });
     }
-    const adminCount = await Admin.countDocuments();
-    if (adminCount <= 1) {
-      return res.status(400).json({ error: 'Cannot delete the last admin!' });
+
+    // [เพิ่ม] ห้ามลบ Admin คนอื่น (Super Admin Protection)
+    if (admin.role.includes('admin')) {
+        auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `Try to delete admin ${admin.username}`, status: 403 });
+        return res.status(403).json({ error: 'ไม่ได้รับอนุญาตให้ลบบัญชีผู้ดูแลระบบ (Admin) ท่านอื่น' });
     }
-    await Admin.findByIdAndDelete(req.params.id);
-    res.json({ message: 'Admin deleted' });
-    auditLog({ req, action: 'DELETE_ADMIN', detail: `targetId=${req.params.id}` });
+
+    // ลบได้เฉพาะ Staff หรือ Kiosk
+    await Admin.findByIdAndDelete(targetId);
+    
+    res.json({ message: 'User deleted successfully' });
+    auditLog({ req, action: 'DELETE_ADMIN', detail: `targetId=${targetId}` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 };
 
+// exports.updateAdmin = async (req, res) => {
+//   try {
+//     const { role, email, fullName } = req.body;
+//     const admin = await Admin.findByIdAndUpdate(
+//       req.params.id,
+//       { role, email, fullName },
+//       { new: true }
+//     );
+//     if (!admin) {
+//       auditLog({ req, action: 'UPDATE_ADMIN_FAIL', detail: `targetId=${req.params.id} not found`, status: 404 });
+//       return res.status(404).json({ error: 'Admin not found' });
+//     }
+//     auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}` });
+//     res.json({ message: 'Admin updated', admin });
+//   } catch (err) {
+//     res.status(500).json({ error: err.message });
+//   }
+// };
+
 exports.updateAdmin = async (req, res) => {
   try {
-    const { role, email, fullName } = req.body;
+    // [แก้ไข] รับ registrationPoints มาด้วย
+    const { role, email, fullName, registrationPoints } = req.body;
+    
+    const updateData = { role, email, fullName };
+    if (registrationPoints !== undefined) {
+      updateData.registrationPoints = registrationPoints;
+    }
+
     const admin = await Admin.findByIdAndUpdate(
       req.params.id,
-      { role, email, fullName },
+      updateData,
       { new: true }
     );
     if (!admin) {
@@ -192,19 +227,22 @@ exports.uploadAvatar = async (req, res) => {
     const admin = await Admin.findById(req.user._id);
     if (!admin) return res.status(404).json({ error: "User not found" });
 
-    if (admin.avatar) {
-      const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatar);
+    // ลบรูปเก่า (ถ้ามี)
+    if (admin.avatarUrl) { // [แก้ไข] ใช้ avatarUrl ให้ตรงกับ Schema
+      const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
       if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
       }
     }
 
-    admin.avatar = req.file.filename;
+    // [แก้ไข] บันทึกชื่อไฟล์ลง field avatarUrl
+    admin.avatarUrl = req.file.filename;
     await admin.save();
 
     res.json({
       message: "Avatar uploaded successfully",
       filename: req.file.filename,
+      // [แก้ไข] ส่ง URL กลับไปให้ถูกต้อง
       url: `/uploads/avatars/${req.file.filename}`
     });
   } catch (err) {

@@ -869,8 +869,14 @@ export default function PreRegistrationPage() {
                 </Typography>
             </Alert>
 
-            {/* Turnstile Widget */}
-            <Turnstile ref={turnstileRef} invisible onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} options={{ action: "pre_register" }} />
+            {/* Turnstile Widget - FIXED */}
+            <Turnstile 
+                ref={turnstileRef} 
+                size="invisible" 
+                action="pre_register" 
+                onVerify={(t) => setCfToken(t)} 
+                onError={() => setCfToken("")} 
+            />
             
             {/* ปุ่มกดตรวจสอบข้อมูล */}
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>

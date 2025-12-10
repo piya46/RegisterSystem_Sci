@@ -15,7 +15,7 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import SecurityIcon from "@mui/icons-material/Security";
 import ContactSupportIcon from '@mui/icons-material/ContactSupport';
 
-// Import Turnstile (ไม่ต้อง import executeTurnstile แล้ว)
+// Import Turnstile
 import Turnstile from "../components/Turnstile";
 
 // --- Animations ---
@@ -67,18 +67,20 @@ export default function LoginPage() {
         await login(username.trim(), password, cfToken);
       } catch (err) {
         const res = err?.response?.data;
-        const rawMsg = res?.message || res?.error || "Login Failed";
+        // รับข้อความจาก Server โดยตรง (ถ้ามี) หรือใช้ Default text
+        const serverMsg = res?.error || res?.message || "Login Failed";
         
         // ตรวจสอบว่าเป็น Bot Error หรือไม่
         const isBotError = 
-            rawMsg.toLowerCase().includes("turnstile") || 
-            rawMsg.toLowerCase().includes("captcha") ||
-            (rawMsg.toLowerCase().includes("security") && !rawMsg.includes("credential"));
+            (serverMsg && serverMsg.toLowerCase().includes("turnstile")) || 
+            (serverMsg && serverMsg.toLowerCase().includes("captcha")) ||
+            (serverMsg && serverMsg.toLowerCase().includes("security") && !serverMsg.includes("credential"));
 
         if (isBotError) {
            setSecurityErrorOpen(true);
         } else {
-           setError("Username or Password incorrect"); // ใช้ข้อความกลางๆ
+           // แสดงข้อความที่ Server ส่งมา (เช่น "User not found", "Password incorrect")
+           setError(serverMsg === "Login Failed" ? "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง" : serverMsg);
            setShakeOnError(true);
            setTimeout(() => setShakeOnError(false), 500);
         }
@@ -98,7 +100,7 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!username || !password) {
-        setError("Please enter username and password");
+        setError("กรุณากรอกชื่อผู้ใช้และรหัสผ่าน");
         setShakeOnError(true);
         setTimeout(() => setShakeOnError(false), 500);
         return;
@@ -203,13 +205,13 @@ export default function LoginPage() {
               </Button>
             </Box>
 
-            {/* Invisible Turnstile Widget WITH REF */}
+            {/* Invisible Turnstile Widget WITH REF (Fixed Props) */}
             <Turnstile 
                 ref={turnstileRef} 
-                invisible 
+                size="invisible"       // เปลี่ยนจาก invisible เป็น size="invisible"
+                action="login"         // ย้าย action ออกมาเป็น prop
                 onVerify={(t) => setCfToken(t)} 
                 onError={() => { setPendingLogin(false); setError("Security check failed"); }} 
-                options={{ action: "login" }} 
             />
 
             <Button
