@@ -774,7 +774,7 @@ export default function PreRegistrationPage() {
                         <Box>
                             <Typography fontWeight={600} sx={{ lineHeight: 1.4 }}>เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ</Typography>
                             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, fontSize: '0.85rem' }}>
-                                (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อปรับปรุงข้อมูลให้เป็นปัจจุบัน ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบกิจกรรม)
+                                (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อปรับปรุงข้อมูลให้เป็นปัจจุบัน)
                             </Typography>
                         </Box>
                     }
