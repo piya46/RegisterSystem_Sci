@@ -4,6 +4,8 @@ const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
 const requireKioskOrStaff = require('../middleware/requireKioskOrStaff');
 const participantController = require('../controllers/participantController');
+const { getReportData } = require('../services/reportService');
+const { generatePDF } = require('../utils/pdfGenerator');
 
 // 1. ลงทะเบียนล่วงหน้า (public ไม่ต้องล็อกอิน)
 router.post('/public', participantController.createParticipant);
@@ -24,5 +26,20 @@ router.post('/checkin-by-qr', auth, requireKioskOrStaff, participantController.c
 router.post('/resend-ticket', participantController.resendTicket);
 
 router.get('/export', auth, participantController.exportParticipants);
+
+router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
+  try {
+    const data = await getReportData();
+    const pdfBuffer = await generatePDF(data, req.user.username);
+    
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=Report_Manual_${Date.now()}.pdf`
+    });
+    res.send(pdfBuffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 module.exports = router;

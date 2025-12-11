@@ -24,6 +24,8 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'; // <--- เพิ่มไอคอน
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { downloadPdfReport } from '../utils/api';
 
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
@@ -227,6 +229,22 @@ function AdminParticipantsPage() {
     setResendLoadingId(null);
   };
 
+  const handleDownloadPdf = async () => {
+    if(!window.confirm("ต้องการดาวน์โหลด PDF รายงานสรุปผลหรือไม่?")) return;
+    try {
+        const res = await downloadPdfReport(token);
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `Report_${new Date().toISOString().slice(0,10)}.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    } catch (err) {
+        alert("ดาวน์โหลดล้มเหลว");
+    }
+};
+
   return (
     <Box sx={{ 
       maxWidth: 1200, mx: 'auto', mt: 4, mb: 8, p: { xs: 2, md: 4 },
@@ -387,6 +405,15 @@ function AdminParticipantsPage() {
                     EXPORT
                   </Button>
                </Grid>
+               <Button 
+    variant="contained" 
+    color="error" // สีแดง
+    startIcon={<PictureAsPdfIcon />} 
+    onClick={handleDownloadPdf}
+    sx={{ borderRadius: 3 }}
+>
+    PDF Report
+</Button>
             </Grid>
           </Grid>
         </Grid>

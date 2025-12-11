@@ -30,6 +30,7 @@ import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
+import UpdateIcon from '@mui/icons-material/Update';
 
 // [NEW] Import Library สำหรับทำ Excel
 import * as XLSX from 'xlsx';
@@ -104,7 +105,8 @@ const MANAGE_MENU = [
   { label: "จัดการจุดลงทะเบียน", icon: <StoreIcon />, path: "/registration-points", roles: ["admin", "staff"] },
   { label: "จัดการผู้ใช้", icon: <GroupIcon />, path: "/admin", roles: ["admin"] },
   { label: "จัดการผู้เข้าร่วม", icon: <PeopleIcon />, path: "/admin/participants", roles: ["admin"] },
-  { label: "ตั้งค่าระบบ", icon: <SettingsIcon />, path: "/settings", roles: ["admin"] }
+  { label: "ตั้งค่าระบบ", icon: <SettingsIcon />, path: "/settings", roles: ["admin"] },
+  { label: "สถานะระบบอัตโนมัติ", icon: <UpdateIcon />, path: "/admin/cron-status", roles: ["admin"] },
 ];
 
 const getTheme = (mode = "light") =>
