@@ -14,6 +14,7 @@ import SelectPointPage from './pages/SelectPointPage';
 import AdminParticipantsPage from './pages/AdminParticipantsPage';
 import PreRegistrationPage from './pages/PreRegistrationPage';
 import DonationListPage from './pages/DonationListPage';
+import CronStatusPage from "./pages/CronStatusPage";
 
 export default function App() {
   return (
@@ -114,6 +115,15 @@ export default function App() {
          <SelectPointPage mode="staff" />
           </ProtectedRoute>
         } />
+
+        <Route 
+  path="/admin/cron-status" 
+  element={
+    <ProtectedRoute roles={["admin"]}>
+      <CronStatusPage />
+    </ProtectedRoute>
+  } 
+/>
 
         <Route path="/unauthorized" element={<div>คุณไม่มีสิทธิ์เข้าถึงหน้านี้</div>} />
         <Route path="*" element={<NotFoundPage />} />

@@ -1,10 +1,11 @@
-const Admin = require('../models/admin'); // [แก้ไข 1] เอา // ออกเพื่อให้ใช้งาน Model ได้
+const Admin = require('../models/admin');
 const bcrypt = require('bcrypt');
 const auditLog = require('../helpers/auditLog');
 const { sendResetPasswordMail } = require('../utils/sendTicketMail');
 const path = require("path");
 const fs = require("fs");
-const logger = require('../utils/logger'); // [แก้ไข 2] เพิ่มการ import logger
+const logger = require('../utils/logger');
+const CronLog = require('../models/cronLog');
 
 exports.createAdmin = async (req,res) => {
   try {
@@ -30,7 +31,7 @@ exports.createAdmin = async (req,res) => {
 
 exports.listAdmins = async (req, res) => {
   try {
-    // [แก้ไข 1 ผลลัพธ์] บรรทัดนี้จะทำงานได้แล้วเพราะ Admin ถูก import มาถูกต้อง
+    
     const admins = await Admin.find({}, '-passwordHash');
     auditLog({ req, action: 'LIST_ADMINS', detail: `Count=${admins.length}` });
     res.json(admins);
@@ -50,18 +51,18 @@ exports.deleteAdmin = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // [เพิ่ม] ห้ามลบตัวเอง
+  
     if (req.user && req.user._id.toString() === targetId) {
       return res.status(400).json({ error: "You can't delete yourself!" });
     }
 
-    // [เพิ่ม] ห้ามลบ Admin คนอื่น (Super Admin Protection)
+
     if (admin.role.includes('admin')) {
         auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `Try to delete admin ${admin.username}`, status: 403 });
         return res.status(403).json({ error: 'ไม่ได้รับอนุญาตให้ลบบัญชีผู้ดูแลระบบ (Admin) ท่านอื่น' });
     }
 
-    // ลบได้เฉพาะ Staff หรือ Kiosk
+ 
     await Admin.findByIdAndDelete(targetId);
     
     res.json({ message: 'User deleted successfully' });
@@ -71,28 +72,9 @@ exports.deleteAdmin = async (req, res) => {
   }
 };
 
-// exports.updateAdmin = async (req, res) => {
-//   try {
-//     const { role, email, fullName } = req.body;
-//     const admin = await Admin.findByIdAndUpdate(
-//       req.params.id,
-//       { role, email, fullName },
-//       { new: true }
-//     );
-//     if (!admin) {
-//       auditLog({ req, action: 'UPDATE_ADMIN_FAIL', detail: `targetId=${req.params.id} not found`, status: 404 });
-//       return res.status(404).json({ error: 'Admin not found' });
-//     }
-//     auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}` });
-//     res.json({ message: 'Admin updated', admin });
-//   } catch (err) {
-//     res.status(500).json({ error: err.message });
-//   }
-// };
-
 exports.updateAdmin = async (req, res) => {
   try {
-    // [แก้ไข] รับ registrationPoints มาด้วย
+
     const { role, email, fullName, registrationPoints } = req.body;
     
     const updateData = { role, email, fullName };
@@ -141,7 +123,7 @@ exports.resetPassword = async (req, res) => {
 
     auditLog({ req, action: 'RESET_PASSWORD', detail: `Reset for user=${target.username}` });
     
-    // [แก้ไข 3] ส่ง arguments ให้ตรงกับ function definition ใหม่ (Email, Password, Username)
+  
     try {
       await sendResetPasswordMail(
         target.email,
@@ -150,7 +132,7 @@ exports.resetPassword = async (req, res) => {
       );
     } catch (mailErr) {
       console.error("Email sending failed:", mailErr);
-      // ไม่ throw error เพื่อให้การ reset password ถือว่าสำเร็จแม้ส่งอีเมลไม่ได้
+    
     }
 
     res.json({ message: 'Password reset successfully (Email sent).' });
@@ -227,7 +209,7 @@ exports.uploadAvatar = async (req, res) => {
     const admin = await Admin.findById(req.user._id);
     if (!admin) return res.status(404).json({ error: "User not found" });
 
-    // ลบรูปเก่า (ถ้ามี)
+
     if (admin.avatarUrl) {
     const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
     if (fs.existsSync(oldPath)) {
@@ -235,18 +217,26 @@ exports.uploadAvatar = async (req, res) => {
     }
 }
 
-    // [แก้ไข] บันทึกชื่อไฟล์ลง field avatarUrl
+
     admin.avatarUrl = req.file.filename;
     await admin.save();
 
     res.json({
       message: "Avatar uploaded successfully",
       filename: req.file.filename,
-      // [แก้ไข] ส่ง URL กลับไปให้ถูกต้อง
       url: `/uploads/avatars/${req.file.filename}`
     });
   } catch (err) {
     console.error("Upload Avatar Error:", err);
     res.status(500).json({ error: "Failed to upload avatar" });
+  }
+};
+
+exports.getCronLogs = async (req, res) => {
+  try {
+    const logs = await CronLog.find().sort({ startTime: -1 }).limit(50);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

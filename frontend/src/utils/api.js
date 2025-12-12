@@ -133,6 +133,16 @@ export const uploadAvatar = (file, token) => {
   });
 };
 
+// เพิ่มฟังก์ชันเหล่านี้
+export const getCronLogs = (token) =>
+  api.get('/admins/cron-logs', { headers: { Authorization: `Bearer ${token}` } });
+
+export const downloadPdfReport = (token) =>
+  api.get('/participants/download-report-pdf', {
+    headers: { Authorization: `Bearer ${token}` },
+    responseType: 'blob'
+  });
+
 // ==== Donation (การสนับสนุน) ====
 export const createDonation = (data) =>
   api.post('/donations/create', data);
