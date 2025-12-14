@@ -974,6 +974,21 @@ export default function PreRegistrationPage() {
                 </Button>
             </DialogActions>
         </Dialog>
+        <Box sx={{ mt: 4, mb: 2, textAlign: 'center' }}>
+  <Typography variant="caption" color="text.secondary">
+    การคลิก "ลงทะเบียน" แสดงว่าท่านยอมรับ{' '}
+    <a href="/terms-of-service" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2', textDecoration: 'none' }}>
+      ข้อกำหนดการใช้งาน
+    </a>
+    {' '}และ{' '}
+    <a href="/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: '#1976d2', textDecoration: 'none' }}>
+      นโยบายความเป็นส่วนตัว
+    </a>
+  </Typography>
+  <Typography variant="caption" display="block" color="text.disabled" sx={{ mt: 0.5 }}>
+    © {new Date().getFullYear()} Alumni Science Chulalongkorn University. All rights reserved.
+  </Typography>
+</Box>
 
         <Dialog open={errorDialog.open} onClose={() => setErrorDialog({ ...errorDialog, open: false })} PaperProps={{ sx: { borderRadius: 4, p: 1, maxWidth: 360, textAlign: 'center', borderTop: errorDialog.type === 'security' ? '6px solid #FF3B30' : '6px solid #FF9800' } }}>
           <DialogContent>

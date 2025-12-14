@@ -15,6 +15,8 @@ import AdminParticipantsPage from './pages/AdminParticipantsPage';
 import PreRegistrationPage from './pages/PreRegistrationPage';
 import DonationListPage from './pages/DonationListPage';
 import CronStatusPage from "./pages/CronStatusPage";
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsPage from './pages/TermsPage';
 
 export default function App() {
   return (
@@ -22,6 +24,8 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<PreRegistrationPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/terms-of-service" element={<TermsPage />} />
 
         <Route
           path="/dashboard"
