@@ -14,20 +14,16 @@ const rateLimit = require('express-rate-limit');
 
 const app = express();
 
-// 1. Trust Proxy: จำเป็นสำหรับ Production ที่อยู่หลัง Load Balancer/Proxy
 app.set('trust proxy', 1);
 
 app.use(express.json());
 
-// --- [ส่วนที่แก้ไข] จัดการ CORS ให้รองรับหลายโดเมน ---
 const rawOrigin = process.env.CORS_ORIGIN || '*';
 let originOption;
 
 if (rawOrigin === '*') {
-  originOption = true; // อนุญาตทั้งหมด
+  originOption = true; 
 } else {
-  // ถ้ามีเครื่องหมายจุลภาค (,) ให้แยกเป็น Array
-  // ตัวอย่าง: 'domain1.com,domain2.com' -> ['domain1.com', 'domain2.com']
   originOption = rawOrigin.split(',').map(o => o.trim());
 }
 
@@ -35,12 +31,10 @@ const corsOptions = {
   origin: originOption, 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true // แนะนำให้เปิดเพื่อรองรับ Cookie/Auth Header ข้ามโดเมน
+  credentials: true 
 };
 app.use(cors(corsOptions));
-// --------------------------------------------------
 
-// 3. Rate Limiting: จำกัดการยิง API
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
   max: 300, 
@@ -52,7 +46,6 @@ app.use(limiter);
 
 app.use(requestLogger);
 
-// Register routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/sessions', sessionRoutes);
