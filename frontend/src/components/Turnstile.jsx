@@ -51,6 +51,7 @@ const Turnstile = forwardRef(({
   onError,          // Callback(err) -> Error
   onExpire,         // Callback() -> Token Expired
   appearance = "always", // "always" | "execute" | "interaction-only"
+  execution = "render",
   style,
   className
 }, ref) => {
@@ -105,6 +106,7 @@ const Turnstile = forwardRef(({
           action,
           cData,
           appearance,
+          execution,
           callback: (token) => {
             if (onVerify) onVerify(token);
           },

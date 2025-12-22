@@ -8,7 +8,10 @@ async function verifyTurnstile(token, ip) {
     return true; 
   }
 
-  if (!token) return false;
+  if (!token) {
+    console.log("❌ Turnstile Verify: No token provided");
+    return false;
+  }
 
   try {
     const formData = new URLSearchParams();
@@ -18,10 +21,26 @@ async function verifyTurnstile(token, ip) {
 
     const res = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', formData);
     
-    return res.data && res.data.success;
+    const data = res.data;
+
+    // ✅ จุดที่ควรเพิ่ม: เช็คว่า Success ไหม ถ้าไม่ ให้ Log Error Codes ออกมาดู
+    if (!data.success) {
+        console.error("❌ Turnstile Verification Failed:", {
+            ip: ip,
+            errorCodes: data['error-codes'], // ตรงนี้สำคัญมาก! มันจะบอกสาเหตุ
+            messages: data.messages
+        });
+        
+        // ตัวอย่าง error-codes ที่พบบ่อย:
+        // 'timeout-or-duplicate' -> นี่แหละคือตัวการที่ทำให้เกิด Loop! (Token ถูกใช้ไปแล้ว)
+        // 'invalid-input-response' -> Token มั่ว หรือหมดอายุ
+        // 'invalid-input-secret' -> Secret key ใน .env ผิด
+    }
+
+    return data.success;
+
   } catch (err) {
-    console.error("Turnstile verification error:", err.message);
-    // เพิ่มบรรทัดนี้เพื่อดู response จริงจาก Cloudflare ถ้ามี
+    console.error("🔥 Turnstile Network Error:", err.message);
     if (err.response) console.error("Cloudflare Response:", err.response.data);
     return false;
   }

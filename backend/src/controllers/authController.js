@@ -17,19 +17,19 @@ exports.login = async (req, res) => {
         auditLog({ req, action: 'LOGIN_BOT_BLOCK', detail: 'Turnstile verification failed', status: 400 });
         return res.status(400).json({ 
             error: 'Security Check Failed', 
-            message: 'ระบบตรวจสอบพบความผิดปกติ (Turnstile Failed) กรุณาลองใหม่อีกครั้ง' 
+            message: 'ระบบตรวจสอบพบความผิดปกติ กรุณาลองใหม่อีกครั้ง' 
         });
     }
 
     const admin = await Admin.findOne({ username });
     if (!admin) {
-        auditLog({ req, action: 'LOGIN_FAIL', detail: 'User not found', status: 400 });
-        return res.status(400).json({ error: 'User not found' });
+        auditLog({ req, action: 'LOGIN_FAIL', detail: 'User not found', status: 401 });
+        return res.status(401).json({ error: 'User not found' });
     }
     const isMatch = await bcrypt.compare(password, admin.passwordHash);
     if (!isMatch) {
-        auditLog({ req, action: 'LOGIN_FAIL', detail: 'Invalid credentials', status: 400 });
-        return res.status(400).json({ error: 'Invalid credentials' });
+        auditLog({ req, action: 'LOGIN_FAIL', detail: 'Invalid credentials', status: 401 });
+        return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     // --- Session Management ---

@@ -1,11 +1,12 @@
 // frontend/src/pages/PreRegistrationPage.jsx
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import {
   Box, Container, Paper, Stack, Typography, TextField, MenuItem,
   Button, Avatar, Divider, Collapse, FormControlLabel, Switch,
   Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
   Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton,
+  Backdrop // ✅ เพิ่ม Backdrop ตรงนี้
 } from "@mui/material";
 
 // Icons
@@ -28,7 +29,7 @@ import AccessibleIcon from '@mui/icons-material/Accessible';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import FavoriteIcon from '@mui/icons-material/Favorite'; // เพิ่ม Icon หัวใจ
+import FavoriteIcon from '@mui/icons-material/Favorite'; 
 
 // Icons ใหม่สำหรับ Ticket
 import PersonIcon from '@mui/icons-material/Person';
@@ -68,7 +69,7 @@ const ASSISTANCE_TAGS = [
     { label: "แพ้ถั่ว", icon: <WarningIcon fontSize="small"/> }
 ];
 
-// ข้อมูลตารางไซส์
+// ข้อมูลตารางไซส์ (แก้ไขเพิ่ม 7XL)
 const SIZE_CHART_DATA = [
   { size: "SS", chest: 34, length: 23 },
   { size: "S",  chest: 36, length: 24 },
@@ -80,6 +81,7 @@ const SIZE_CHART_DATA = [
   { size: "4XL", chest: 48, length: 30 },
   { size: "5XL", chest: 50, length: 31 },
   { size: "6XL", chest: 52, length: 32 },
+  { size: "7XL", chest: 54, length: 33 }, 
 ];
 
 const MourningRibbon = () => (
@@ -140,7 +142,7 @@ export default function PreRegistrationPage() {
   const [donationTime, setDonationTime] = useState("");
 
   // Package Donation States
-  const [wantPackage, setWantPackage] = useState(false); // true = Package, false = General
+  const [wantPackage, setWantPackage] = useState(false);
   const [packageType, setPackageType] = useState("");
   const [packageSize, setPackageSize] = useState("");
 
@@ -149,6 +151,14 @@ export default function PreRegistrationPage() {
 
   const ticketRef = useRef();
   const turnstileRef = useRef();
+
+  const handleVerify = useCallback((token) => {
+    setCfToken(token);
+  }, []);
+
+  const handleError = useCallback(() => {
+    setCfToken("");
+  }, []);
 
   useEffect(() => {
     setFetchingFields(true);
@@ -177,23 +187,38 @@ export default function PreRegistrationPage() {
     return { personal, contact, address, others };
   }, [fields]);
 
-  const handleInput = (e) => {
+  // ✅ Optimized handleInput
+  const handleInput = useCallback((e) => {
     const { name, value } = e.target;
+    
     if (name === 'date_year') {
       const nums = value.replace(/[^\d]/g, '').slice(0, 4); 
-      if (nums.length === 4 && parseInt(nums, 10) < 2400) {
-        setErrors(prev => ({ ...prev, [name]: "กรุณากรอกปี พ.ศ. (เช่น 2569)" }));
-      } else {
-        setErrors(prev => { const next = { ...prev }; delete next[name]; return next; });
-      }
+      
+      setErrors(prev => {
+          if (nums.length === 4 && parseInt(nums, 10) < 2400) {
+              return { ...prev, [name]: "กรุณากรอกปี พ.ศ. (เช่น 2569)" };
+          } else if (prev[name]) {
+              const next = { ...prev };
+              delete next[name];
+              return next;
+          }
+          return prev;
+      });
+
       setForm((f) => ({ ...f, [name]: nums })); 
       return;
     }
-    if (errors[name]) {
-        setErrors(prev => { const next = { ...prev }; delete next[name]; return next; });
-    }
+
+    setErrors(prev => {
+        if (prev[name]) {
+            const next = { ...prev }; 
+            delete next[name]; 
+            return next;
+        }
+        return prev;
+    });
     setForm((f) => ({ ...f, [name]: value }));
-  };
+  }, []);
 
   const handleAssistTagToggle = (label) => {
     if (selectedAssistTags.includes(label)) {
@@ -208,10 +233,8 @@ export default function PreRegistrationPage() {
     setSnackbarOpen(true);
   };
 
-  // เปลี่ยนโหมดการบริจาค (ทั่วไป vs Package)
   const handleDonationModeChange = (e) => {
     const mode = e.target.value;
-    
     if (mode === 'general') {
       setWantPackage(false);
       setPackageType('general'); 
@@ -223,11 +246,9 @@ export default function PreRegistrationPage() {
     }
   };
 
-  // เลือก Package เจาะจง
   const handleSpecificPackageChange = (e) => {
     const val = e.target.value;
     setPackageType(val);
-
     const foundPkg = PACKAGE_OPTIONS.find(p => p.value === val);
     if (foundPkg) {
         setDonationAmount(foundPkg.price);
@@ -266,12 +287,10 @@ export default function PreRegistrationPage() {
         setErrorDialog({ open: true, type: "error", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาระบุจำนวนเงินที่ต้องการสนับสนุน" });
         return;
       }
-      
       if (!packageType) {
          setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาเลือกรูปแบบการสนับสนุน (รับของที่ระลึก หรือ สนับสนุนการจัดงาน)" });
          return;
       }
-
       if (wantPackage) {
         if (!packageType) {
             setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาเลือก Package ที่ต้องการ" });
@@ -293,7 +312,6 @@ export default function PreRegistrationPage() {
         }
       }
     }
-
     setReviewOpen(true);
   };
 
@@ -567,7 +585,6 @@ export default function PreRegistrationPage() {
               <Collapse in={wantToDonate}>
                 <Box sx={{ mt: 3 }}>
                   
-                  {/* [แก้ไขใหม่] ส่วนเลือกรูปแบบการสนับสนุน (สวยงามขึ้น) */}
                   <Typography variant="subtitle2" gutterBottom fontWeight="bold" sx={{ mb: 1.5, color: '#37474f' }}>
                       ท่านต้องการสนับสนุนรูปแบบใด <span style={{color:'red'}}>*</span>
                   </Typography>
@@ -579,7 +596,6 @@ export default function PreRegistrationPage() {
                             onChange={handleDonationModeChange}
                         >
                             <Grid container spacing={2}>
-                                {/* ตัวเลือก: สนับสนุนการจัดงาน (เดิมคือ บริจาคทั่วไป) */}
                                 <Grid item xs={12} sm={6}>
                                     <Paper 
                                         variant="outlined" 
@@ -616,14 +632,12 @@ export default function PreRegistrationPage() {
                                             } 
                                             sx={{ m: 0 }}
                                         />
-                                        {/* Checkmark overlay */}
                                         {!wantPackage && (
                                             <CheckCircleIcon color="success" sx={{ position: 'absolute', top: 8, right: 8 }} />
                                         )}
                                     </Paper>
                                 </Grid>
 
-                                {/* ตัวเลือก: รับของที่ระลึก (Package) */}
                                 <Grid item xs={12} sm={6}>
                                     <Paper 
                                         variant="outlined" 
@@ -660,7 +674,6 @@ export default function PreRegistrationPage() {
                                             } 
                                             sx={{ m: 0 }}
                                         />
-                                        {/* Checkmark overlay */}
                                         {wantPackage && (
                                             <CheckCircleIcon color="secondary" sx={{ position: 'absolute', top: 8, right: 8 }} />
                                         )}
@@ -670,7 +683,6 @@ export default function PreRegistrationPage() {
                         </RadioGroup>
                     </FormControl>
 
-                  {/* แสดง Dropdown เลือก Package เฉพาะเมื่อเลือก 'รับของที่ระลึก' */}
                   <Collapse in={wantPackage}>
                     <Stack spacing={2} sx={{ mb: 3, p: 2.5, bgcolor: "#fff", borderRadius: 3, border: '1px solid #e1bee7', boxShadow: '0 4px 12px rgba(225, 190, 231, 0.2)' }}>
                         <Box display="flex" alignItems="center" gap={1}>
@@ -784,7 +796,6 @@ export default function PreRegistrationPage() {
                         />
                     </Grid>
                     <Grid item xs={6}>
-                        {/* Time Picker */}
                         <TextField 
                             label="เวลาที่โอน" 
                             type="time" 
@@ -903,7 +914,7 @@ export default function PreRegistrationPage() {
                 </Typography>
             </Alert>
 
-            <Turnstile ref={turnstileRef} size="invisible" action="pre_register" onVerify={(t) => setCfToken(t)} onError={() => setCfToken("")} />
+            <Turnstile ref={turnstileRef} size="invisible" execution="execute" action="pre_register" onVerify={handleVerify} onError={handleError} />
             
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
               <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
@@ -1005,6 +1016,25 @@ export default function PreRegistrationPage() {
         
         <Snackbar open={snackbarOpen} autoHideDuration={2000} onClose={() => setSnackbarOpen(false)} message="คัดลอกเลขบัญชีแล้ว" anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />
 
+        {/* --- Loading Backdrop (เพิ่มส่วนนี้) --- */}
+        <Backdrop
+          sx={{ 
+            color: '#fff', 
+            zIndex: (theme) => theme.zIndex.drawer + 9999,
+            flexDirection: 'column',
+            gap: 2
+          }}
+          open={loading || pendingSubmit}
+        >
+          <CircularProgress color="inherit" size={60} thickness={4} />
+          <Typography variant="h6" fontWeight="bold" sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+            กำลังบันทึกข้อมูล...
+          </Typography>
+          <Typography variant="body1" sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
+            กรุณารอสักครู่ ห้ามปิดหน้าต่างนี้
+          </Typography>
+        </Backdrop>
+
       </Container>
     </Box>
   );
@@ -1026,15 +1056,17 @@ function FormSection({ title, icon, children }) {
     );
 }
 
-function OptionCard({ value, label, selected }) {
+// ✅ 2. Memoized OptionCard
+const OptionCard = React.memo(({ value, label, selected }) => {
   return (
     <Paper variant="outlined" sx={{ mb: 1.5, p: 0, borderRadius: 2, border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0", bgcolor: selected ? "#f0f7ff" : "#fff", transition: "all 0.2s", "&:hover": { borderColor: "#90caf9" } }}>
       <FormControlLabel value={value} control={<Radio sx={{ ml: 1 }} />} label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>} sx={{ width: '100%', m: 0, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { width: '100%' }, '& .MuiRadio-root': { mt: 0.5 } }} />
     </Paper>
   );
-}
+});
 
-function FieldInput({ field, value, onChange, errorText }) {
+// ✅ 3. Memoized FieldInput (Crucial for performance!)
+const FieldInput = React.memo(({ field, value, onChange, errorText }) => {
   const commonSx = {
     "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem", "& fieldset": { borderColor: "#bdbdbd", borderWidth: 1 }, "&.Mui-focused fieldset": { borderColor: "#ff9800", borderWidth: 2 } },
     "& .MuiInputLabel-root": { fontSize: "1.05rem" }
@@ -1061,6 +1093,6 @@ function FieldInput({ field, value, onChange, errorText }) {
   return (
     <TextField name={field.name} type={inputType} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth error={!!errorText} helperText={errorText || (field.required ? "" : "(ไม่บังคับ)")} sx={commonSx} InputLabelProps={inputType === "date" ? { shrink: true } : undefined} autoComplete="off" inputProps={{ inputMode: field.type === 'number' ? 'numeric' : 'text', pattern: field.type === 'number' ? "[0-9]*" : undefined }} />
   );
-}
+});
 
 function InfoRow({ label, value }) { return (<Stack direction="row" justifyContent="center" spacing={1} sx={{ mb: .5 }}><Typography sx={{ fontWeight: 700 }}>{label}:</Typography><Typography>{value || "-"}</Typography></Stack>); }
