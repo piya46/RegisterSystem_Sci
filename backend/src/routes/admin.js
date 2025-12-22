@@ -12,6 +12,8 @@ router.delete('/:id', auth, requireAdmin, adminController.deleteAdmin);
 router.put('/:id', auth, requireAdmin, adminController.updateAdmin);
 router.post('/reset-password', auth, requireAdmin, adminController.resetPassword);
 router.post('/change-password', auth, adminController.changePassword);
+router.post('/request-action-otp', auth, requireAdmin, adminController.requestActionOtp);
+router.put('/staff/:id', auth, requireAdmin, adminController.updateStaff);
 router.post("/upload-avatar", auth, uploadAvatar.single("avatar"), adminController.uploadAvatar);
 router.get('/cron-logs', auth, requireAdmin, adminController.getCronLogs);
 

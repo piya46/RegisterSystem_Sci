@@ -8,5 +8,7 @@ router.post('/login', authController.login);
 router.get('/me', auth, authController.getMe);
 
 router.post('/verify', authController.verify);
+router.post('/forgot-password', authController.requestPasswordReset);     // ขอ OTP
+router.post('/reset-password-otp', authController.resetPasswordWithOtp);
 
 module.exports = router;

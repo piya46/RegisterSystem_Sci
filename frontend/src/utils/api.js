@@ -1,153 +1,119 @@
-// src/utils/api.js
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 10000,
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api', 
+  timeout: 30000, 
 });
 
-// ==== Auth ====
-export const login = (data) =>
-  api.post('/auth/login', data);
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => {
+  return Promise.reject(error);
+});
 
-export const getMe = (token) =>
-  api.get('/auth/me', {
-    headers: { Authorization: `Bearer ${token}` }
-  });
+// ==========================================
+// 🔐 Auth & Self-Service
+// ==========================================
 
-export const logout = (token) =>
-  api.post('/sessions/logout', {}, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  
-  export const verifyUser = (data) =>
-  api.post('/auth/verify', data);
+export const login = (data) => api.post('/auth/login', data);
+export const getMe = () => api.get('/auth/me');
+export const logout = () => api.post('/sessions/logout');
+export const verifyUser = (data) => api.post('/auth/verify', data);
 
-// ==== Admin ====
-export const listAdmins = (token) =>
-  api.get('/admins', { headers: { Authorization: `Bearer ${token}` } });
+// ✅ ตรงกับ routes/auth.js แล้ว
+export const requestPasswordReset = (username) => 
+  api.post('/auth/forgot-password', { username });
 
-export const createAdmin = (data, token) =>
-  api.post('/admins', data, { headers: { Authorization: `Bearer ${token}` } });
+// ✅ ตรงกับ routes/auth.js แล้ว
+export const resetPasswordWithOtp = (username, otp, newPassword) => 
+  api.post('/auth/reset-password-otp', { username, otp, newPassword });
 
-export const updateAdmin = (id, data, token) =>
-  api.put(`/admins/${id}`, data, { headers: { Authorization: `Bearer ${token}` } });
 
-export const deleteAdmin = (id, token) =>
-  api.delete(`/admins/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+// ==========================================
+// 🛡️ Admin Management
+// ==========================================
 
-export const resetPassword = (data, token) =>
-  api.post('/admins/reset-password', data, { headers: { Authorization: `Bearer ${token}` } });
+export const listAdmins = () => api.get('/admins'); 
+export const createAdmin = (data) => api.post('/admins', data);
+export const updateAdmin = (id, data) => api.put(`/admins/${id}`, data);
+export const deleteAdmin = (id) => api.delete(`/admins/${id}`);
 
-export const changePassword = (data, token) =>
-  api.post('/admins/change-password', data, { headers: { Authorization: `Bearer ${token}` } });
+// ✅ [แก้ไขจุดนี้] ให้ตรงกับ Backend: /request-action-otp
+export const requestActionOtp = () => 
+  api.post('/admins/request-action-otp');
 
-// ==== Session ====
-export const listSessions = (token) =>
-  api.get('/sessions', { headers: { Authorization: `Bearer ${token}` } });
+// ✅ ตรงกับ routes/admin.js (/reset-password)
+export const resetUserPassword = (userId, newPassword, otp = null) => 
+  api.post('/admins/reset-password', { userId, newPassword, otp });
 
-export const deleteSessionByToken = (tokenId, token) =>
-  api.delete(`/sessions/token/${tokenId}`, { headers: { Authorization: `Bearer ${token}` } });
+// ✅ ตรงกับ routes/admin.js (/staff/:id)
+export const updateStaff = (id, data) => api.put(`/admins/staff/${id}`, data);
 
-export const deleteSessionByUserId = (userId, token) =>
-  api.delete(`/sessions/user/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const changePassword = (data) => api.post('/admins/change-password', data);
 
-export const revokeSession = (id, token) =>
-  api.post(`/sessions/revoke/${id}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-
-export const revokeAllSessionByUser = (userId, token) =>
-  api.post(`/sessions/revoke-all/${userId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
-
-// ==== Participant (ผู้เข้าร่วม) ====
-export const createParticipant = (data) =>
-  api.post('/participants/public', data);
-
-export const createParticipantByStaff = (data, token) =>
-  api.post('/participants/register-onsite', data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const listParticipants = (token) =>
-  api.get('/participants', { headers: { Authorization: `Bearer ${token}` } });
-
-export const updateParticipant = (id, data, token) =>
-  api.put(`/participants/${id}`, data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const deleteParticipant = (id, token) =>
-  api.delete(`/participants/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-
-export const checkinByQr = (data, token) =>
-  api.post('/participants/checkin-by-qr', data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const resendTicket = (data) =>
-  api.post('/participants/resend-ticket', data);
-
-export const searchParticipants = (params, token) =>
-  api.get('/participants/search', { params, headers: { Authorization: `Bearer ${token}` } });
-
-export const registerOnsiteByKiosk = (data, token) =>
-  api.post('/participants/register-onsite', data, { headers: { Authorization: `Bearer ${token}` } });
-
-// ==== Registration Point (จุดลงทะเบียน) ====
-export const listRegistrationPoints = (token) =>
-  api.get('/registration-points', { headers: { Authorization: `Bearer ${token}` } });
-
-export const createRegistrationPoint = (data, token) =>
-  api.post('/registration-points', data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const updateRegistrationPoint = (id, data, token) =>
-  api.put(`/registration-points/${id}`, data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const deleteRegistrationPoint = (id, token) =>
-  api.delete(`/registration-points/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-
-// ==== ParticipantField (ฟิลด์ข้อมูลผู้เข้าร่วม ปรับแต่งโดย Admin) ====
-export const listParticipantFields = () =>
-  api.get('/participant-fields');
-
-export const createParticipantField = (data, token) =>
-  api.post('/participant-fields', data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const updateParticipantField = (id, data, token) =>
-  api.put(`/participant-fields/${id}`, data, { headers: { Authorization: `Bearer ${token}` } });
-
-export const deleteParticipantField = (id, token) =>
-  api.delete(`/participant-fields/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-
-// ==== Dashboard / รายงาน (สำหรับ admin เท่านั้น) ====
-export const getDashboardStats = (token) =>
-  api.get('/dashboard/stats', { headers: { Authorization: `Bearer ${token}` } });
-
-export const getCheckinSummary = (params, token) =>
-  api.get('/dashboard/checkin-summary', { params, headers: { Authorization: `Bearer ${token}` } });
-
-export const getDashboardSummary = (token) =>
-  api.get('/dashboard/summary', { headers: { Authorization: `Bearer ${token}` } });
-
-export const uploadAvatar = (file, token) => {
+export const uploadAvatar = (file) => {
   const formData = new FormData();
   formData.append("avatar", file);
   return api.post("/admins/upload-avatar", formData, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "multipart/form-data"
-    }
+    headers: { "Content-Type": "multipart/form-data" }
   });
 };
 
-// เพิ่มฟังก์ชันเหล่านี้
-export const getCronLogs = (token) =>
-  api.get('/admins/cron-logs', { headers: { Authorization: `Bearer ${token}` } });
+export const getCronLogs = () => api.get('/admins/cron-logs');
 
-export const downloadPdfReport = (token) =>
-  api.get('/participants/download-report-pdf', {
-    headers: { Authorization: `Bearer ${token}` },
-    responseType: 'blob'
-  });
+// ... (ส่วนอื่นๆ ของ Session, Participant, Checkin คงเดิม ไม่ต้องแก้) ...
+// เพื่อความชัวร์ Copy ส่วนล่างนี้ไปแปะต่อได้เลยครับ
 
-// ==== Donation (การสนับสนุน) ====
-export const createDonation = (data) =>
-  api.post('/donations/create', data);
+// ==========================================
+// 👤 Session Management
+// ==========================================
+export const listSessions = () => api.get('/sessions');
+export const deleteSessionByToken = (tokenId) => api.delete(`/sessions/token/${tokenId}`);
+export const deleteSessionByUserId = (userId) => api.delete(`/sessions/user/${userId}`);
+export const revokeSession = (id) => api.post(`/sessions/revoke/${id}`);
+export const revokeAllSessionByUser = (userId) => api.post(`/sessions/revoke-all/${userId}`);
 
-export const getDonationSummary = (token) =>
-  api.get('/donations/summary', { headers: { Authorization: `Bearer ${token}` } });
+// ==========================================
+// 🎓 Participant
+// ==========================================
+export const createParticipant = (data) => api.post('/participants/public', data);
+export const createParticipantByStaff = (data) => api.post('/participants/register-onsite', data);
+export const listParticipants = () => api.get('/participants');
+export const updateParticipant = (id, data) => api.put(`/participants/${id}`, data);
+export const deleteParticipant = (id) => api.delete(`/participants/${id}`);
+export const checkinByQr = (data) => api.post('/participants/checkin-by-qr', data);
+export const resendTicket = (data) => api.post('/participants/resend-ticket', data);
+export const searchParticipants = (params) => api.get('/participants/search', { params });
+export const registerOnsiteByKiosk = (data) => api.post('/participants/register-onsite', data);
+export const downloadPdfReport = () => api.get('/participants/download-report-pdf', { responseType: 'blob' });
+
+// ==========================================
+// 📍 Registration Point
+// ==========================================
+export const listRegistrationPoints = () => api.get('/registration-points');
+export const createRegistrationPoint = (data) => api.post('/registration-points', data);
+export const updateRegistrationPoint = (id, data) => api.put(`/registration-points/${id}`, data);
+export const deleteRegistrationPoint = (id) => api.delete(`/registration-points/${id}`);
+
+// ==========================================
+// 📝 Participant Fields
+// ==========================================
+export const listParticipantFields = () => api.get('/participant-fields');
+export const createParticipantField = (data) => api.post('/participant-fields', data);
+export const updateParticipantField = (id, data) => api.put(`/participant-fields/${id}`, data);
+export const deleteParticipantField = (id) => api.delete(`/participant-fields/${id}`);
+
+// ==========================================
+// 📊 Dashboard & Donation
+// ==========================================
+export const getDashboardStats = () => api.get('/dashboard/stats');
+export const getCheckinSummary = (params) => api.get('/dashboard/checkin-summary', { params });
+export const getDashboardSummary = () => api.get('/dashboard/summary');
+export const createDonation = (data) => api.post('/donations/create', data);
+export const getDonationSummary = () => api.get('/donations/summary');
 
 export default api;

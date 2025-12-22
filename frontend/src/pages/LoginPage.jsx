@@ -4,7 +4,8 @@ import useAuth from "../hooks/useAuth";
 import {
   Box, Card, CardContent, Typography, TextField, Button,
   CircularProgress, InputAdornment, IconButton, Tooltip, 
-  Dialog, DialogContent, Stack
+  Dialog, DialogContent, Stack,
+  Stepper, Step, StepLabel, Alert
 } from "@mui/material";
 import { keyframes } from "@mui/system";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
@@ -13,10 +14,10 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import SecurityIcon from "@mui/icons-material/Security";
-import ContactSupportIcon from '@mui/icons-material/ContactSupport';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
-// Import Turnstile
+// ✅ Import API
+import { requestPasswordReset, resetPasswordWithOtp } from "../utils/api";
 import Turnstile from "../components/Turnstile";
 
 // --- Animations ---
@@ -29,13 +30,12 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   
-  // State UI
+  // UI States
   const [showPwd, setShowPwd] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
   const [shakeOnError, setShakeOnError] = useState(false);
   const [error, setError] = useState(null);
   
-  // Dialog States
   const [securityErrorOpen, setSecurityErrorOpen] = useState(false);
   const [forgotPwdOpen, setForgotPwdOpen] = useState(false);
 
@@ -43,14 +43,21 @@ export default function LoginPage() {
   const [pendingLogin, setPendingLogin] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false); 
   
-  // Refs
+  // ✅ Forgot Password Wizard State
+  const [resetStep, setResetStep] = useState(0); 
+  const [resetUsername, setResetUsername] = useState("");
+  const [resetOtp, setResetOtp] = useState("");
+  const [resetRef, setResetRef] = useState(""); 
+  const [newPassword, setNewPassword] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetMsg, setResetMsg] = useState("");
+
   const turnstileRef = useRef(null);
-  
-  // ✅ 1. Ref สำหรับเก็บข้อมูลฟอร์มล่าสุด (แก้ปัญหา Stale Closure โดยไม่ต้อง Re-render)
   const formDataRef = useRef({ username: "", password: "" });
-  
-  // ✅ 2. Ref สำหรับกันการยิงซ้ำ (Lock Mechanism)
   const isSubmittingRef = useRef(false);
+
+  // ✅ Refs สำหรับช่อง OTP 8 ช่อง
+  const otpInputs = useRef([]);
 
   const { login, user, loading } = useAuth();
   const navigate = useNavigate();
@@ -60,45 +67,33 @@ export default function LoginPage() {
     formDataRef.current = { username, password };
   }, [username, password]);
 
-  // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
       navigate("/dashboard");
     }
   }, [user, loading, navigate]);
 
-  // ✅ 3. ฟังก์ชัน Login หลัก (ย้าย Logic มาไว้ที่นี่และใส่ Lock)
+  // --- Login Logic ---
   const processLogin = async (token) => {
-    // ถ้าประตูล็อกอยู่ (กำลังยิงอยู่) ให้ดีดออกทันที
     if (isSubmittingRef.current) return;
-    
-    // ล็อกประตู
     isSubmittingRef.current = true;
     
     const { username: currentUser, password: currentPass } = formDataRef.current;
 
     if (!currentUser || !currentPass || !token) {
-        isSubmittingRef.current = false; // ปลดล็อกถ้าข้อมูลไม่ครบ
+        isSubmittingRef.current = false;
         return;
     }
     
-    // เริ่มกระบวนการ UI
     setError(null);
     setShakeOnError(false);
     setPendingLogin(true);
     
     try {
         await login(currentUser.trim(), currentPass, token);
-        
-        // Login สำเร็จ
         setLoginSuccess(true);
-        // ไม่ต้องปลดล็อก isSubmittingRef เพื่อกัน user กดซ้ำระหว่างรอ Redirect
-        
     } catch (err) {
-        // Login พลาด
         setPendingLogin(false);
-        
-        // ปลดล็อกเพื่อให้ลองใหม่ได้
         isSubmittingRef.current = false;
 
         const status = err?.response?.status;
@@ -120,20 +115,17 @@ export default function LoginPage() {
            setShakeOnError(true);
            setTimeout(() => setShakeOnError(false), 500);
         }
-
-        // Reset Turnstile ทุกครั้งที่ Error เพื่อขอ Token ใหม่
         turnstileRef.current?.reset();
     }
   };
 
-  // ✅ 4. Callback เมื่อ Turnstile ผ่าน -> สั่ง Login ทันที
   const handleVerify = useCallback((token) => {
     processLogin(token);
-  }, []); // ไม่ต้องมี dependency เพราะใช้ Ref หมดแล้ว
+  }, []); 
 
   const handleError = useCallback(() => {
     setPendingLogin(false);
-    isSubmittingRef.current = false; // ปลดล็อกกรณี Turnstile error
+    isSubmittingRef.current = false;
     setError("Security check failed");
   }, []);
 
@@ -145,10 +137,54 @@ export default function LoginPage() {
         setTimeout(() => setShakeOnError(false), 500);
         return;
     }
-    
-    // สั่ง execute Turnstile (Logic การ Login จะไปเกิดที่ handleVerify)
     setPendingLogin(true);
     turnstileRef.current?.execute();
+  };
+
+  const handleCloseForgot = () => {
+    setForgotPwdOpen(false);
+    setTimeout(() => {
+        setResetStep(0);
+        setResetUsername("");
+        setResetOtp("");
+        setNewPassword("");
+        setResetMsg("");
+        setResetRef("");
+    }, 300);
+  };
+
+  // ✅ OTP Handler Logic: จัดการการพิมพ์ การลบ และการวาง (Paste)
+  const handleOtpChange = (index, value) => {
+    if (isNaN(value)) return; // รับเฉพาะตัวเลข
+    const newOtp = resetOtp.split('');
+    while (newOtp.length < 8) newOtp.push(''); 
+    
+    newOtp[index] = value;
+    const finalStr = newOtp.join('').substring(0, 8);
+    setResetOtp(finalStr);
+
+    // Auto Focus Next
+    if (value !== "" && index < 7) {
+        otpInputs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    // Backspace: ถ้าย้อนกลับแล้วช่องปัจจุบันว่าง ให้ไปลบช่องก่อนหน้า
+    if (e.key === "Backspace") {
+        if (!resetOtp[index] && index > 0) {
+            otpInputs.current[index - 1]?.focus();
+        }
+    }
+  };
+
+  const handleOtpPaste = (e) => {
+    e.preventDefault();
+    const data = e.clipboardData.getData("text").replace(/[^0-9]/g, "").substring(0, 8);
+    setResetOtp(data);
+    // Focus ช่องสุดท้ายที่กรอก
+    const focusIndex = Math.min(data.length, 7);
+    otpInputs.current[focusIndex]?.focus();
   };
 
   return (
@@ -179,41 +215,28 @@ export default function LoginPage() {
         }}
       >
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-          
           {loginSuccess ? (
-            <Stack 
-                alignItems="center" 
-                justifyContent="center" 
-                spacing={3} 
-                sx={{ py: 6, animation: `${fadeIn} 0.5s ease-out` }}
-            >
+            <Stack alignItems="center" justifyContent="center" spacing={3} sx={{ py: 6, animation: `${fadeIn} 0.5s ease-out` }}>
               <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <CircularProgress size={80} thickness={2} sx={{ color: "#fbc02d" }} />
                 <CheckCircleOutlineIcon sx={{ position: 'absolute', fontSize: 40, color: "#fbc02d", opacity: 0.8 }} />
               </Box>
-              
               <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h6" fontWeight={800} color="#6a4d00" sx={{ mb: 1 }}>
-                  กำลังพาท่านเข้าสู่ระบบ...
-                </Typography>
-                <Typography variant="body2" color="#7a5b00" fontWeight={500}>
-                  ตรวจสอบข้อมูลถูกต้อง กรุณารอสักครู่
-                </Typography>
+                <Typography variant="h6" fontWeight={800} color="#6a4d00" sx={{ mb: 1 }}>กำลังพาท่านเข้าสู่ระบบ...</Typography>
+                <Typography variant="body2" color="#7a5b00" fontWeight={500}>ตรวจสอบข้อมูลถูกต้อง กรุณารอสักครู่</Typography>
               </Box>
             </Stack>
           ) : (
             <>
+              {/* Logo & Header */}
               <Box sx={{ textAlign: "center", mb: 2.5 }}>
                 <Box component="img" src="/logo.svg" alt="Logo" sx={{ width: 72, height: 72, mb: 1, filter: "drop-shadow(0 4px 10px rgba(253, 216, 53, .45))" }} />
-                <Typography variant="h4" fontWeight={800} letterSpacing={0.5} sx={{ color: "#6a4d00", textShadow: "0 1px 0 #fff7" }}>
-                  Management Login
-                </Typography>
-                <Typography sx={{ mt: 0.5, color: "#7a5b00", fontWeight: 600 }}>
-                  Sign in to manage events
-                </Typography>
+                <Typography variant="h4" fontWeight={800} letterSpacing={0.5} sx={{ color: "#6a4d00", textShadow: "0 1px 0 #fff7" }}>Management Login</Typography>
+                <Typography sx={{ mt: 0.5, color: "#7a5b00", fontWeight: 600 }}>Sign in to manage events</Typography>
               </Box>
 
               <form onSubmit={handleSubmit} noValidate>
+                {/* Username Input */}
                 <TextField
                   fullWidth margin="normal" variant="outlined" label="Username"
                   value={username} onChange={(e) => setUsername(e.target.value)}
@@ -223,6 +246,7 @@ export default function LoginPage() {
                   sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, "& fieldset": { borderColor: "#fbc02d66" }, "&:hover fieldset": { borderColor: "#f57f17" }, "&.Mui-focused fieldset": { borderColor: "#fbc02d" }, bgcolor: "#fffdf4" }, input: { fontWeight: 600 } }}
                 />
 
+                {/* Password Input */}
                 <TextField
                   fullWidth margin="normal" variant="outlined" label="Password"
                   value={password} type={showPwd ? "text" : "password"}
@@ -232,11 +256,7 @@ export default function LoginPage() {
                     startAdornment: (<InputAdornment position="start"><LockOutlinedIcon sx={{ color: "#fbc02d" }} /></InputAdornment>),
                     endAdornment: (
                       <InputAdornment position="end">
-                        <IconButton 
-                            onClick={() => setShowPwd((v) => !v)} 
-                            edge="end"
-                            aria-label={showPwd ? "Hide password" : "Show password"}
-                        >
+                        <IconButton onClick={() => setShowPwd((v) => !v)} edge="end" aria-label={showPwd ? "Hide password" : "Show password"}>
                           {showPwd ? <VisibilityOff /> : <Visibility />}
                         </IconButton>
                       </InputAdornment>
@@ -246,6 +266,7 @@ export default function LoginPage() {
                   sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, "& fieldset": { borderColor: "#fbc02d66" }, "&:hover fieldset": { borderColor: "#f57f17" }, "&.Mui-focused fieldset": { borderColor: "#fbc02d" }, bgcolor: "#fffdf4" }, input: { fontWeight: 600, letterSpacing: 1 } }}
                 />
 
+                {/* Error & CapsLock Alert */}
                 {(capsLock || error) && (
                   <Box sx={{ mt: 1, mb: 1 }}>
                     {capsLock && (
@@ -259,29 +280,15 @@ export default function LoginPage() {
                   </Box>
                 )}
 
+                {/* Forgot Password Link */}
                 <Box sx={{ mt: 1, mb: 1, display: "flex", justifyContent: "flex-end" }}>
-                  <Button 
-                    type="button" 
-                    size="small" 
-                    onClick={() => setForgotPwdOpen(true)}
-                    sx={{ textTransform: "none", color: "#7a5b00", fontWeight: 700, "&:hover": { textDecoration: "underline", bgcolor: 'transparent' } }} 
-                  >
-                    Forgot Password?
-                  </Button>
+                  <Button type="button" size="small" onClick={() => setForgotPwdOpen(true)} sx={{ textTransform: "none", color: "#7a5b00", fontWeight: 700, "&:hover": { textDecoration: "underline", bgcolor: 'transparent' } }}>Forgot Password?</Button>
                 </Box>
 
-                {/* Invisible Turnstile Widget */}
-                <Turnstile 
-                    ref={turnstileRef} 
-                    size="invisible"
-                    execution="execute"      
-                    action="login"         
-                    onVerify={handleVerify}  
-                    onError={handleError}
-                />
+                {/* Turnstile & Submit */}
+                <Turnstile ref={turnstileRef} size="invisible" execution="execute" action="login" onVerify={handleVerify} onError={handleError} />
 
-                <Button
-                  type="submit" fullWidth size="large" variant="contained"
+                <Button type="submit" fullWidth size="large" variant="contained"
                   sx={{
                     mt: 1.5, mb: 0.5, borderRadius: 3, fontWeight: 900, letterSpacing: 1,
                     bgcolor: "#fbc02d", color: "#4a3400", boxShadow: "0 8px 24px rgba(251, 192, 45, 0.55)",
@@ -299,14 +306,14 @@ export default function LoginPage() {
         </CardContent>
       </Card>
 
-      {/* Security Error Dialog */}
+      {/* Security Dialog */}
       <Dialog
         open={securityErrorOpen}
         onClose={() => setSecurityErrorOpen(false)}
         PaperProps={{ sx: { borderRadius: 4, p: 2, maxWidth: 360, textAlign: 'center', borderTop: '6px solid #FF3B30' } }}
       >
         <DialogContent>
-          <Stack alignItems="center" spacing={2}>
+             <Stack alignItems="center" spacing={2}>
             <Box sx={{ width: 64, height: 64, borderRadius: '50%', bgcolor: '#FFEBEE', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(211, 47, 47, 0.2)' }}>
               <SecurityIcon sx={{ fontSize: 36, color: '#D32F2F' }} />
             </Box>
@@ -319,40 +326,148 @@ export default function LoginPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Forgot Password Dialog */}
+      {/* ✅ Forgot Password Dialog (Wizard) */}
       <Dialog
         open={forgotPwdOpen}
-        onClose={() => setForgotPwdOpen(false)}
-        PaperProps={{ sx: { borderRadius: 4, maxWidth: 400 } }}
+        onClose={handleCloseForgot}
+        PaperProps={{ sx: { borderRadius: 4, maxWidth: 500, width: '100%' } }}
       >
-         <DialogContent sx={{ textAlign: 'center', p: 4 }}>
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-                <Box sx={{ p: 2, bgcolor: '#fff8e1', borderRadius: '50%' }}>
-                    <ContactSupportIcon sx={{ fontSize: 40, color: '#fbc02d' }} />
-                </Box>
-            </Box>
-            <Typography variant="h6" fontWeight="bold" gutterBottom color="#333">
-                Forgot Password?
-            </Typography>
-            <Typography color="text.secondary" sx={{ mb: 3, lineHeight: 1.6 }}>
-                Please contact System Admin or IT Support to reset your password.
-            </Typography>
-            
-            <Box sx={{ bgcolor: '#f5f5f5', p: 2, borderRadius: 3, border: '1px dashed #bdbdbd' }}>
-                <Typography variant="subtitle2" color="text.secondary">Support Contact</Typography>
-                <Typography variant="h6" color="primary.main" fontWeight="bold">
-                   Email: piyaton56@gmail.com (IT)
-                </Typography>
+         <DialogContent sx={{ p: 4 }}>
+            <Box sx={{ textAlign: 'center', mb: 3 }}>
+                <Typography variant="h6" fontWeight="bold" color="#6a4d00">ลืมรหัสผ่าน / Reset Password</Typography>
             </Box>
 
-            <Button 
-                onClick={() => setForgotPwdOpen(false)} 
-                fullWidth 
-                variant="outlined" 
-                sx={{ mt: 3, borderRadius: 2, fontWeight: 700, color: '#666', borderColor: '#ddd' }}
-            >
-                Close
-            </Button>
+            <Stepper activeStep={resetStep} alternativeLabel sx={{ mb: 4, '& .MuiStepIcon-root.Mui-active': { color: '#fbc02d' }, '& .MuiStepIcon-root.Mui-completed': { color: '#fbc02d' } }}>
+                <Step><StepLabel>ระบุบัญชี</StepLabel></Step>
+                <Step><StepLabel>ยืนยัน OTP</StepLabel></Step>
+                <Step><StepLabel>ตั้งรหัสใหม่</StepLabel></Step>
+            </Stepper>
+
+            {/* Step 0: Request OTP */}
+            {resetStep === 0 && (
+                <Box component="form" onSubmit={async (e) => {
+                    e.preventDefault();
+                    setResetLoading(true);
+                    setResetMsg("");
+                    try {
+                        const res = await requestPasswordReset(resetUsername);
+                        setResetRef(res.data.ref);
+                        setResetStep(1);
+                    } catch (err) {
+                        setResetMsg(err.response?.data?.error || "ไม่สามารถส่ง OTP ได้");
+                    } finally {
+                        setResetLoading(false);
+                    }
+                }}>
+                    <Typography variant="body2" sx={{ mb: 2, textAlign: 'center' }}>กรุณากรอก Username หรือ Email ที่ลงทะเบียนไว้ <br/>ระบบจะส่ง OTP ไปยังอีเมลของท่าน</Typography>
+                    <TextField 
+                        fullWidth label="Username / Email" variant="outlined"
+                        value={resetUsername} onChange={e => setResetUsername(e.target.value)} 
+                        required autoFocus
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    />
+                    {resetMsg && <Alert severity="error" sx={{ mt: 2 }}>{resetMsg}</Alert>}
+                    <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, bgcolor: "#fbc02d", color: "#4a3400", fontWeight: 'bold', "&:hover":{ bgcolor: "#f57f17" } }} disabled={!resetUsername || resetLoading}>
+                        {resetLoading ? <CircularProgress size={24} /> : "ขอรหัส OTP"}
+                    </Button>
+                </Box>
+            )}
+
+            {/* ✅ Step 1: Verify OTP (แบบช่องแยกสวยๆ) */}
+            {resetStep === 1 && (
+                <Box component="form" onSubmit={(e) => { e.preventDefault(); setResetStep(2); }}>
+                    <Box sx={{ bgcolor: '#FFFDE7', p: 2, borderRadius: 2, mb: 3, border: '1px dashed #fbc02d', textAlign: 'center' }}>
+                         <Typography variant="subtitle2" color="#6a4d00">Ref Code</Typography>
+                         <Typography variant="h5" fontWeight="bold" color="#4a3400" letterSpacing={1}>{resetRef}</Typography>
+                         <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>กรุณากรอกรหัส 8 หลักจากอีเมล</Typography>
+                    </Box>
+
+                    {/* 8-Digit OTP Inputs */}
+                    <Box sx={{ display: 'flex', justifyContent: 'center', gap: { xs: 0.5, sm: 1 }, mb: 1 }} onPaste={handleOtpPaste}>
+                        {[...Array(8)].map((_, index) => (
+                             <React.Fragment key={index}>
+                                <input
+                                    ref={el => otpInputs.current[index] = el}
+                                    type="tel"
+                                    maxLength={1}
+                                    value={resetOtp[index] || ""}
+                                    onChange={(e) => handleOtpChange(index, e.target.value)}
+                                    onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                                    style={{
+                                        width: '40px', height: '48px',
+                                        fontSize: '20px', fontWeight: 'bold', textAlign: 'center',
+                                        borderRadius: '8px',
+                                        border: '1.5px solid #e0e0e0',
+                                        backgroundColor: '#fafafa',
+                                        outline: 'none',
+                                        color: '#333',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onFocus={(e) => {
+                                        e.target.style.borderColor = '#fbc02d';
+                                        e.target.style.transform = 'translateY(-2px)';
+                                        e.target.style.boxShadow = '0 4px 8px rgba(251, 192, 45, 0.2)';
+                                    }}
+                                    onBlur={(e) => {
+                                        e.target.style.borderColor = '#e0e0e0';
+                                        e.target.style.transform = 'none';
+                                        e.target.style.boxShadow = 'none';
+                                    }}
+                                />
+                                {/* ขีดคั่นกลางระหว่างเลข 4 กับ 5 */}
+                                {index === 3 && (
+                                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: '#bdbdbd', fontWeight: 'bold' }}>-</Box>
+                                )}
+                            </React.Fragment>
+                        ))}
+                    </Box>
+
+                    <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, bgcolor: "#fbc02d", color: "#4a3400", fontWeight: 'bold', "&:hover":{ bgcolor: "#f57f17" } }} disabled={resetOtp.length < 8}>
+                        ตรวจสอบ OTP
+                    </Button>
+                    <Button fullWidth onClick={() => setResetStep(0)} sx={{ mt: 1, color: '#757575' }}>กลับไปแก้ไขข้อมูล</Button>
+                </Box>
+            )}
+
+            {/* Step 2: New Password */}
+            {resetStep === 2 && (
+                <Box component="form" onSubmit={async (e) => {
+                    e.preventDefault();
+                    setResetLoading(true);
+                    try {
+                        await resetPasswordWithOtp(resetUsername, resetOtp, newPassword);
+                        setResetStep(3); // Success
+                    } catch (err) {
+                        setResetMsg(err.response?.data?.error || "เปลี่ยนรหัสผ่านไม่สำเร็จ");
+                    } finally {
+                        setResetLoading(false);
+                    }
+                }}>
+                    <Typography variant="body2" sx={{ mb: 2, textAlign: 'center' }}>กรุณาตั้งรหัสผ่านใหม่เพื่อเข้าใช้งาน</Typography>
+                    <TextField 
+                        fullWidth type="password" label="รหัสผ่านใหม่" variant="outlined"
+                        value={newPassword} onChange={e => setNewPassword(e.target.value)} 
+                        required autoFocus
+                        sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
+                    />
+                    {resetMsg && <Alert severity="error" sx={{ mt: 2 }}>{resetMsg}</Alert>}
+                    <Button type="submit" fullWidth variant="contained" color="success" sx={{ mt: 3, fontWeight: 'bold', bgcolor: "#2e7d32" }} disabled={!newPassword || resetLoading}>
+                        {resetLoading ? <CircularProgress size={24} /> : "ยืนยันการเปลี่ยนรหัสผ่าน"}
+                    </Button>
+                </Box>
+            )}
+
+            {/* Step 3: Success */}
+            {resetStep === 3 && (
+                <Box sx={{ textAlign: 'center', py: 2 }}>
+                    <CheckCircleOutlineIcon sx={{ fontSize: 60, color: '#2e7d32', mb: 2 }} />
+                    <Typography variant="h6" color="#2e7d32" gutterBottom fontWeight="bold">เปลี่ยนรหัสผ่านสำเร็จ!</Typography>
+                    <Typography variant="body2" color="text.secondary" paragraph>
+                        ท่านสามารถใช้รหัสผ่านใหม่เพื่อเข้าสู่ระบบได้ทันที
+                    </Typography>
+                    <Button variant="outlined" fullWidth onClick={handleCloseForgot} sx={{ borderRadius: 2, borderColor: '#2e7d32', color: '#2e7d32' }}>ปิดหน้าต่าง</Button>
+                </Box>
+            )}
          </DialogContent>
       </Dialog>
 

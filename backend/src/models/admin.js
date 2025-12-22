@@ -8,6 +8,13 @@ const adminSchema = new mongoose.Schema({
     fullName: {type: "String", required: true},
     registrationPoints: [{ type: mongoose.Schema.Types.ObjectId, ref: 'RegistrationPoint' }],
     avatarUrl: { type: String, default: "" },
+
+    resetPasswordOtp: { type: String },
+    resetPasswordRef: { type: String },
+    resetPasswordExpires: { type: Date },
+    actionOtp: { type: String },
+  actionRef: { type: String },
+  actionExpires: { type: Date }
 });
 
 module.exports = mongoose.model('Admin', adminSchema);
