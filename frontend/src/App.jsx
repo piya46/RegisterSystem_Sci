@@ -17,6 +17,7 @@ import DonationListPage from './pages/DonationListPage';
 import CronStatusPage from "./pages/CronStatusPage";
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsPage from './pages/TermsPage';
+import SessionManagerPage from "./pages/SessionManagerPage";
 
 export default function App() {
   return (
@@ -127,6 +128,15 @@ export default function App() {
       <CronStatusPage />
     </ProtectedRoute>
   } 
+/>
+
+<Route
+  path="/admin/sessions"
+  element={
+    <ProtectedRoute roles={["admin"]}>
+      <SessionManagerPage />
+    </ProtectedRoute>
+  }
 />
 
         <Route path="/unauthorized" element={<div>คุณไม่มีสิทธิ์เข้าถึงหน้านี้</div>} />

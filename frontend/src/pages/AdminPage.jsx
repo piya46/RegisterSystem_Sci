@@ -24,6 +24,7 @@ import * as api from "../utils/api";
 import AdminUserDialog from "../components/AdminUserDialog";
 import AdminPasswordDialog from "../components/AdminPasswordDialog";
 import { useNavigate } from "react-router-dom";
+import HistoryIcon from "@mui/icons-material/History";
 
 /* ---------- Premium Gold Theme ---------- */
 const Y = {
@@ -201,6 +202,20 @@ export default function AdminPage() {
               จัดการบัญชีผู้ดูแลระบบและกำหนดสิทธิ์การเข้าถึง
             </Typography>
           </Box>
+          <Button
+        variant="outlined"
+        startIcon={<HistoryIcon />}
+        onClick={() => navigate("/admin/sessions")}
+        sx={{ 
+            color: "#6d4c41", 
+            borderColor: "#6d4c41",
+            borderRadius: 3,
+            fontWeight: 700 
+        }}
+    >
+        จัดการ Sessions
+    </Button>
+          
 
           {canEdit && (
              <Button
