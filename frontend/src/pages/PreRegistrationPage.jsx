@@ -473,6 +473,12 @@ export default function PreRegistrationPage() {
             <Button variant="contained" color="primary" size="large" startIcon={<DownloadIcon />} onClick={savePng} sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 'bold', boxShadow: '0 8px 20px rgba(30, 60, 114, 0.25)', fontSize: '1rem' }}>บันทึกเป็นรูปภาพ</Button>
             <Button variant="outlined" color="inherit" size="large" startIcon={<RestartAltIcon />} onClick={handleReset} sx={{ borderRadius: 3, px: 3, borderColor: '#999', color: '#555', "&:hover": { borderColor: '#333', bgcolor: '#f0f0f0' } }}>ลงทะเบียนท่านอื่นต่อ</Button>
           </Stack>
+
+          <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 2, opacity: 0.8 }}>
+             *หากไม่สามารถบันทึกรูปภาพได้ <strong>โปรดจับภาพหน้าจอ (Screenshot)</strong> เพื่อเก็บไว้แสดงเป็นหลักฐานเข้าร่วมงาน
+          </Typography>
+
+          
         </Container>
       </Box>
     );
