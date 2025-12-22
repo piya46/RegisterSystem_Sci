@@ -1072,32 +1072,109 @@ const OptionCard = React.memo(({ value, label, selected }) => {
 });
 
 // ✅ 3. Memoized FieldInput (Crucial for performance!)
+// แก้ไขส่วนของ FieldInput Component (บรรทัดที่ 670 เป็นต้นไป)
+
 const FieldInput = React.memo(({ field, value, onChange, errorText }) => {
+  // ✅ 1. ใช้ Local State เพื่อให้พิมพ์ได้ลื่นไหล ไม่ต้องรอการประมวลผลจาก Form หลัก
+  const [innerValue, setInnerValue] = useState(value || "");
+
+  // Sync ค่ากลับเมื่อมีการ Reset จากภายนอก
+  useEffect(() => {
+    setInnerValue(value || "");
+  }, [value]);
+
+  // ✅ 2. ส่งค่ากลับไปหา Form หลักเฉพาะตอนเลิกโฟกัส (onBlur) หรือกดเลือก Select
+  const handleBlur = () => {
+    if (innerValue !== value) {
+      onChange({ target: { name: field.name, value: innerValue } });
+    }
+  };
+
   const commonSx = {
-    "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem", "& fieldset": { borderColor: "#bdbdbd", borderWidth: 1 }, "&.Mui-focused fieldset": { borderColor: "#ff9800", borderWidth: 2 } },
+    "& .MuiOutlinedInput-root": { 
+        borderRadius: 2.5, 
+        bgcolor: "#fff", 
+        fontSize: "1.1rem",
+        transition: "none", // ปิด transition ของ MUI เพื่อลดภาระ GPU
+    },
     "& .MuiInputLabel-root": { fontSize: "1.05rem" }
   };
 
-  if (field.name === 'date_year') {
-    return (
-        <TextField name={field.name} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth placeholder="25XX" error={!!errorText} helperText={errorText || "กรุณากรอกปี พ.ศ. 4 หลัก"}
-            InputProps={{ startAdornment: <InputAdornment position="start"><EventIcon color="action" /></InputAdornment>, style: { fontSize: '1.4rem', letterSpacing: '0.25em', fontWeight: 'bold', textAlign: 'center' } }}
-            inputProps={{ maxLength: 4, inputMode: "numeric", style: { textAlign: 'center' } }} sx={commonSx} />
-    );
-  }
-
+  // กรณีเป็นช่องเลือก (Select) ให้ส่งค่าทันที
   if (field.type === "select") {
     return (
-      <TextField select name={field.name} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth helperText={field.required ? "" : "(ไม่บังคับ)"} SelectProps={{ displayEmpty: true }} sx={commonSx} InputProps={{ startAdornment: field.name === 'dept' ? <InputAdornment position="start"><SchoolIcon color="action"/></InputAdornment> : null }}>
+      <TextField
+        select
+        name={field.name}
+        label={field.label}
+        value={value || ""}
+        onChange={onChange}
+        required={!!field.required}
+        fullWidth
+        helperText={field.required ? "" : "(ไม่บังคับ)"}
+        SelectProps={{ displayEmpty: true }}
+        sx={commonSx}
+        InputProps={{
+          startAdornment: field.name === 'dept' ? <InputAdornment position="start"><SchoolIcon color="action"/></InputAdornment> : null
+        }}
+      >
         <MenuItem value="" disabled><em>— กรุณาเลือก —</em></MenuItem>
-        {field._options.map((opt) => (<MenuItem key={`${field.name}-${opt.value}`} value={opt.value} sx={{ py: 1.5, fontSize: '1.1rem' }}>{opt.label}</MenuItem>))}
+        {field._options.map((opt) => (
+          <MenuItem key={`${field.name}-${opt.value}`} value={opt.value} sx={{ py: 1.5, fontSize: '1.1rem' }}>
+            {opt.label}
+          </MenuItem>
+        ))}
       </TextField>
     );
   }
 
-  const inputType = field.type === "email" ? "email" : field.type === "number" ? "text" : field.type === "date" ? "date" : "text";
+  // กรณีปี พ.ศ. (จัดการพิเศษ)
+  if (field.name === 'date_year') {
+    return (
+      <TextField
+        name={field.name}
+        label={field.label}
+        value={innerValue}
+        onChange={(e) => setInnerValue(e.target.value.replace(/[^\d]/g, '').slice(0, 4))}
+        onBlur={handleBlur}
+        required={!!field.required}
+        fullWidth
+        placeholder="25XX"
+        error={!!errorText}
+        helperText={errorText || "กรุณากรอกปี พ.ศ. 4 หลัก"}
+        autoComplete="off"
+        InputProps={{
+          startAdornment: <InputAdornment position="start"><EventIcon color="action" /></InputAdornment>,
+          style: { fontSize: '1.4rem', letterSpacing: '0.25em', fontWeight: 'bold' }
+        }}
+        inputProps={{ inputMode: "numeric" }}
+        sx={commonSx}
+      />
+    );
+  }
+
+  // ช่องกรอกทั่วไป
+  const inputType = field.type === "email" ? "email" : "text";
   return (
-    <TextField name={field.name} type={inputType} label={field.label} value={value} onChange={onChange} required={!!field.required} fullWidth error={!!errorText} helperText={errorText || (field.required ? "" : "(ไม่บังคับ)")} sx={commonSx} InputLabelProps={inputType === "date" ? { shrink: true } : undefined} autoComplete="off" inputProps={{ inputMode: field.type === 'number' ? 'numeric' : 'text', pattern: field.type === 'number' ? "[0-9]*" : undefined }} />
+    <TextField
+      name={field.name}
+      type={inputType}
+      label={field.label}
+      value={innerValue}
+      onChange={(e) => setInnerValue(e.target.value)}
+      onBlur={handleBlur}
+      required={!!field.required}
+      fullWidth
+      error={!!errorText}
+      helperText={errorText || (field.required ? "" : "(ไม่บังคับ)")}
+      sx={commonSx}
+      autoComplete="off"
+      // ✅ สำคัญ: ปิด Suggestion ของมือถือเพื่อลดความหน่วง
+      inputProps={{ 
+        inputMode: field.type === 'number' ? 'numeric' : 'text',
+        spellCheck: "false"
+      }}
+    />
   );
 });
 
