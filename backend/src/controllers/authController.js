@@ -8,6 +8,8 @@ const verifyTurnstile = require('../utils/verifyTurnstile');
 const { generateOTP, generateRef } = require('../utils/otp'); // ✅ OTP 8 หลัก
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
+const { OAuth2Client } = require('google-auth-library'); // ✅ เพิ่ม import
+const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 
 // --- Login ---
 exports.login = async (req, res) => {
@@ -95,6 +97,79 @@ exports.verify = async (req, res) => {
         res.json({ success: true, message: 'Verified' });
     } catch (err) {
         res.status(500).json({ error: 'Server Error' });
+    }
+};
+
+
+exports.googleLogin = async (req, res) => {
+    const { token } = req.body;
+
+    try {
+        // 1. Verify Token กับ Google
+        const ticket = await client.verifyIdToken({
+            idToken: token,
+            audience: process.env.LOGIN_CLIENT_ID,
+        });
+        const payload = ticket.getPayload();
+        const { email, sub: googleId, picture } = payload;
+
+        // 2. ตรวจสอบว่ามีอีเมลนี้ในระบบหรือไม่
+        const admin = await Admin.findOne({ email });
+
+        if (!admin) {
+            auditLog({ req, action: 'GOOGLE_LOGIN_FAIL', detail: `Email not found: ${email}`, status: 401 });
+            return res.status(401).json({ 
+                error: 'ไม่พบอีเมลในระบบ', 
+                message: 'กรุณาติดต่อผู้ดูแลระบบเพื่อสร้างบัญชีก่อนใช้งาน' 
+            });
+        }
+
+        // 3. ผูกบัญชี (Link Account) ถ้ายังไม่เคยผูก หรืออัปเดตข้อมูล
+        if (!admin.googleId) {
+            admin.googleId = googleId;
+            if (!admin.avatarUrl) admin.avatarUrl = picture; // ใช้อรูปจาก Google ถ้ายังไม่มี
+            await admin.save();
+            auditLog({ req, action: 'GOOGLE_BIND', detail: `Linked ${email} with Google` });
+        }
+
+        // 4. สร้าง Session (Logic เดียวกับ Login ปกติ)
+        const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
+        const expiresInMs = ms(jwtExpiresIn);
+        const expiresAt = new Date(Date.now() + expiresInMs);
+
+        // ลบ Session เก่าที่หมดอายุ
+        await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
+
+        // เช็คจำนวน Session
+        const activeSessionCount = await Session.countDocuments({
+            userId: admin._id, revoked: false, expiresAt: { $gt: new Date() }
+        });
+        if (activeSessionCount >= 3) {
+             // อนุโลมให้ login ได้แต่ต้องเตือน หรือ ลบอันเก่าสุด (ในที่นี้ทำตาม Logic เดิมคือ block)
+             // หรือคุณอาจเลือกที่จะลบ session เก่าสุดอัตโนมัติเพื่อให้ Google Login สะดวกขึ้น
+             return res.status(400).json({ error: 'Login from too many devices (Max 3)' });
+        }
+
+        const jwtPayload = { id: admin._id, role: admin.role };
+        const jwtToken = jwt.sign(jwtPayload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
+
+        await Session.create({
+            userId: admin._id, token: jwtToken, userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+        });
+
+        auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });
+
+        res.json({
+            token: jwtToken,
+            admin: {
+                id: admin._id, username: admin.username, role: admin.role,
+                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
+            }
+        });
+
+    } catch (err) {
+        console.error("Google Login Error:", err);
+        res.status(400).json({ error: 'Google Login Failed', message: 'Token ไม่ถูกต้องหรือหมดอายุ' });
     }
 };
 

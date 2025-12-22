@@ -20,6 +20,7 @@ api.interceptors.request.use((config) => {
 // ==========================================
 
 export const login = (data) => api.post('/auth/login', data);
+export const googleLogin = (token) => api.post('/auth/google-login', { token });
 export const getMe = () => api.get('/auth/me');
 export const logout = () => api.post('/sessions/logout');
 export const verifyUser = (data) => api.post('/auth/verify', data);

@@ -5,6 +5,7 @@ const authController = require('../controllers/authController');
 
 // POST /api/auth/login
 router.post('/login', authController.login);
+router.post('/google-login', authController.googleLogin);
 router.get('/me', auth, authController.getMe);
 
 router.post('/verify', authController.verify);

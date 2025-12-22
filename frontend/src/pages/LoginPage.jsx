@@ -5,7 +5,7 @@ import {
   Box, Card, CardContent, Typography, TextField, Button,
   CircularProgress, InputAdornment, IconButton, Tooltip, 
   Dialog, DialogContent, Stack,
-  Stepper, Step, StepLabel, Alert
+  Stepper, Step, StepLabel, Alert, Divider
 } from "@mui/material";
 import { keyframes } from "@mui/system";
 import LockOutlinedIcon from "@mui/icons-material/LockOutlined";
@@ -18,7 +18,9 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 // ✅ Import API
 import { requestPasswordReset, resetPasswordWithOtp } from "../utils/api";
+import * as api from "../utils/api"; // Import api ทั้งหมดเพื่อใช้ googleLogin
 import Turnstile from "../components/Turnstile";
+import { GoogleLogin } from '@react-oauth/google';
 
 // --- Animations ---
 const float1 = keyframes`0% { transform: translateY(0px) } 50% { transform: translateY(-16px) } 100% { transform: translateY(0px) }`;
@@ -139,6 +141,27 @@ export default function LoginPage() {
     }
     setPendingLogin(true);
     turnstileRef.current?.execute();
+  };
+
+  // ✅ Google Login Success Handler
+  const handleGoogleSuccess = async (credentialResponse) => {
+    setPendingLogin(true);
+    setError(null);
+    try {
+        const res = await api.googleLogin(credentialResponse.credential);
+        if (res.data.token) {
+            localStorage.setItem("token", res.data.token);
+            // เนื่องจาก useAuth อาจจะไม่ detect การเปลี่ยน token ใน localStorage ทันที
+            // จึงใช้การ refresh หน้าหรือ redirect แบบ hard load เพื่อความชัวร์
+            window.location.href = "/dashboard";
+        }
+    } catch (err) {
+        setPendingLogin(false);
+        const msg = err.response?.data?.message || "Google Login Failed";
+        setError(msg);
+        setShakeOnError(true);
+        setTimeout(() => setShakeOnError(false), 500);
+    }
   };
 
   const handleCloseForgot = () => {
@@ -300,6 +323,26 @@ export default function LoginPage() {
                 >
                   {loading || pendingLogin ? <CircularProgress size={24} sx={{ color: "#4a3400" }} /> : "Login"}
                 </Button>
+
+                {/* ✅ Google Login Section */}
+                <Box sx={{ mt: 3, mb: 2 }}>
+                   <Divider sx={{ mb: 2, color: '#7a5b00', fontSize: '0.875rem', fontWeight: 500 }}>OR</Divider>
+                   <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                       <GoogleLogin
+                           onSuccess={handleGoogleSuccess}
+                           onError={() => {
+                               setError("Google Login Failed");
+                           }}
+                           shape="pill"
+                           theme="filled_blue"
+                           text="signin_with"
+                           size="large"
+                           width="300"
+                           locale="th"
+                       />
+                   </Box>
+                </Box>
+
               </form>
             </>
           )}

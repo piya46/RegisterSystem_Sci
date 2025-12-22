@@ -9,6 +9,8 @@ const adminSchema = new mongoose.Schema({
     registrationPoints: [{ type: mongoose.Schema.Types.ObjectId, ref: 'RegistrationPoint' }],
     avatarUrl: { type: String, default: "" },
 
+    googleId: { type: String, default: null },
+
     resetPasswordOtp: { type: String },
     resetPasswordRef: { type: String },
     resetPasswordExpires: { type: Date },
