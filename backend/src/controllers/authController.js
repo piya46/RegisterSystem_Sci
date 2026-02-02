@@ -5,15 +5,21 @@ const Session = require('../models/session');
 const auditLog = require('../helpers/auditLog');
 const ms = require('ms');
 const verifyTurnstile = require('../utils/verifyTurnstile');
-const { generateOTP, generateRef } = require('../utils/otp'); // ✅ OTP 8 หลัก
+const { generateOTP, generateRef } = require('../utils/otp');
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
-const { OAuth2Client } = require('google-auth-library'); // ✅ เพิ่ม import
+const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
+const { getPublicKey, decryptData } = require('../utils/cryptoService'); // ✅ Import
+
+// --- Get Public Key ---
+exports.getPublicKey = (req, res) => {
+    res.json({ publicKey: getPublicKey() });
+};
 
 // --- Login ---
 exports.login = async (req, res) => {
-    const { username, password, cfToken } = req.body;
+    let { username, password, cfToken } = req.body;
 
     // 1. Verify Turnstile
     const isHuman = await verifyTurnstile(cfToken, req.ip);
@@ -22,6 +28,21 @@ exports.login = async (req, res) => {
         return res.status(400).json({ 
             error: 'Security Check Failed', 
             message: 'ระบบตรวจสอบพบความผิดปกติ กรุณาลองใหม่อีกครั้ง' 
+        });
+    }
+
+    // ✅ 2. Decrypt Password (E2EE)
+    // รับรหัสผ่านที่ถูก Encrypt มาแล้วจาก Frontend
+    const decryptedPassword = decryptData(password);
+    
+    if (decryptedPassword) {
+        password = decryptedPassword;
+    } else {
+        // 🔒 บังคับ E2EE: ถ้าส่งแบบ Plain Text หรือ Key ผิด ให้ Reject ทันที
+        auditLog({ req, action: 'LOGIN_FAIL', detail: 'Encryption required / Decrypt failed', status: 400 });
+        return res.status(400).json({ 
+            error: 'Decryption failed', 
+            message: 'ระบบความปลอดภัยขัดข้อง (การเข้ารหัสล้มเหลว)' 
         });
     }
 
@@ -36,7 +57,7 @@ exports.login = async (req, res) => {
         return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // 2. Session Management
+    // 3. Session Management
     const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
     const expiresInMs = ms(jwtExpiresIn);
     const expiresAt = new Date(Date.now() + expiresInMs);
@@ -58,14 +79,24 @@ exports.login = async (req, res) => {
         userId: admin._id, token, userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
     });
 
+    auditLog({ req, action: 'LOGIN', detail: 'Login success' });
+
+    // ✅ 4. Set HttpOnly Cookie (ปลอดภัยจาก XSS)
+    res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production', // ใช้ HTTPS ใน Prod
+        sameSite: 'strict', // ป้องกัน CSRF
+        maxAge: expiresInMs
+    });
+
     res.json({
-        token,
+        message: 'Login successful',
+        // ไม่ส่ง token กลับไปใน JSON แล้วเพื่อความปลอดภัย
         admin: {
             id: admin._id, username: admin.username, role: admin.role,
             email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
         }
     });
-    auditLog({ req, action: 'LOGIN', detail: 'Login success' });
 };
 
 // --- Get Me ---
@@ -81,7 +112,12 @@ exports.getMe = async (req, res) => {
 
 // --- Verify (Kiosk) ---
 exports.verify = async (req, res) => {
-    const { username, password } = req.body;
+    let { username, password } = req.body;
+    
+    // Decrypt Password ถ้า Kiosk ส่งแบบ Encrypted มา (เผื่อไว้)
+    const decrypted = decryptData(password);
+    if(decrypted) password = decrypted;
+
     try {
         const admin = await Admin.findOne({ username });
         if (!admin || !(await bcrypt.compare(password, admin.passwordHash))) {
@@ -100,12 +136,10 @@ exports.verify = async (req, res) => {
     }
 };
 
-
 exports.googleLogin = async (req, res) => {
     const { token } = req.body;
 
     try {
-        // 1. Verify Token กับ Google
         const ticket = await client.verifyIdToken({
             idToken: token,
             audience: process.env.LOGIN_CLIENT_ID,
@@ -113,7 +147,6 @@ exports.googleLogin = async (req, res) => {
         const payload = ticket.getPayload();
         const { email, sub: googleId, picture } = payload;
 
-        // 2. ตรวจสอบว่ามีอีเมลนี้ในระบบหรือไม่
         const admin = await Admin.findOne({ email });
 
         if (!admin) {
@@ -124,29 +157,23 @@ exports.googleLogin = async (req, res) => {
             });
         }
 
-        // 3. ผูกบัญชี (Link Account) ถ้ายังไม่เคยผูก หรืออัปเดตข้อมูล
         if (!admin.googleId) {
             admin.googleId = googleId;
-            if (!admin.avatarUrl) admin.avatarUrl = picture; // ใช้อรูปจาก Google ถ้ายังไม่มี
+            if (!admin.avatarUrl) admin.avatarUrl = picture;
             await admin.save();
             auditLog({ req, action: 'GOOGLE_BIND', detail: `Linked ${email} with Google` });
         }
 
-        // 4. สร้าง Session (Logic เดียวกับ Login ปกติ)
         const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
         const expiresInMs = ms(jwtExpiresIn);
         const expiresAt = new Date(Date.now() + expiresInMs);
 
-        // ลบ Session เก่าที่หมดอายุ
         await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
 
-        // เช็คจำนวน Session
         const activeSessionCount = await Session.countDocuments({
             userId: admin._id, revoked: false, expiresAt: { $gt: new Date() }
         });
         if (activeSessionCount >= 3) {
-             // อนุโลมให้ login ได้แต่ต้องเตือน หรือ ลบอันเก่าสุด (ในที่นี้ทำตาม Logic เดิมคือ block)
-             // หรือคุณอาจเลือกที่จะลบ session เก่าสุดอัตโนมัติเพื่อให้ Google Login สะดวกขึ้น
              return res.status(400).json({ error: 'Login from too many devices (Max 3)' });
         }
 
@@ -159,8 +186,16 @@ exports.googleLogin = async (req, res) => {
 
         auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });
 
+        // ✅ Set Cookie
+        res.cookie('token', jwtToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: expiresInMs
+        });
+
         res.json({
-            token: jwtToken,
+            message: 'Login successful',
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
                 email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
@@ -173,9 +208,7 @@ exports.googleLogin = async (req, res) => {
     }
 };
 
-// --- FORGOT PASSWORD SECTION (Self-Service) ---
-
-// 1. ขอ OTP สำหรับรีเซตรหัสผ่าน (ลืมรหัส)
+// --- FORGOT PASSWORD SECTION (เหมือนเดิม) ---
 exports.requestPasswordReset = async (req, res) => {
     try {
         const { username } = req.body;
@@ -193,7 +226,6 @@ exports.requestPasswordReset = async (req, res) => {
         admin.resetPasswordExpires = expiresAt;
         await admin.save();
 
-        // ใช้ Template ลูกเสือ
         const htmlContent = getOtpTemplate(otp, ref, admin.username, 'ลืมรหัสผ่าน');
 
         await sendMail(
@@ -212,15 +244,18 @@ exports.requestPasswordReset = async (req, res) => {
     }
 };
 
-// 2. ยืนยัน OTP และตั้งรหัสใหม่ (ลืมรหัส)
 exports.resetPasswordWithOtp = async (req, res) => {
     try {
-        const { username, otp, newPassword } = req.body;
+        let { username, otp, newPassword } = req.body;
+        
+        // ถ้ามีการส่ง password แบบ Encrypt ในหน้ารีเซต ก็ต้อง decrypt ตรงนี้ด้วย (เบื้องต้นปล่อยผ่านไว้ก่อน)
+        // const decrypted = decryptData(newPassword);
+        // if(decrypted) newPassword = decrypted;
+
         const admin = await Admin.findOne({ $or: [{ username }, { email: username }] });
 
         if (!admin) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
 
-        // Validate OTP
         if (!admin.resetPasswordOtp || admin.resetPasswordOtp !== otp) {
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
@@ -228,10 +263,8 @@ exports.resetPasswordWithOtp = async (req, res) => {
             return res.status(400).json({ error: 'รหัส OTP หมดอายุ' });
         }
 
-        // Reset Password
         admin.passwordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
         
-        // Clear OTP
         admin.resetPasswordOtp = undefined;
         admin.resetPasswordRef = undefined;
         admin.resetPasswordExpires = undefined;

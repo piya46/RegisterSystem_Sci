@@ -16,13 +16,12 @@ import WarningAmberRoundedIcon from "@mui/icons-material/WarningAmberRounded";
 import SecurityIcon from "@mui/icons-material/Security";
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
-// ✅ Import API
 import { requestPasswordReset, resetPasswordWithOtp } from "../utils/api";
-import * as api from "../utils/api"; // Import api ทั้งหมดเพื่อใช้ googleLogin
+import * as api from "../utils/api"; 
 import Turnstile from "../components/Turnstile";
 import { GoogleLogin } from '@react-oauth/google';
+import JSEncrypt from 'jsencrypt'; // ✅ Import สำหรับเข้ารหัส
 
-// --- Animations ---
 const float1 = keyframes`0% { transform: translateY(0px) } 50% { transform: translateY(-16px) } 100% { transform: translateY(0px) }`;
 const float2 = keyframes`0% { transform: translateY(0px) } 50% { transform: translateY(12px) } 100% { transform: translateY(0px) }`;
 const shake = keyframes`0%,100% { transform: translateX(0) } 20% { transform: translateX(-6px) } 40% { transform: translateX(6px) } 60% { transform: translateX(-4px) } 80% { transform: translateX(4px) }`;
@@ -32,7 +31,6 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   
-  // UI States
   const [showPwd, setShowPwd] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
   const [shakeOnError, setShakeOnError] = useState(false);
@@ -41,11 +39,9 @@ export default function LoginPage() {
   const [securityErrorOpen, setSecurityErrorOpen] = useState(false);
   const [forgotPwdOpen, setForgotPwdOpen] = useState(false);
 
-  // Login Logic States
   const [pendingLogin, setPendingLogin] = useState(false);
   const [loginSuccess, setLoginSuccess] = useState(false); 
   
-  // ✅ Forgot Password Wizard State
   const [resetStep, setResetStep] = useState(0); 
   const [resetUsername, setResetUsername] = useState("");
   const [resetOtp, setResetOtp] = useState("");
@@ -57,14 +53,11 @@ export default function LoginPage() {
   const turnstileRef = useRef(null);
   const formDataRef = useRef({ username: "", password: "" });
   const isSubmittingRef = useRef(false);
-
-  // ✅ Refs สำหรับช่อง OTP 8 ช่อง
   const otpInputs = useRef([]);
 
   const { login, user, loading } = useAuth();
   const navigate = useNavigate();
 
-  // Sync state to ref
   useEffect(() => {
     formDataRef.current = { username, password };
   }, [username, password]);
@@ -92,8 +85,20 @@ export default function LoginPage() {
     setPendingLogin(true);
     
     try {
-        await login(currentUser.trim(), currentPass, token);
+        // ✅ 1. ขอ Public Key
+        const { data: { publicKey } } = await api.default.get('/auth/public-key');
+
+        // ✅ 2. เข้ารหัส Password
+        const encryptor = new JSEncrypt();
+        encryptor.setPublicKey(publicKey);
+        const encryptedPassword = encryptor.encrypt(currentPass);
+
+        if (!encryptedPassword) throw new Error("Encryption failed");
+
+        // ✅ 3. ส่งข้อมูลที่เข้ารหัสแล้ว
+        await login(currentUser.trim(), encryptedPassword, token);
         setLoginSuccess(true);
+
     } catch (err) {
         setPendingLogin(false);
         isSubmittingRef.current = false;
@@ -143,18 +148,12 @@ export default function LoginPage() {
     turnstileRef.current?.execute();
   };
 
-  // ✅ Google Login Success Handler
   const handleGoogleSuccess = async (credentialResponse) => {
     setPendingLogin(true);
     setError(null);
     try {
-        const res = await api.googleLogin(credentialResponse.credential);
-        if (res.data.token) {
-            localStorage.setItem("token", res.data.token);
-            // เนื่องจาก useAuth อาจจะไม่ detect การเปลี่ยน token ใน localStorage ทันที
-            // จึงใช้การ refresh หน้าหรือ redirect แบบ hard load เพื่อความชัวร์
-            window.location.href = "/dashboard";
-        }
+        await api.googleLogin(credentialResponse.credential);
+        window.location.href = "/dashboard";
     } catch (err) {
         setPendingLogin(false);
         const msg = err.response?.data?.message || "Google Login Failed";
@@ -176,9 +175,8 @@ export default function LoginPage() {
     }, 300);
   };
 
-  // ✅ OTP Handler Logic: จัดการการพิมพ์ การลบ และการวาง (Paste)
   const handleOtpChange = (index, value) => {
-    if (isNaN(value)) return; // รับเฉพาะตัวเลข
+    if (isNaN(value)) return; 
     const newOtp = resetOtp.split('');
     while (newOtp.length < 8) newOtp.push(''); 
     
@@ -186,14 +184,12 @@ export default function LoginPage() {
     const finalStr = newOtp.join('').substring(0, 8);
     setResetOtp(finalStr);
 
-    // Auto Focus Next
     if (value !== "" && index < 7) {
         otpInputs.current[index + 1]?.focus();
     }
   };
 
   const handleOtpKeyDown = (index, e) => {
-    // Backspace: ถ้าย้อนกลับแล้วช่องปัจจุบันว่าง ให้ไปลบช่องก่อนหน้า
     if (e.key === "Backspace") {
         if (!resetOtp[index] && index > 0) {
             otpInputs.current[index - 1]?.focus();
@@ -205,7 +201,6 @@ export default function LoginPage() {
     e.preventDefault();
     const data = e.clipboardData.getData("text").replace(/[^0-9]/g, "").substring(0, 8);
     setResetOtp(data);
-    // Focus ช่องสุดท้ายที่กรอก
     const focusIndex = Math.min(data.length, 7);
     otpInputs.current[focusIndex]?.focus();
   };
@@ -223,7 +218,6 @@ export default function LoginPage() {
         background: "radial-gradient(1200px 600px at 0% 0%, #fff8d6 0%, #ffef9a 35%, #ffd54f 65%, #ffca28 100%)",
       }}
     >
-      {/* Background Elements */}
       <Box sx={{ position: "absolute", width: 320, height: 320, borderRadius: "50%", top: -80, right: -60, background: "linear-gradient(140deg,#fff59d 0%,#ffca28 70%)", filter: "blur(20px)", opacity: 0.65, animation: `${float1} 9s ease-in-out infinite` }} />
       <Box sx={{ position: "absolute", width: 260, height: 260, borderRadius: "50%", bottom: -70, left: -40, background: "linear-gradient(140deg,#fff9c4 0%,#fbc02d 70%)", filter: "blur(18px)", opacity: 0.55, animation: `${float2} 10s ease-in-out infinite` }} />
 
@@ -251,7 +245,6 @@ export default function LoginPage() {
             </Stack>
           ) : (
             <>
-              {/* Logo & Header */}
               <Box sx={{ textAlign: "center", mb: 2.5 }}>
                 <Box component="img" src="/logo.svg" alt="Logo" sx={{ width: 72, height: 72, mb: 1, filter: "drop-shadow(0 4px 10px rgba(253, 216, 53, .45))" }} />
                 <Typography variant="h4" fontWeight={800} letterSpacing={0.5} sx={{ color: "#6a4d00", textShadow: "0 1px 0 #fff7" }}>Management Login</Typography>
@@ -259,7 +252,6 @@ export default function LoginPage() {
               </Box>
 
               <form onSubmit={handleSubmit} noValidate>
-                {/* Username Input */}
                 <TextField
                   fullWidth margin="normal" variant="outlined" label="Username"
                   value={username} onChange={(e) => setUsername(e.target.value)}
@@ -269,7 +261,6 @@ export default function LoginPage() {
                   sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, "& fieldset": { borderColor: "#fbc02d66" }, "&:hover fieldset": { borderColor: "#f57f17" }, "&.Mui-focused fieldset": { borderColor: "#fbc02d" }, bgcolor: "#fffdf4" }, input: { fontWeight: 600 } }}
                 />
 
-                {/* Password Input */}
                 <TextField
                   fullWidth margin="normal" variant="outlined" label="Password"
                   value={password} type={showPwd ? "text" : "password"}
@@ -289,7 +280,6 @@ export default function LoginPage() {
                   sx={{ "& .MuiOutlinedInput-root": { borderRadius: 3, "& fieldset": { borderColor: "#fbc02d66" }, "&:hover fieldset": { borderColor: "#f57f17" }, "&.Mui-focused fieldset": { borderColor: "#fbc02d" }, bgcolor: "#fffdf4" }, input: { fontWeight: 600, letterSpacing: 1 } }}
                 />
 
-                {/* Error & CapsLock Alert */}
                 {(capsLock || error) && (
                   <Box sx={{ mt: 1, mb: 1 }}>
                     {capsLock && (
@@ -303,12 +293,10 @@ export default function LoginPage() {
                   </Box>
                 )}
 
-                {/* Forgot Password Link */}
                 <Box sx={{ mt: 1, mb: 1, display: "flex", justifyContent: "flex-end" }}>
                   <Button type="button" size="small" onClick={() => setForgotPwdOpen(true)} sx={{ textTransform: "none", color: "#7a5b00", fontWeight: 700, "&:hover": { textDecoration: "underline", bgcolor: 'transparent' } }}>Forgot Password?</Button>
                 </Box>
 
-                {/* Turnstile & Submit */}
                 <Turnstile ref={turnstileRef} size="invisible" execution="execute" action="login" onVerify={handleVerify} onError={handleError} />
 
                 <Button type="submit" fullWidth size="large" variant="contained"
@@ -324,7 +312,6 @@ export default function LoginPage() {
                   {loading || pendingLogin ? <CircularProgress size={24} sx={{ color: "#4a3400" }} /> : "Login"}
                 </Button>
 
-                {/* ✅ Google Login Section */}
                 <Box sx={{ mt: 3, mb: 2 }}>
                    <Divider sx={{ mb: 2, color: '#7a5b00', fontSize: '0.875rem', fontWeight: 500 }}>OR</Divider>
                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
@@ -349,7 +336,6 @@ export default function LoginPage() {
         </CardContent>
       </Card>
 
-      {/* Security Dialog */}
       <Dialog
         open={securityErrorOpen}
         onClose={() => setSecurityErrorOpen(false)}
@@ -369,7 +355,6 @@ export default function LoginPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ✅ Forgot Password Dialog (Wizard) */}
       <Dialog
         open={forgotPwdOpen}
         onClose={handleCloseForgot}
@@ -386,7 +371,6 @@ export default function LoginPage() {
                 <Step><StepLabel>ตั้งรหัสใหม่</StepLabel></Step>
             </Stepper>
 
-            {/* Step 0: Request OTP */}
             {resetStep === 0 && (
                 <Box component="form" onSubmit={async (e) => {
                     e.preventDefault();
@@ -416,7 +400,6 @@ export default function LoginPage() {
                 </Box>
             )}
 
-            {/* ✅ Step 1: Verify OTP (แบบช่องแยกสวยๆ) */}
             {resetStep === 1 && (
                 <Box component="form" onSubmit={(e) => { e.preventDefault(); setResetStep(2); }}>
                     <Box sx={{ bgcolor: '#FFFDE7', p: 2, borderRadius: 2, mb: 3, border: '1px dashed #fbc02d', textAlign: 'center' }}>
@@ -425,7 +408,6 @@ export default function LoginPage() {
                          <Typography variant="caption" display="block" color="text.secondary" mt={0.5}>กรุณากรอกรหัส 8 หลักจากอีเมล</Typography>
                     </Box>
 
-                    {/* 8-Digit OTP Inputs */}
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: { xs: 0.5, sm: 1 }, mb: 1 }} onPaste={handleOtpPaste}>
                         {[...Array(8)].map((_, index) => (
                              <React.Fragment key={index}>
@@ -457,7 +439,6 @@ export default function LoginPage() {
                                         e.target.style.boxShadow = 'none';
                                     }}
                                 />
-                                {/* ขีดคั่นกลางระหว่างเลข 4 กับ 5 */}
                                 {index === 3 && (
                                     <Box component="span" sx={{ display: 'flex', alignItems: 'center', color: '#bdbdbd', fontWeight: 'bold' }}>-</Box>
                                 )}
@@ -472,14 +453,13 @@ export default function LoginPage() {
                 </Box>
             )}
 
-            {/* Step 2: New Password */}
             {resetStep === 2 && (
                 <Box component="form" onSubmit={async (e) => {
                     e.preventDefault();
                     setResetLoading(true);
                     try {
                         await resetPasswordWithOtp(resetUsername, resetOtp, newPassword);
-                        setResetStep(3); // Success
+                        setResetStep(3); 
                     } catch (err) {
                         setResetMsg(err.response?.data?.error || "เปลี่ยนรหัสผ่านไม่สำเร็จ");
                     } finally {
@@ -500,7 +480,6 @@ export default function LoginPage() {
                 </Box>
             )}
 
-            {/* Step 3: Success */}
             {resetStep === 3 && (
                 <Box sx={{ textAlign: 'center', py: 2 }}>
                     <CheckCircleOutlineIcon sx={{ fontSize: 60, color: '#2e7d32', mb: 2 }} />

@@ -23,6 +23,7 @@
     "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",
     "install": "^0.13.0",
+    "jsencrypt": "^3.5.4",
     "jspdf": "^3.0.1",
     "jwt-decode": "^4.0.0",
     "npm": "^11.4.2",

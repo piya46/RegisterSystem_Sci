@@ -12,4 +12,7 @@ router.post('/verify', authController.verify);
 router.post('/forgot-password', authController.requestPasswordReset);     // ขอ OTP
 router.post('/reset-password-otp', authController.resetPasswordWithOtp);
 
+// ✅ Route ใหม่: ขอ Public Key สำหรับ E2EE
+router.get('/public-key', authController.getPublicKey);
+
 module.exports = router;

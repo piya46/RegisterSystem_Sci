@@ -3,17 +3,17 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api', 
   timeout: 30000, 
+  withCredentials: true, // ✅ อนุญาตให้ส่ง Cookies ไปหา Backend
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+// ❌ ลบ Interceptor เดิมออก (เพราะเราใช้ Cookies แล้ว ไม่ต้องแนบ Header เอง)
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // ถ้าเจอ 401 อาจจะ Redirect ไป Login (Optional)
+    return Promise.reject(error);
   }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+);
 
 // ==========================================
 // 🔐 Auth & Self-Service
@@ -25,11 +25,9 @@ export const getMe = () => api.get('/auth/me');
 export const logout = () => api.post('/sessions/logout');
 export const verifyUser = (data) => api.post('/auth/verify', data);
 
-// ✅ ตรงกับ routes/auth.js แล้ว
 export const requestPasswordReset = (username) => 
   api.post('/auth/forgot-password', { username });
 
-// ✅ ตรงกับ routes/auth.js แล้ว
 export const resetPasswordWithOtp = (username, otp, newPassword) => 
   api.post('/auth/reset-password-otp', { username, otp, newPassword });
 
@@ -43,15 +41,12 @@ export const createAdmin = (data) => api.post('/admins', data);
 export const updateAdmin = (id, data) => api.put(`/admins/${id}`, data);
 export const deleteAdmin = (id) => api.delete(`/admins/${id}`);
 
-// ✅ [แก้ไขจุดนี้] ให้ตรงกับ Backend: /request-action-otp
 export const requestActionOtp = () => 
   api.post('/admins/request-action-otp');
 
-// ✅ ตรงกับ routes/admin.js (/reset-password)
 export const resetUserPassword = (userId, newPassword, otp = null) => 
   api.post('/admins/reset-password', { userId, newPassword, otp });
 
-// ✅ ตรงกับ routes/admin.js (/staff/:id)
 export const updateStaff = (id, data) => api.put(`/admins/staff/${id}`, data);
 
 export const changePassword = (data) => api.post('/admins/change-password', data);
@@ -65,9 +60,6 @@ export const uploadAvatar = (file) => {
 };
 
 export const getCronLogs = () => api.get('/admins/cron-logs');
-
-// ... (ส่วนอื่นๆ ของ Session, Participant, Checkin คงเดิม ไม่ต้องแก้) ...
-// เพื่อความชัวร์ Copy ส่วนล่างนี้ไปแปะต่อได้เลยครับ
 
 // ==========================================
 // 👤 Session Management
