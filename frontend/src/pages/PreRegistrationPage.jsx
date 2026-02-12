@@ -6,7 +6,7 @@ import {
   Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
   Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, InputAdornment,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, IconButton,
-  Backdrop // ✅ เพิ่ม Backdrop ตรงนี้
+  Backdrop
 } from "@mui/material";
 
 // Icons
@@ -69,7 +69,7 @@ const ASSISTANCE_TAGS = [
     { label: "แพ้ถั่ว", icon: <WarningIcon fontSize="small"/> }
 ];
 
-// ข้อมูลตารางไซส์ (แก้ไขเพิ่ม 7XL)
+// ข้อมูลตารางไซส์
 const SIZE_CHART_DATA = [
   { size: "SS", chest: 34, length: 23 },
   { size: "S",  chest: 36, length: 24 },
@@ -187,13 +187,11 @@ export default function PreRegistrationPage() {
     return { personal, contact, address, others };
   }, [fields]);
 
-  // ✅ Optimized handleInput
   const handleInput = useCallback((e) => {
     const { name, value } = e.target;
     
     if (name === 'date_year') {
       const nums = value.replace(/[^\d]/g, '').slice(0, 4); 
-      
       setErrors(prev => {
           if (nums.length === 4 && parseInt(nums, 10) < 2400) {
               return { ...prev, [name]: "กรุณากรอกปี พ.ศ. (เช่น 2569)" };
@@ -204,7 +202,6 @@ export default function PreRegistrationPage() {
           }
           return prev;
       });
-
       setForm((f) => ({ ...f, [name]: nums })); 
       return;
     }
@@ -446,14 +443,15 @@ export default function PreRegistrationPage() {
                   <Typography variant="caption" sx={{ opacity: 0.8, fontFamily: 'monospace', fontSize: '0.9rem' }}>#{registeredParticipant?.qrCode?.slice(0,8) || "REF-ID"}</Typography>
               </Box>
               <CardContent sx={{ p: 3 }}>
+                {/* ✅ แก้ไข Grid ให้ใช้ size แทน item/xs */}
                 <Grid container spacing={2} alignItems="center">
-                  <Grid item xs={12} sm={5} display="flex" flexDirection="column" alignItems="center" justifyContent="center">
+                  <Grid size={{ xs: 12, sm: 5 }} display="flex" flexDirection="column" alignItems="center" justifyContent="center">
                      <Box sx={{ p: 2, bgcolor: 'white', borderRadius: 3, boxShadow: '0 4px 16px rgba(0,0,0,0.08)', border: '1px solid #e0e0e0' }}>
                         <QRCodeSVG value={registeredParticipant?.qrCode || registeredParticipant?._id || "no-code"} size={140} level={"H"} includeMargin={true} />
                      </Box>
                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, fontWeight: 500 }}>สแกน QR Code นี้หน้างาน</Typography>
                   </Grid>
-                  <Grid item xs={12} sm={7}>
+                  <Grid size={{ xs: 12, sm: 7 }}>
                      <Box ml={{ sm: 1 }} textAlign={{ xs: 'center', sm: 'left' }}>
                         <Typography variant="subtitle2" color="text.secondary" gutterBottom display="flex" alignItems="center" justifyContent={{ xs: 'center', sm: 'flex-start' }} gap={0.5}><PersonIcon fontSize="small" color="primary" /> ชื่อผู้เข้าร่วม</Typography>
                         <Typography variant="h5" fontWeight="800" color="text.primary" gutterBottom sx={{ mb: 2, lineHeight: 1.2 }}>{pickField(registeredParticipant, ["name", "fullName", "fullname"])}</Typography>
@@ -601,8 +599,9 @@ export default function PreRegistrationPage() {
                             value={wantPackage ? 'package' : 'general'} 
                             onChange={handleDonationModeChange}
                         >
+                            {/* ✅ แก้ไข Grid ให้ใช้ size */}
                             <Grid container spacing={2}>
-                                <Grid item xs={12} sm={6}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
                                     <Paper 
                                         variant="outlined" 
                                         elevation={0}
@@ -644,7 +643,7 @@ export default function PreRegistrationPage() {
                                     </Paper>
                                 </Grid>
 
-                                <Grid item xs={12} sm={6}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
                                     <Paper 
                                         variant="outlined" 
                                         elevation={0}
@@ -773,8 +772,9 @@ export default function PreRegistrationPage() {
                   </Box>
 
                   {/* Amount, Date, Time Inputs */}
+                  {/* ✅ แก้ไข Grid ให้ใช้ size */}
                   <Grid container spacing={2} sx={{ mt: 1 }}>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                         <TextField 
                             label="จำนวนเงินที่โอน (บาท)" 
                             type="number" 
@@ -788,7 +788,7 @@ export default function PreRegistrationPage() {
                             helperText={wantPackage ? "" : ""}
                         />
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                         <TextField 
                             label="วันที่โอน" 
                             type="date" 
@@ -801,7 +801,7 @@ export default function PreRegistrationPage() {
                             }}
                         />
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                         <TextField 
                             label="เวลาที่โอน" 
                             type="time" 
