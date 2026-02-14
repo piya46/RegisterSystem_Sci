@@ -1,11 +1,17 @@
 const express = require('express');
 const router = express.Router();
 const donationController = require('../controllers/donationController');
+const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin'); 
 
+// บันทึกการบริจาค (Public)
+router.post('/', donationController.createDonation);
 
-router.post('/create', donationController.createDonation);
+// ดูข้อมูลสรุปสำหรับ Admin
+router.get('/summary', auth, requireAdmin, donationController.getDonationSummary);
 
-// GET: /api/donations/summary -> สำหรับดูสรุปยอด (ควรมี Middleware เช็ค Admin ก่อนถ้าจำเป็น)
-router.get('/summary', donationController.getDonationSummary);
+// [เพิ่มใหม่] จัดการ (แก้ไข/ลบ) ข้อมูลโดย Admin
+router.put('/:id', auth, requireAdmin, donationController.updateDonation);
+router.delete('/:id', auth, requireAdmin, donationController.deleteDonation);
 
 module.exports = router;

@@ -1,9 +1,8 @@
-// frontend/src/pages/DonationListPage.jsx
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   TextField, Button, IconButton, Typography, Stack, Chip, InputAdornment, LinearProgress,
-  Card, CardContent, Grid
+  Card, CardContent, Grid, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, MenuItem, FormControl, InputLabel, Select
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -12,8 +11,12 @@ import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 import PaymentsIcon from '@mui/icons-material/Payments';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import AddBoxIcon from '@mui/icons-material/AddBox';
+import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
 import * as XLSX from 'xlsx';
-import { getDonationSummary } from '../utils/api';
+import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
 import useAuth from '../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
 
@@ -21,23 +24,21 @@ export default function DonationListPage() {
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [apiStats, setApiStats] = useState({ totalAmount: 0, totalCount: 0 });
   
+  const [openDialog, setOpenDialog] = useState(false);
+  const [formData, setFormData] = useState({});
+  const [isEditing, setIsEditing] = useState(false);
+
   const { token } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchDonations();
-  }, [token]);
+  useEffect(() => { fetchDonations(); }, [token]);
 
   const fetchDonations = async () => {
     setLoading(true);
     try {
-      const res = await getDonationSummary(token);
+      const res = await getDonationSummary();
       setDonations(res.data?.transactions || []);
-      if (res.data?.stats) {
-        setApiStats(res.data.stats);
-      }
     } catch (err) {
       console.error("Failed to fetch donations", err);
     } finally {
@@ -45,20 +46,9 @@ export default function DonationListPage() {
     }
   };
 
-  // Helper Formatter
   const formatDate = (dateString) => {
     if (!dateString) return '-';
-    return new Date(dateString).toLocaleString('th-TH', {
-      year: 'numeric', month: 'short', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    });
-  };
-
-  const getPackageDisplay = (d) => {
-    if (!d.isPackage) return null;
-    let name = d.packageType || 'แพ็กเกจไม่ระบุชื่อ';
-    if (d.size) name += ` (Size: ${d.size})`;
-    return name;
+    return new Date(dateString).toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
   const filteredDonations = useMemo(() => {
@@ -66,25 +56,63 @@ export default function DonationListPage() {
       const query = search.toLowerCase();
       const fullName = `${d.firstName || ''} ${d.lastName || ''}`.toLowerCase();
       const amountStr = d.amount ? d.amount.toString() : '';
-      const pkgName = (d.packageType || '').toLowerCase();
-      return fullName.includes(query) || amountStr.includes(query) || pkgName.includes(query);
+      return fullName.includes(query) || amountStr.includes(query);
     });
   }, [donations, search]);
 
   const displayTotalAmount = filteredDonations.reduce((sum, item) => sum + (item.amount || 0), 0);
   const displayTotalCount = filteredDonations.length;
 
+  const handleOpenDialog = (donation = null) => {
+    if (donation) {
+      setIsEditing(true);
+      setFormData(donation);
+    } else {
+      setIsEditing(false);
+      setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY' });
+    }
+    setOpenDialog(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      if (isEditing) {
+        await updateDonation(formData._id, formData);
+      } else {
+        await createDonation(formData);
+      }
+      setOpenDialog(false);
+      fetchDonations();
+    } catch (error) {
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("คุณแน่ใจหรือไม่ที่จะลบรายการนี้?")) return;
+    try {
+      await deleteDonation(id);
+      fetchDonations();
+    } catch (error) {
+      alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+    }
+  };
+
   const exportExcel = () => {
     if (filteredDonations.length === 0) return alert("ไม่พบข้อมูลที่จะส่งออก");
     const dataToExport = filteredDonations.map((d, index) => ({
         'ลำดับ': index + 1,
         'วันที่โอน': formatDate(d.transferDateTime),
-        'ชื่อ-นามสกุล': `${d.firstName || ''} ${d.lastName || ''}`.trim(),
+        'ชื่อ': d.firstName || '',
+        'นามสกุล': d.lastName || '',
         'ประเภท': d.isPackage ? 'ซื้อแพ็กเกจ' : 'บริจาค',
-        'รายละเอียด': getPackageDisplay(d) || '-',
+        'แพ็กเกจ': d.packageType || '-',
+        'ไซส์': d.size || '-',
+        'วิธีรับ': d.pickupMethod === 'DELIVERY' ? 'จัดส่ง' : d.pickupMethod === 'PICKUP' ? 'รับหน้างาน' : '-',
+        'ที่อยู่จัดส่ง': d.address || '-',
         'ยอดเงิน': d.amount || 0,
-        'ช่องทาง': d.source === 'PRE_REGISTER' ? 'ลงทะเบียน' : d.source,
-        'บันทึกเมื่อ': formatDate(d.createdAt)
+        'ลิงก์สลิป': d.slipUrl || '-',
+        'ช่องทาง': d.source
     }));
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
@@ -94,23 +122,19 @@ export default function DonationListPage() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
-      <Box sx={{ maxWidth: 1200, mx: "auto" }}>
-        
-        {/* Header */}
+      <Box sx={{ maxWidth: 1300, mx: "auto" }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" spacing={2} sx={{ mb: 3 }}>
           <IconButton onClick={() => navigate('/dashboard')} sx={{ bgcolor: '#fff' }}><ArrowBackIcon /></IconButton>
           <Box sx={{ flex: 1 }}>
             <Typography variant="h5" fontWeight="bold" sx={{ color: '#2e7d32', display: 'flex', alignItems: 'center', gap: 1 }}>
-              <VolunteerActivismIcon /> รายการสนับสนุน (Donations)
+              <VolunteerActivismIcon /> จัดการรายชื่อผู้สนับสนุน
             </Typography>
-            <Typography variant="body2" color="text.secondary">ตรวจสอบรายการโอนเงินและแพ็กเกจของที่ระลึก</Typography>
+            <Typography variant="body2" color="text.secondary">เพิ่ม ลบ อัปเดต และตรวจสอบสลิป</Typography>
           </Box>
-          <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>
-            Export Excel
-          </Button>
+          <Button variant="contained" color="primary" startIcon={<AddBoxIcon />} onClick={() => handleOpenDialog()} sx={{ borderRadius: 2 }}>เพิ่มรายการใหม่</Button>
+          <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export Excel</Button>
         </Stack>
 
-        {/* Stats Cards */}
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid item xs={12} md={6}>
             <Card sx={{ borderRadius: 3, bgcolor: '#e8f5e9', border: '1px solid #c8e6c9', boxShadow: 'none' }}>
@@ -129,103 +153,99 @@ export default function DonationListPage() {
                 <Box sx={{ p: 1.5, bgcolor: '#f5f5f5', borderRadius: '50%' }}><ReceiptLongIcon sx={{ color: '#666' }} /></Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary" fontWeight={600}>จำนวนรายการ</Typography>
-                  <Typography variant="h4" fontWeight={800}>{displayTotalCount.toLocaleString()} <Typography component="span" variant="body2" color="text.secondary">รายการ</Typography></Typography>
+                  <Typography variant="h4" fontWeight={800}>{displayTotalCount.toLocaleString()}</Typography>
                 </Box>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
 
-        {/* Search */}
-        <TextField
-          fullWidth placeholder="ค้นหาชื่อ, แพ็กเกจ, ยอดเงิน..." value={search} onChange={(e) => setSearch(e.target.value)}
-          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment> }}
-          size="small" sx={{ mb: 3, bgcolor: '#fff', '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
-        />
+        <TextField fullWidth placeholder="ค้นหาชื่อ, นามสกุล, ยอดเงิน..." value={search} onChange={(e) => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment> }} size="small" sx={{ mb: 3, bgcolor: '#fff', '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
 
-        {/* Table */}
-        <TableContainer component={Paper} sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.04)", overflow: 'hidden' }}>
+        <TableContainer component={Paper} sx={{ borderRadius: 3, boxShadow: "0 4px 20px rgba(0,0,0,0.04)" }}>
           {loading && <LinearProgress color="success" />}
           <Table stickyHeader>
             <TableHead>
               <TableRow sx={{ '& th': { fontWeight: 'bold', bgcolor: '#f1f8e9', color: '#33691e', whiteSpace: 'nowrap' } }}>
-                <TableCell width="5%" align="center">#</TableCell>
-                <TableCell width="12%">เวลาที่โอน</TableCell>
-                <TableCell width="15%">ชื่อผู้สนับสนุน</TableCell>
-                <TableCell width="40%">รายการ</TableCell> {/* ให้พื้นที่เยอะสุด */}
-                <TableCell width="10%" align="right">ยอดเงิน</TableCell>
-                <TableCell width="10%" align="center">ช่องทาง</TableCell>
-                <TableCell width="8%" align="right">บันทึกเมื่อ</TableCell>
+                <TableCell>วัน/เวลาโอน</TableCell>
+                <TableCell>ชื่อ-นามสกุล</TableCell>
+                <TableCell>แพ็กเกจ / ไซส์</TableCell>
+                <TableCell>วิธีรับของ / ที่อยู่</TableCell>
+                <TableCell align="right">ยอดเงิน</TableCell>
+                <TableCell align="center">สลิป</TableCell>
+                <TableCell align="center">จัดการ</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredDonations.length > 0 ? (
-                filteredDonations.map((row, index) => {
-                  const pkgDisplay = getPackageDisplay(row);
-                  return (
-                    <TableRow key={row._id || index} hover sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                      <TableCell align="center" sx={{ color: 'text.secondary' }}>{index + 1}</TableCell>
-                      
-                      {/* เวลาที่โอน */}
-                      <TableCell sx={{ fontSize: '0.9rem' }}>
-                        <Stack>
-                           <Typography variant="body2" fontWeight={500}>{formatDate(row.transferDateTime).split(' ')[0]} {formatDate(row.transferDateTime).split(' ')[1]} {formatDate(row.transferDateTime).split(' ')[2]}</Typography>
-                           <Typography variant="caption" color="text.secondary">{formatDate(row.transferDateTime).split(' ')[3]}</Typography>
-                        </Stack>
-                      </TableCell>
-
-                      <TableCell sx={{ fontWeight: 600 }}>{row.firstName} {row.lastName}</TableCell>
-                      
-                      {/* รายการ (Chip แบบ Multiline) */}
-                      <TableCell>
-                        {pkgDisplay ? (
-                          <Chip 
-                            icon={<CardGiftcardIcon style={{ fontSize: 16 }} />} 
-                            label={pkgDisplay} 
-                            size="small" 
-                            sx={{ 
-                              bgcolor: '#fff3e0', color: '#e65100', border: '1px solid #ffe0b2',
-                              height: 'auto', 
-                              '& .MuiChip-label': { 
-                                display: 'block', 
-                                whiteSpace: 'normal', 
-                                py: 1, 
-                                lineHeight: 1.4,
-                                textAlign: 'left'
-                              },
-                              '& .MuiChip-icon': { alignSelf: 'flex-start', mt: 1, ml: 1 }
-                            }} 
-                          />
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">-</Typography>
-                        )}
-                      </TableCell>
-
-                      <TableCell align="right" sx={{ color: '#2e7d32', fontWeight: 800 }}>+{row.amount?.toLocaleString()}</TableCell>
-                      
-                      {/* ช่องทาง (Outline Green Chip) */}
-                      <TableCell align="center">
-                        <Chip 
-                          label={row.source === 'PRE_REGISTER' ? 'ลงทะเบียน' : row.source} 
-                          size="small" 
-                          variant="outlined"
-                          color="success" // จะได้ขอบเขียว ตัวหนังสือเขียว
-                          sx={{ fontWeight: 600, bgcolor: 'transparent' }}
-                        />
-                      </TableCell>
-                      
-                      <TableCell align="right" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
-                         {new Date(row.createdAt).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}>ไม่พบข้อมูล</TableCell></TableRow>
+              {filteredDonations.length > 0 ? filteredDonations.map((row) => (
+                <TableRow key={row._id} hover>
+                  <TableCell sx={{ fontSize: '0.9rem' }}>{formatDate(row.transferDateTime)}</TableCell>
+                  <TableCell sx={{ fontWeight: 600 }}>{row.firstName} {row.lastName}</TableCell>
+                  <TableCell>
+                    {row.isPackage ? <Chip icon={<CardGiftcardIcon />} label={`${row.packageType} ${row.size ? `(${row.size})` : ''}`} size="small" color="secondary" variant="outlined" /> : <Typography variant="body2" color="text.secondary">ไม่รับของที่ระลึก</Typography>}
+                  </TableCell>
+                  <TableCell>
+                    {row.isPackage ? (
+                      <Box>
+                        <Typography variant="caption" fontWeight="bold" color="primary">{row.pickupMethod === 'DELIVERY' ? 'จัดส่ง' : 'รับหน้างาน'}</Typography>
+                        {row.pickupMethod === 'DELIVERY' && <Typography variant="caption" display="block" color="text.secondary">{row.address || '-'}</Typography>}
+                      </Box>
+                    ) : "-"}
+                  </TableCell>
+                  <TableCell align="right" sx={{ color: '#2e7d32', fontWeight: 800 }}>฿{row.amount?.toLocaleString()}</TableCell>
+                  <TableCell align="center">
+                    {row.slipUrl ? <Tooltip title="ดูสลิป"><IconButton component="a" href={row.slipUrl} target="_blank" color="info"><InsertPhotoIcon /></IconButton></Tooltip> : <Typography variant="caption" color="text.secondary">-</Typography>}
+                  </TableCell>
+                  <TableCell align="center">
+                    <IconButton onClick={() => handleOpenDialog(row)} color="primary"><EditIcon /></IconButton>
+                    <IconButton onClick={() => handleDelete(row._id)} color="error"><DeleteIcon /></IconButton>
+                  </TableCell>
+                </TableRow>
+              )) : (
+                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6 }}>ไม่พบข้อมูล</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
         </TableContainer>
+
+        <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ bgcolor: '#f1f8e9', color: '#2e7d32', fontWeight: 'bold' }}>{isEditing ? 'แก้ไขข้อมูลผู้สนับสนุน' : 'เพิ่มข้อมูลผู้สนับสนุน'}</DialogTitle>
+          <DialogContent dividers>
+            <Grid container spacing={2}>
+              <Grid item xs={6}><TextField label="ชื่อ" fullWidth value={formData.firstName || ''} onChange={(e) => setFormData({...formData, firstName: e.target.value})} sx={{ mt: 1 }} /></Grid>
+              <Grid item xs={6}><TextField label="นามสกุล" fullWidth value={formData.lastName || ''} onChange={(e) => setFormData({...formData, lastName: e.target.value})} sx={{ mt: 1 }} /></Grid>
+              <Grid item xs={6}><TextField label="ยอดเงิน" type="number" fullWidth value={formData.amount || ''} onChange={(e) => setFormData({...formData, amount: e.target.value})} /></Grid>
+              <Grid item xs={6}><TextField label="เวลาโอน" type="datetime-local" fullWidth value={formData.transferDateTime ? new Date(formData.transferDateTime).toISOString().slice(0,16) : ''} onChange={(e) => setFormData({...formData, transferDateTime: e.target.value})} InputLabelProps={{ shrink: true }} /></Grid>
+              <Grid item xs={12}>
+                <FormControl fullWidth>
+                  <InputLabel>ประเภท</InputLabel>
+                  <Select value={formData.isPackage ? 'package' : 'general'} label="ประเภท" onChange={(e) => setFormData({...formData, isPackage: e.target.value === 'package'})}>
+                    <MenuItem value="general">บริจาคทั่วไป (ไม่รับของ)</MenuItem>
+                    <MenuItem value="package">สนับสนุนรับแพ็กเกจ (ของที่ระลึก)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              {formData.isPackage && (
+                <>
+                  <Grid item xs={8}><TextField label="ชื่อแพ็กเกจ" fullWidth value={formData.packageType || ''} onChange={(e) => setFormData({...formData, packageType: e.target.value})} /></Grid>
+                  <Grid item xs={4}><TextField label="ไซส์เสื้อ" fullWidth value={formData.size || ''} onChange={(e) => setFormData({...formData, size: e.target.value})} /></Grid>
+                  <Grid item xs={12}>
+                    <FormControl fullWidth>
+                      <InputLabel>วิธีรับสินค้า</InputLabel>
+                      <Select value={formData.pickupMethod || 'DELIVERY'} label="วิธีรับสินค้า" onChange={(e) => setFormData({...formData, pickupMethod: e.target.value})}>
+                        <MenuItem value="DELIVERY">จัดส่งตามที่อยู่</MenuItem>
+                        <MenuItem value="PICKUP">รับด้วยตนเองหน้างาน</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  {formData.pickupMethod === 'DELIVERY' && <Grid item xs={12}><TextField label="ที่อยู่จัดส่งแบบเต็ม" multiline rows={2} fullWidth value={formData.address || ''} onChange={(e) => setFormData({...formData, address: e.target.value})} /></Grid>}
+                </>
+              )}
+              <Grid item xs={12}><TextField label="URL รูปสลิปโอนเงิน (ถ้ามี)" fullWidth value={formData.slipUrl || ''} onChange={(e) => setFormData({...formData, slipUrl: e.target.value})} helperText="ใส่ลิงก์รูปภาพสลิปที่อัปโหลดไว้ (เช่น Google Drive หรือ Imgur)" /></Grid>
+            </Grid>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}><Button onClick={() => setOpenDialog(false)} color="inherit">ยกเลิก</Button><Button onClick={handleSave} variant="contained" color="success">บันทึก</Button></DialogActions>
+        </Dialog>
       </Box>
     </Box>
   );

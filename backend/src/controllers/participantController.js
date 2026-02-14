@@ -37,7 +37,6 @@ exports.createParticipant = async (req, res) => {
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
 
     const followers = Math.max(0, Number.parseInt(req.body.followers || 0, 10) || 0);
-    // [ใหม่] รับค่า consent และ specialAssistance
     const consent = req.body.consent;
     const specialAssistance = req.body.specialAssistance || "";
 
@@ -45,8 +44,21 @@ exports.createParticipant = async (req, res) => {
     for (const f of allowedFields) {
       if (req.body[f] !== undefined) userFields[f] = req.body[f];
     }
+    
+    // [แก้ไข Task 5] บังคับเก็บที่อยู่ด้วยในกรณีที่เลือกสนับสนุนแบบ Package
+    // แก้ไขให้ใช้ฟิลด์ usr_add และ usr_add_post ตามที่ Frontend ส่งมา
+    const isPackageSelected = req.body.isPackage === true || req.body.isPackage === 'true';
+    if (isPackageSelected) {
+      if (!userFields.usr_add || !userFields.usr_add_post || userFields.usr_add === '-' || userFields.usr_add_post === '-') {
+        return res.status(400).json({ error: 'กรุณาระบุที่อยู่และรหัสไปรษณีย์ เนื่องจากท่านได้เลือกรับการสนับสนุนแบบ Package' });
+      }
+    }
+
     for (const f of requiredFields) {
-      if (!userFields[f]) return res.status(400).json({ error: `Field ${f} is required` });
+      // ยกเว้นกรณีที่ไม่ได้เลือกลงทะเบียนแพ็กเกจ และระบบบังคับฟิลด์เหล่านี้
+      if (!userFields[f] && !['usr_add', 'usr_add_post'].includes(f)) {
+        return res.status(400).json({ error: `Field ${f} is required` });
+      }
     }
 
     if (userFields.date_year) {
@@ -76,7 +88,7 @@ exports.createParticipant = async (req, res) => {
       registrationType: 'online',
       followers,
       consent, 
-      specialAssistance // [ใหม่] บันทึกลงฐานข้อมูล
+      specialAssistance 
     });
 
     if (userFields.email) {
@@ -203,7 +215,6 @@ exports.updateParticipant = async (req, res) => {
     if (req.body.consent !== undefined) {
       participant.consent = req.body.consent;
     }
-    // [ใหม่] รองรับ specialAssistance
     if (req.body.specialAssistance !== undefined) {
       participant.specialAssistance = req.body.specialAssistance;
     }
@@ -320,8 +331,6 @@ exports.resendTicket = async (req, res) => {
 };
 
 exports.searchParticipants = async (req, res) => {
-  // if (!checkAdmin(req, res)) return;
-
   const { phone, name, email, qrCode, q } = req.query;
   let filter = { isDeleted: false };
 
@@ -365,6 +374,9 @@ exports.exportParticipants = async (req, res) => {
       { header: 'Phone', key: 'phone', width: 16 },
       { header: 'Email', key: 'email', width: 28 },
       { header: 'Department', key: 'department', width: 24 },
+      // [แก้ไข Task 7] ดึงค่าที่อยู่และรหัสไปรษณีย์
+      { header: 'Address', key: 'address', width: 40 },
+      { header: 'ZipCode', key: 'zipcode', width: 15 },
       { header: 'Status', key: 'status', width: 14 },
       { header: 'RegisteredAt', key: 'registeredAt', width: 20 },
       { header: 'CheckedInAt', key: 'checkedInAt', width: 20 },
@@ -372,14 +384,14 @@ exports.exportParticipants = async (req, res) => {
       { header: 'RegistrationType', key: 'registrationType', width: 14 },
       { header: 'Followers', key: 'followers', width: 12 },
       { header: 'Consent', key: 'consent', width: 12 }, 
-      { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, // [ใหม่] เพิ่ม Special Assistance
+      { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, 
       { header: 'QR Code', key: 'qrCode', width: 38 },
       { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
     ];
 
     ws.getRow(1).font = { bold: true };
     ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'O1' };
+    ws.autoFilter = { from: 'A1', to: 'Q1' }; // ปรับ Range ของ Filter ให้ครอบคลุมคอลัมน์ใหม่ (ถึง Q)
 
     participants.forEach((p, idx) => {
       const f = p.fields || {};
@@ -387,6 +399,11 @@ exports.exportParticipants = async (req, res) => {
       const phone = f.phone || '';
       const email = f.email || '';
       const department = f.department || f.faculty || '';
+      
+      // ดึงข้อมูลที่อยู่และรหัสไปรษณีย์ที่ถูกต้องตามชื่อฟิลด์ในระบบ
+      const address = f.usr_add || '-'; 
+      const zipcode = f.usr_add_post || '-';
+
       const statusText = p.status || 'registered';
       const registeredAt = p.createdAt ? new Date(p.createdAt) : null;
       const checkedInAt = p.checkedInAt ? new Date(p.checkedInAt) : null;
@@ -399,7 +416,7 @@ exports.exportParticipants = async (req, res) => {
       const followers = Number.isFinite(p.followers) ? p.followers : 0;
       const qrCode = p.qrCode || '';
       const consentText = p.consent || '-'; 
-      const specialAssistance = p.specialAssistance || '-'; // [ใหม่]
+      const specialAssistance = p.specialAssistance || '-'; 
       const regBy =
         (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) ||
         (typeof p.registeredBy === 'string' ? p.registeredBy : '') ||
@@ -411,6 +428,8 @@ exports.exportParticipants = async (req, res) => {
         phone,
         email,
         department,
+        address, // ที่อยู่
+        zipcode, // รหัสไปรษณีย์
         status: statusText,
         registeredAt,
         checkedInAt,
@@ -418,7 +437,7 @@ exports.exportParticipants = async (req, res) => {
         registrationType: regType,
         followers,
         consent: consentText, 
-        specialAssistance, // [ใหม่]
+        specialAssistance,
         qrCode,
         registeredBy: regBy,
       });

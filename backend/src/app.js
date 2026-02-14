@@ -8,7 +8,12 @@ const auditLog = require('./helpers/auditLog');
 const participantFieldRoutes = require('./routes/participantFields');
 const participantRoutes = require('./routes/participants');
 const registrationPointRoutes = require('./routes/registrationPoints');
-const donationsRoutes = require('./routes/donationRoutes')
+const donationsRoutes = require('./routes/donationRoutes');
+
+// [เพิ่มใหม่] นำเข้า Router สำหรับหน้าตั้งค่าระบบและจัดการแพ็กเกจ
+const systemSettingRoutes = require('./routes/systemSettingRoutes');
+const packageRoutes = require('./routes/packageRoutes');
+
 const path = require('path');
 const rateLimit = require('express-rate-limit'); 
 
@@ -55,6 +60,10 @@ app.use('/api/registration-points', registrationPointRoutes);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/dashboard', require('./routes/dashboard'));
 app.use('/api/donations', donationsRoutes);
+
+// [เพิ่มใหม่] ลงทะเบียน Endpoint สำหรับการตั้งค่าและแพ็กเกจ
+app.use('/api/settings', systemSettingRoutes);
+app.use('/api/packages', packageRoutes);
 
 app.use((err, req, res, next) => {
   auditLog({

@@ -4,7 +4,7 @@ const auditLog = require('../helpers/auditLog');
 
 exports.createDonation = async (req, res) => {
   try {
-    const { userId, firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size } = req.body;
+    const { userId, firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size, slipUrl, address, pickupMethod, pickupLocation } = req.body;
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
@@ -19,7 +19,11 @@ exports.createDonation = async (req, res) => {
       source: source || 'PRE_REGISTER',
       isPackage: !!isPackage,
       packageType: packageType || "",
-      size: size || ""
+      size: size || "",
+      slipUrl: slipUrl || "",
+      address: address || "",
+      pickupMethod: pickupMethod || "",
+      pickupLocation: pickupLocation || ""
     });
 
     const savedDonation = await newDonation.save();
@@ -84,5 +88,35 @@ exports.getDonationSummary = async (req, res) => {
       error: error.message
     });
     res.status(500).json({ message: 'Error fetching summary' });
+  }
+};
+
+// สำหรับ Admin แก้ไขข้อมูล (รวมถึงอัปโหลดลิงก์สลิปย้อนหลัง)
+exports.updateDonation = async (req, res) => {
+  try {
+    const updatedDonation = await Donation.findByIdAndUpdate(
+      req.params.id, 
+      { $set: req.body }, 
+      { new: true }
+    );
+    if (!updatedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
+
+    auditLog({ req, action: 'UPDATE_DONATION', detail: `Updated donation ID: ${req.params.id}`, status: 200 });
+    res.json({ success: true, message: 'อัปเดตสำเร็จ', data: updatedDonation });
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating donation', error: error.message });
+  }
+};
+
+// สำหรับ Admin ลบข้อมูล
+exports.deleteDonation = async (req, res) => {
+  try {
+    const deletedDonation = await Donation.findByIdAndDelete(req.params.id);
+    if (!deletedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
+
+    auditLog({ req, action: 'DELETE_DONATION', detail: `Deleted donation ID: ${req.params.id}`, status: 200 });
+    res.json({ success: true, message: 'ลบรายการสำเร็จ' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error deleting donation', error: error.message });
   }
 };

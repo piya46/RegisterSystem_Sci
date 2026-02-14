@@ -1,10 +1,6 @@
-// frontend/src/pages/KioskPage.jsx
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import {
-  Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider,
-  TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle,
-  DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup,
-  FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment, Switch
+  Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider, TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup, FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment, Switch
 } from "@mui/material";
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import LockIcon from "@mui/icons-material/Lock";
@@ -22,48 +18,18 @@ import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import TimerIcon from '@mui/icons-material/Timer';
 
-import {
-  getMe,
-  verifyUser, // [ใหม่] ใช้ verifyUser แทน login เพื่อไม่ให้หลุดจากระบบถ้าใส่รหัสผิด
-  createParticipantByStaff as registerOnsiteByKiosk,
-  listParticipantFields,
-} from "../utils/api";
+import { getMe, verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
-// --- Configuration ---
-const IDLE_TIMEOUT_MS = 60000; // 60 วินาที
+const IDLE_TIMEOUT_MS = 60000; // 60 วินาที Kiosk Timeout
 
-// --- Component โบว์สีดำ ---
-const MourningRibbon = () => (
-    <Box sx={{ position: "absolute", top: 0, left: 0, zIndex: 9999, pointerEvents: "none", width: { xs: 80, md: 120 }, height: { xs: 80, md: 120 }, filter: "drop-shadow(2px 2px 4px rgba(0,0,0,0.4))" }}>
-      <img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-    </Box>
-);
+const MourningRibbon = () => ( <Box sx={{ position: "absolute", top: 0, left: 0, zIndex: 9999, pointerEvents: "none", width: { xs: 80, md: 120 }, height: { xs: 80, md: 120 } }}><img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></Box> );
 
-// --- Helper Components ---
-function FormSection({ title, icon, children }) {
-  return (
-      <Card variant="outlined" sx={{ borderRadius: 3, border: '1px solid #e0e0e0', overflow: 'hidden', mb: 2.5 }}>
-          <Box sx={{ bgcolor: '#fff3e0', px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #ffe0b2' }}>
-              <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>{icon}</Avatar>
-              <Typography variant="subtitle1" fontWeight={800} color="#5d4037">{title}</Typography>
-          </Box>
-          <CardContent sx={{ p: 2.5 }}>
-              <Stack spacing={2.5}>{children}</Stack>
-          </CardContent>
-      </Card>
-  );
-}
+function FormSection({ title, icon, children }) { return ( <Card variant="outlined" sx={{ borderRadius: 3, border: '1px solid #e0e0e0', overflow: 'hidden', mb: 2.5 }}><Box sx={{ bgcolor: '#fff3e0', px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #ffe0b2' }}><Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>{icon}</Avatar><Typography variant="subtitle1" fontWeight={800} color="#5d4037">{title}</Typography></Box><CardContent sx={{ p: 2.5 }}><Stack spacing={2.5}>{children}</Stack></CardContent></Card> ); }
 
-function OptionCard({ value, label, selected }) {
-  return (
-    <Paper variant="outlined" sx={{ mb: 1.5, p: 0, borderRadius: 2, border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0", bgcolor: selected ? "#f0f7ff" : "#fff", transition: "all 0.2s", "&:hover": { borderColor: "#90caf9" } }}>
-      <FormControlLabel value={value} control={<Radio sx={{ ml: 1 }} />} label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>} sx={{ width: '100%', m: 0, alignItems: 'flex-start', '& .MuiFormControlLabel-label': { width: '100%' }, '& .MuiRadio-root': { mt: 0.5 } }} />
-    </Paper>
-  );
-}
+function OptionCard({ value, label, selected }) { return ( <Paper variant="outlined" sx={{ mb: 1.5, p: 0, borderRadius: 2, border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0", bgcolor: selected ? "#f0f7ff" : "#fff" }}><FormControlLabel value={value} control={<Radio sx={{ ml: 1 }} />} label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>} sx={{ width: '100%', m: 0, alignItems: 'flex-start' }} /></Paper> ); }
 
-function KioskPage() {
+export default function KioskPage() {
   const [me, setMe] = useState(null);
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
@@ -73,8 +39,6 @@ function KioskPage() {
   const [membershipOption, setMembershipOption] = useState(null);
   const [bringFollowers, setBringFollowers] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
-  
-  // Review Dialog
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const [searchParams] = useSearchParams();
@@ -83,14 +47,12 @@ function KioskPage() {
   const [kioskMode, setKioskMode] = useState(false);
   const selectedPoint = searchParams.get("point");
 
-  // --- Secure Exit State ---
   const [exitOpen, setExitOpen] = useState(false);
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [exitError, setExitError] = useState("");
   const [verifyingExit, setVerifyingExit] = useState(false);
 
-  // --- Idle Timer ---
   const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
@@ -99,7 +61,6 @@ function KioskPage() {
     listParticipantFields(token).then((res) => setFields(res.data || res)).catch(() => {});
   }, [token, selectedPoint, navigate]);
 
-  // Auto-reset logic
   useEffect(() => {
     const handleActivity = () => { lastActivityRef.current = Date.now(); };
     window.addEventListener("mousemove", handleActivity);
@@ -125,7 +86,6 @@ function KioskPage() {
     };
   }, [form, membershipOption, reviewOpen, result]);
 
-  // จัดกลุ่มฟิลด์
   const fieldGroups = useMemo(() => {
     const all = (fields || []).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
     const personalFields = all.filter(f => ['name', 'nickname', 'dept', 'date_year'].includes(f.name));
@@ -137,205 +97,102 @@ function KioskPage() {
 
   function openFullscreen() { const elem = document.documentElement; if (elem.requestFullscreen) elem.requestFullscreen(); }
   function closeFullscreen() { if (document.exitFullscreen) document.exitFullscreen(); }
-  
-  useEffect(() => { 
-      if (kioskMode) openFullscreen(); 
-  }, [kioskMode]);
+  useEffect(() => { if (kioskMode) openFullscreen(); }, [kioskMode]);
 
-  const handleReset = () => {
-      setForm({});
-      setMembershipOption(null);
-      setBringFollowers(false);
-      setFollowersCount(0);
-      setResult(null);
-      setReviewOpen(false);
-      setExitOpen(false);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const handleReset = () => { setForm({}); setMembershipOption(null); setBringFollowers(false); setFollowersCount(0); setResult(null); setReviewOpen(false); setExitOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); };
 
   const handleInput = (e) => {
     const { name, value } = e.target;
     if (name === 'date_year') {
         const nums = value.replace(/[^\d]/g, '').slice(0, 4);
-        setForm((f) => ({ ...f, [name]: nums }));
-        return;
+        setForm((f) => ({ ...f, [name]: nums })); return;
     }
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   };
 
   const handleCheckInfo = (e) => {
     e.preventDefault();
-    const missingFields = fields.filter(f => f.required && f.enabled && !form[f.name]);
-    if (missingFields.length > 0) {
-        alert(`กรุณากรอกข้อมูลให้ครบถ้วน: ${missingFields.map(f => f.label).join(", ")}`);
-        return;
-    }
+    const missingFields = fields.filter(f => f.required && f.enabled && !['usr_add', 'usr_add_post'].includes(f.name) && !form[f.name]);
+    if (missingFields.length > 0) { alert(`กรุณากรอกข้อมูลส่วนตัวให้ครบถ้วน`); return; }
     if (!membershipOption) { alert("กรุณาเลือกสถานะสมาชิก"); return; }
     if (membershipOption !== 'none') {
         if (!form['usr_add'] || !form['usr_add_post']) { alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์"); return; }
     }
-    setResult(null);
-    setReviewOpen(true);
+    setResult(null); setReviewOpen(true);
   };
 
   const handleSubmit = async () => {
-    setReviewOpen(false);
-    setLoading(true);
+    setReviewOpen(false); setLoading(true);
     try {
       const finalForm = { ...form };
-      if (membershipOption === 'none') {
-        finalForm['usr_add'] = "-";
-        finalForm['usr_add_post'] = "-";
-      }
+      if (membershipOption === 'none') { finalForm['usr_add'] = "-"; finalForm['usr_add_post'] = "-"; }
       const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
-      finalForm['consent'] = finalConsent;
       const followers = bringFollowers ? Math.max(0, parseInt(followersCount || 0, 10)) : 0;
-
-      const res = await registerOnsiteByKiosk({ ...finalForm, registrationPoint: selectedPoint, followers }, token);
+      const res = await registerOnsiteByKiosk({ ...finalForm, consent: finalConsent, registrationPoint: selectedPoint, followers }, token);
       setResult({ success: true, message: `ลงทะเบียนสำเร็จ: ${res.data?.fields?.name || res.fields?.name || ""}` });
-      
       setTimeout(() => { handleReset(); }, 5000);
-
-    } catch (err) {
-      setResult({ success: false, message: err.response?.data?.error || "เกิดข้อผิดพลาด" });
-    }
+    } catch (err) { setResult({ success: false, message: err.response?.data?.error || "เกิดข้อผิดพลาด" }); }
     setLoading(false);
   };
 
-  const handleEnterKiosk = () => { setKioskMode(true); setResult(null); };
-  
-  const openExitDialog = () => { 
-      setExitUsername("");
-      setExitPassword("");
-      setExitError("");
-      setExitOpen(true); 
-  };
-  
-  const closeExitDialog = () => { setExitOpen(false); };
-  
   const confirmExitKiosk = async () => {
-    // [แก้ไข] ใช้ verifyUser แทน login เพื่อป้องกัน Session หลุด
-    setVerifyingExit(true);
-    setExitError("");
+    setVerifyingExit(true); setExitError("");
     try {
         await verifyUser({ username: exitUsername, password: exitPassword });
-        setKioskMode(false);
-        closeFullscreen(); 
-        closeExitDialog();
-        setResult(null);
-    } catch (err) {
-        const msg = err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง";
-        setExitError(msg);
-    } finally {
-        setVerifyingExit(false);
-    }
+        setKioskMode(false); closeFullscreen(); setExitOpen(false); setResult(null);
+    } catch (err) { setExitError(err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); } 
+    finally { setVerifyingExit(false); }
   };
 
   const renderField = (f, requiredOverride = null) => {
     const isRequired = requiredOverride !== null ? requiredOverride : f.required;
-    const commonSx = { "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff", fontSize: "1.1rem" }, "& .MuiInputLabel-root": { fontSize: "1.05rem" } };
-
-    if (f.name === 'date_year') {
-        return <TextField key={f.name} name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth placeholder="25XX" InputProps={{ startAdornment: <InputAdornment position="start"><EventIcon color="action"/></InputAdornment>, style: { fontSize: '1.4rem', letterSpacing: '0.25em', textAlign: 'center', fontWeight: 'bold' } }} inputProps={{ maxLength: 4, inputMode: "numeric" }} sx={commonSx} />;
-    }
-
+    const commonSx = { "& .MuiOutlinedInput-root": { borderRadius: 2.5, bgcolor: "#fff" } };
+    if (f.name === 'date_year') return <TextField key={f.name} name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth placeholder="25XX" InputProps={{ startAdornment: <InputAdornment position="start"><EventIcon color="action"/></InputAdornment>, style: { fontSize: '1.4rem', letterSpacing: '0.25em', textAlign: 'center', fontWeight: 'bold' } }} inputProps={{ maxLength: 4, inputMode: "numeric" }} sx={commonSx} />;
     if (f.type === "select") {
         const options = Array.isArray(f.options) ? f.options.map((o) => typeof o === "string" ? { label: o, value: o } : { label: o.label, value: o.value }) : [];
-        return (
-            <TextField key={f.name} select name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth SelectProps={{ displayEmpty: true }} helperText={isRequired ? "" : "(ไม่บังคับ)"} sx={commonSx} InputProps={{ startAdornment: f.name === 'dept' ? <InputAdornment position="start"><SchoolIcon/></InputAdornment> : null }}>
-                <MenuItem value=""><em>— เลือก —</em></MenuItem>
-                {options.map((opt) => (<MenuItem key={`${f.name}-${opt.value}`} value={opt.value} sx={{ fontSize: '1.1rem', py: 1.5 }}>{opt.label}</MenuItem>))}
-            </TextField>
-        );
+        return ( <TextField key={f.name} select name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth SelectProps={{ displayEmpty: true }} sx={commonSx} InputProps={{ startAdornment: f.name === 'dept' ? <InputAdornment position="start"><SchoolIcon/></InputAdornment> : null }}><MenuItem value=""><em>— เลือก —</em></MenuItem>{options.map((opt) => (<MenuItem key={`${f.name}-${opt.value}`} value={opt.value}>{opt.label}</MenuItem>))}</TextField> );
     }
     const inputType = f.type === "email" ? "email" : f.type === "number" ? "number" : "text";
-    return (
-        <TextField key={f.name} name={f.name} type={inputType} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth helperText={isRequired ? "" : "(ไม่บังคับ)"} sx={commonSx} InputLabelProps={inputType === "date" ? { shrink: true } : undefined} autoComplete="off" inputProps={inputType === "number" ? { inputMode: "numeric", pattern: "[0-9]*" } : undefined} />
-    );
+    return ( <TextField key={f.name} name={f.name} type={inputType} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth sx={commonSx} inputProps={inputType === "number" ? { inputMode: "numeric", pattern: "[0-9]*" } : undefined} /> );
   };
 
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: 'relative' }}>
-      
       <MourningRibbon />
-
       <Container maxWidth="sm">
-        <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)", position: "relative", overflow: "hidden", mb: 3 }}>
+        <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", mb: 3 }}>
           <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
-            <Avatar src="/logo.svg" alt="Logo" sx={{ width: 64, height: 64, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 6px 18px rgba(255,193,7,.35)" }} />
-            <Box textAlign="center">
-              <Typography variant="h5" fontWeight={900} color="primary" sx={{ letterSpacing: 0.6 }}>ลงทะเบียนหน้างาน (Kiosk)</Typography>
-              <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 0.5 }}>
-                <Chip label={`จุด: ${selectedPoint || "-"}`} size="small" color="warning" sx={{fontWeight: 'bold'}} />
-              </Stack>
-            </Box>
+            <Avatar src="/logo.svg" alt="Logo" sx={{ width: 64, height: 64, bgcolor: "#fff" }} />
+            <Box textAlign="center"><Typography variant="h5" fontWeight={900} color="primary">ลงทะเบียนหน้างาน (Kiosk)</Typography><Chip label={`จุด: ${selectedPoint || "-"}`} size="small" color="warning" sx={{fontWeight: 'bold', mt: 1}} /></Box>
           </Stack>
-          
           <Paper variant="outlined" sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: "rgba(255,255,255,0.6)", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+             <Stack direction="row" spacing={1} alignItems="center"><Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}><PersonOutlineIcon sx={{ fontSize: 16 }} /></Avatar><Typography variant="body2" fontWeight={600}>{me?.fullName || "Staff"}</Typography></Stack>
              <Stack direction="row" spacing={1} alignItems="center">
-               <Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}><PersonOutlineIcon sx={{ fontSize: 16 }} /></Avatar>
-               <Typography variant="body2" fontWeight={600}>{me?.fullName || "Staff"}</Typography>
-             </Stack>
-             <Stack direction="row" spacing={1} alignItems="center">
-                {kioskMode && (
-                    <Tooltip title="ระบบจะรีเซ็ตอัตโนมัติหากไม่มีการใช้งาน 60 วินาที">
-                        <Chip icon={<TimerIcon />} label="Auto-Reset ON" size="small" color="default" variant="outlined" />
-                    </Tooltip>
-                )}
+                {kioskMode && <Tooltip title="ระบบจะรีเซ็ตอัตโนมัติหากไม่มีการใช้งาน 60 วินาที"><Chip icon={<TimerIcon />} label="Auto-Reset ON" size="small" variant="outlined" /></Tooltip>}
                 <Chip label={kioskMode ? "Kiosk Mode" : "Normal Mode"} size="small" color={kioskMode ? "success" : "default"} variant="outlined" />
              </Stack>
           </Paper>
         </Paper>
 
         <Box component="form" onSubmit={handleCheckInfo} noValidate>
-            <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
-                {fieldGroups.personal.map(f => renderField(f))}
-                {fieldGroups.others.map(f => renderField(f))}
-            </FormSection>
+            <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>{fieldGroups.personal.map(f => renderField(f))}{fieldGroups.others.map(f => renderField(f))}</FormSection>
+            <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>{fieldGroups.contact.map(f => renderField(f))}</FormSection>
 
-            <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>
-                {fieldGroups.contact.map(f => renderField(f))}
-            </FormSection>
-
-            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", border: "1px solid #ffe082", mb: 2.5 }}>
-              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
-                <GroupAddIcon color="warning" />
-                <Typography fontWeight={800} fontSize="1.1rem">ผู้ติดตาม</Typography>
-                <Chip label="ไม่บังคับ" size="small" sx={{ ml: "auto", bgcolor: "#fff3e0", color: "#e65100", fontWeight: 600 }} />
-              </Stack>
-              <FormControlLabel 
-                sx={{ ml: 0 }} 
-                control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />} 
-                label={<Typography fontWeight={500}>{bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"}</Typography>} 
-              />
-              <Collapse in={bringFollowers}>
-                <Box mt={1.5}>
-                  <TextField 
-                    type="number" label="จำนวนผู้ติดตาม (คน)" 
-                    value={String(followersCount ?? "")} 
-                    onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setFollowersCount(raw === "" ? 0 : parseInt(raw, 10)); }} 
-                    fullWidth 
-                    inputProps={{ style: { fontSize: '1.2rem', textAlign: 'center', fontWeight: 'bold' } }}
-                    sx={{ bgcolor: '#fff' }}
-                  />
-                </Box>
-              </Collapse>
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", mb: 2.5 }}>
+              <Stack direction="row" alignItems="center" spacing={1} mb={1.5}><GroupAddIcon color="warning" /><Typography fontWeight={800} fontSize="1.1rem">ผู้ติดตาม</Typography></Stack>
+              <FormControlLabel control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />} label={<Typography fontWeight={500}>{bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"}</Typography>} />
+              <Collapse in={bringFollowers}><Box mt={1.5}><TextField type="number" label="จำนวนผู้ติดตาม (คน)" value={String(followersCount ?? "")} onChange={(e) => setFollowersCount(e.target.value.replace(/[^\d]/g, "") === "" ? 0 : parseInt(e.target.value.replace(/[^\d]/g, ""), 10))} fullWidth sx={{ bgcolor: '#fff' }} /></Box></Collapse>
             </Paper>
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9", mb: 3 }}>
-                <Stack direction="row" alignItems="center" spacing={1} mb={2}>
-                    <SecurityIcon color="primary"/>
-                    <Typography fontWeight={800} fontSize="1.1rem" sx={{ color: "#1565c0" }}>สมาชิกสมาคมฯ <span style={{ color: "red" }}>*</span></Typography>
-                </Stack>
-                
+                <Stack direction="row" alignItems="center" spacing={1} mb={2}><SecurityIcon color="primary"/><Typography fontWeight={800} fontSize="1.1rem" sx={{ color: "#1565c0" }}>สมาชิกสมาคมฯ <span style={{ color: "red" }}>*</span></Typography></Stack>
                 <FormControl component="fieldset" sx={{ width: '100%' }}>
                   <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
-                    <OptionCard value="existing" selected={membershipOption === 'existing'} label={<Box><Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว (อัปเดต)</Typography><Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่ออัปเดตข้อมูล</Typography></Box>} />
-                    <OptionCard value="new" selected={membershipOption === 'new'} label={<Box><Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ (ฟรี)</Typography><Typography variant="caption" color="text.secondary">กรอกที่อยู่เพื่อประกอบการสมัคร</Typography></Box>} />
+                    <OptionCard value="existing" selected={membershipOption === 'existing'} label={<Box><Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว (อัปเดต)</Typography></Box>} />
+                    <OptionCard value="new" selected={membershipOption === 'new'} label={<Box><Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ (ฟรี)</Typography></Box>} />
                     <OptionCard value="none" selected={membershipOption === 'none'} label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" />
                   </RadioGroup>
                 </FormControl>
-                
                 <Collapse in={membershipOption === 'existing' || membershipOption === 'new'}>
                     <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #90caf9' }}>
                         <Stack direction="row" alignItems="center" spacing={1} mb={2}><HomeIcon color="primary"/><Typography variant="subtitle2" fontWeight={700} color="#1565c0">ข้อมูลการติดต่อ (สำหรับสมาชิก)</Typography></Stack>
@@ -344,39 +201,22 @@ function KioskPage() {
                 </Collapse>
             </Paper>
 
-            <Alert severity="info" icon={<InfoIcon />} sx={{ mb: 3, bgcolor: "#e1f5fe", color: "#01579b", borderRadius: 2, "& .MuiAlert-icon": { color: "#0288d1" } }}>
-                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                    <strong>หมายเหตุ:</strong> ภายในงานจะมีการบันทึกภาพและวิดีโอ เพื่อใช้ในการประชาสัมพันธ์กิจกรรม
-                </Typography>
-            </Alert>
+            {result && <Alert severity={result.success ? "success" : "error"} icon={<CheckCircleIcon />} sx={{ mb: 2, fontWeight: 600 }}>{result.message}</Alert>}
 
-            {result && <Alert severity={result.success ? "success" : "error"} icon={<CheckCircleIcon />} sx={{ mb: 2, fontWeight: 600, borderRadius: 2 }}>
-                {result.message} {result.success && "(ระบบจะรีเซ็ตอัตโนมัติใน 5 วินาที)"}
-            </Alert>}
-
-            <Stack direction="row" spacing={1.5} mb={4}>
-                <Button type="submit" variant="contained" color="warning" size="large" disabled={loading} startIcon={loading ? <CircularProgress size={20} color="inherit"/> : <FactCheckIcon />} fullWidth sx={{ borderRadius: 3, fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.35)", py: 1.5, fontSize: '1.1rem', color: '#3e2723' }}>
-                  {loading ? "กำลังบันทึก..." : "ตรวจสอบและลงทะเบียน"}
-                </Button>
-            </Stack>
+            <Button type="submit" variant="contained" color="warning" size="large" disabled={loading} startIcon={loading ? <CircularProgress size={20} color="inherit"/> : <FactCheckIcon />} fullWidth sx={{ borderRadius: 3, fontWeight: 800, py: 1.5, fontSize: '1.1rem' }}>
+              {loading ? "กำลังบันทึก..." : "ลงทะเบียนหน้างาน"}
+            </Button>
         </Box>
       </Container>
 
       <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
-        <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
-            <Stack direction="row" alignItems="center" spacing={1}>
-                <FactCheckIcon color="warning" />
-                <Typography variant="h6" fontWeight={700}>ตรวจสอบข้อมูล (Kiosk)</Typography>
-            </Stack>
-        </DialogTitle>
+        <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}><FactCheckIcon color="warning" />ตรวจสอบข้อมูล</DialogTitle>
         <DialogContent dividers>
             <Stack spacing={1}>
                 <Typography variant="body1"><strong>ชื่อ:</strong> {form.name}</Typography>
-                <Typography variant="body1"><strong>ชื่อเล่น:</strong> {form.nickname}</Typography>
                 <Typography variant="body1"><strong>ภาควิชา:</strong> {form.dept}</Typography>
                 <Typography variant="body1"><strong>สถานะสมาชิก:</strong> {membershipOption === 'existing' ? 'สมาชิกเดิม' : membershipOption === 'new' ? 'สมัครใหม่' : 'ไม่สมัคร'}</Typography>
                 <Typography variant="body1"><strong>ผู้ติดตาม:</strong> {bringFollowers ? `${followersCount} คน` : 'ไม่มี'}</Typography>
-                {membershipOption !== 'none' && <Typography variant="body2" color="text.secondary">ที่อยู่: {form.usr_add} {form.usr_add_post}</Typography>}
             </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
@@ -386,35 +226,20 @@ function KioskPage() {
       </Dialog>
 
       {!kioskMode ? 
-        <Tooltip title="เปิดโหมด Kiosk (Fullscreen)">
-            <Fab color="primary" onClick={handleEnterKiosk} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab>
-        </Tooltip> 
-        : 
-        <Tooltip title="ปลดล็อคเครื่อง (Supervisor Unlock)">
-            <Fab color="secondary" onClick={openExitDialog} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockIcon /></Fab>
-        </Tooltip>
+        <Tooltip title="เปิดโหมด Kiosk (Fullscreen)"><Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab></Tooltip> 
+        : <Tooltip title="ปลดล็อคเครื่อง"><Fab color="secondary" onClick={() => { setExitUsername(""); setExitPassword(""); setExitError(""); setExitOpen(true); }} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockIcon /></Fab></Tooltip>
       }
       
-      <Dialog open={exitOpen} onClose={closeExitDialog}>
-          <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1}}>
-              <SupervisorAccountIcon color="error" /> Supervisor Unlock
-          </DialogTitle>
+      <Dialog open={exitOpen} onClose={() => setExitOpen(false)}>
+          <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1}}><SupervisorAccountIcon color="error" /> Supervisor Unlock</DialogTitle>
           <DialogContent>
-              <Typography variant="body2" color="text.secondary" paragraph>
-                  กรุณากรอกรหัสผ่านของเจ้าหน้าที่ หรือ Admin เพื่อออกจากโหมด Kiosk
-              </Typography>
               <TextField label="Username" value={exitUsername} onChange={(e) => setExitUsername(e.target.value)} fullWidth margin="dense" />
               <TextField type="password" label="Password" value={exitPassword} onChange={(e) => setExitPassword(e.target.value)} fullWidth margin="dense" error={!!exitError} helperText={exitError} />
           </DialogContent>
           <DialogActions>
-              <Button onClick={closeExitDialog}>ยกเลิก</Button>
-              <Button onClick={confirmExitKiosk} variant="contained" color="error" disabled={verifyingExit}>
-                  {verifyingExit ? "กำลังตรวจสอบ..." : "ปลดล็อค"}
-              </Button>
+              <Button onClick={() => setExitOpen(false)}>ยกเลิก</Button><Button onClick={confirmExitKiosk} variant="contained" color="error" disabled={verifyingExit}>ปลดล็อค</Button>
           </DialogActions>
       </Dialog>
     </Box>
   );
 }
-
-export default KioskPage;

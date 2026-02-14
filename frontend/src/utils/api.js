@@ -18,56 +18,31 @@ api.interceptors.request.use((config) => {
 // ==========================================
 // 🔐 Auth & Self-Service
 // ==========================================
-
 export const login = (data) => api.post('/auth/login', data);
 export const googleLogin = (token) => api.post('/auth/google-login', { token });
 export const getMe = () => api.get('/auth/me');
 export const logout = () => api.post('/sessions/logout');
 export const verifyUser = (data) => api.post('/auth/verify', data);
-
-// ✅ ตรงกับ routes/auth.js แล้ว
-export const requestPasswordReset = (username) => 
-  api.post('/auth/forgot-password', { username });
-
-// ✅ ตรงกับ routes/auth.js แล้ว
-export const resetPasswordWithOtp = (username, otp, newPassword) => 
-  api.post('/auth/reset-password-otp', { username, otp, newPassword });
-
+export const requestPasswordReset = (username) => api.post('/auth/forgot-password', { username });
+export const resetPasswordWithOtp = (username, otp, newPassword) => api.post('/auth/reset-password-otp', { username, otp, newPassword });
 
 // ==========================================
 // 🛡️ Admin Management
 // ==========================================
-
 export const listAdmins = () => api.get('/admins'); 
 export const createAdmin = (data) => api.post('/admins', data);
 export const updateAdmin = (id, data) => api.put(`/admins/${id}`, data);
 export const deleteAdmin = (id) => api.delete(`/admins/${id}`);
-
-// ✅ [แก้ไขจุดนี้] ให้ตรงกับ Backend: /request-action-otp
-export const requestActionOtp = () => 
-  api.post('/admins/request-action-otp');
-
-// ✅ ตรงกับ routes/admin.js (/reset-password)
-export const resetUserPassword = (userId, newPassword, otp = null) => 
-  api.post('/admins/reset-password', { userId, newPassword, otp });
-
-// ✅ ตรงกับ routes/admin.js (/staff/:id)
+export const requestActionOtp = () => api.post('/admins/request-action-otp');
+export const resetUserPassword = (userId, newPassword, otp = null) => api.post('/admins/reset-password', { userId, newPassword, otp });
 export const updateStaff = (id, data) => api.put(`/admins/staff/${id}`, data);
-
 export const changePassword = (data) => api.post('/admins/change-password', data);
-
 export const uploadAvatar = (file) => {
   const formData = new FormData();
   formData.append("avatar", file);
-  return api.post("/admins/upload-avatar", formData, {
-    headers: { "Content-Type": "multipart/form-data" }
-  });
+  return api.post("/admins/upload-avatar", formData, { headers: { "Content-Type": "multipart/form-data" } });
 };
-
 export const getCronLogs = () => api.get('/admins/cron-logs');
-
-// ... (ส่วนอื่นๆ ของ Session, Participant, Checkin คงเดิม ไม่ต้องแก้) ...
-// เพื่อความชัวร์ Copy ส่วนล่างนี้ไปแปะต่อได้เลยครับ
 
 // ==========================================
 // 👤 Session Management
@@ -114,7 +89,19 @@ export const deleteParticipantField = (id) => api.delete(`/participant-fields/${
 export const getDashboardStats = () => api.get('/dashboard/stats');
 export const getCheckinSummary = (params) => api.get('/dashboard/checkin-summary', { params });
 export const getDashboardSummary = () => api.get('/dashboard/summary');
-export const createDonation = (data) => api.post('/donations/create', data);
+export const createDonation = (data) => api.post('/donations', data);
 export const getDonationSummary = () => api.get('/donations/summary');
+export const updateDonation = (id, data) => api.put(`/donations/${id}`, data);
+export const deleteDonation = (id) => api.delete(`/donations/${id}`);
+
+// ==========================================
+// ⚙️ System Settings & Packages
+// ==========================================
+export const getSystemSettings = () => api.get('/settings');
+export const updateSystemSettings = (data) => api.put('/settings', data);
+export const listPackages = () => api.get('/packages');
+export const createPackage = (data) => api.post('/packages', data);
+export const updatePackage = (id, data) => api.put(`/packages/${id}`, data);
+export const deletePackage = (id) => api.delete(`/packages/${id}`);
 
 export default api;

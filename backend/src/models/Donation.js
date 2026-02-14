@@ -1,13 +1,11 @@
 const mongoose = require('mongoose');
 
 const donationSchema = new mongoose.Schema({
- 
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: false 
   },
-  
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   amount: { type: Number, required: true, min: 1 }, 
@@ -19,10 +17,19 @@ const donationSchema = new mongoose.Schema({
     default: 'PRE_REGISTER' 
   },
 
-
   isPackage: { type: Boolean, default: false },
   packageType: { type: String, default: "" }, 
   size: { type: String, default: "" },       
+
+  // [เพิ่มใหม่] สำหรับการจัดการสลิปและสถานที่รับ/จัดส่ง
+  slipUrl: { type: String, default: "" },
+  address: { type: String, default: "" },
+  pickupMethod: { 
+    type: String, 
+    enum: ['DELIVERY', 'PICKUP', ''], 
+    default: '' 
+  },
+  pickupLocation: { type: String, default: "" },
 
   createdAt: { type: Date, default: Date.now }
 });
