@@ -12,21 +12,18 @@ import HomeIcon from '@mui/icons-material/Home';
 import SecurityIcon from '@mui/icons-material/Security';
 import SchoolIcon from '@mui/icons-material/School';
 import FactCheckIcon from '@mui/icons-material/FactCheck';
-import InfoIcon from "@mui/icons-material/Info";
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import TimerIcon from '@mui/icons-material/Timer';
 
-import { getMe, verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields } from "../utils/api";
+// [เพิ่ม] ดึง getSystemSettings
+import { getMe, verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
-const IDLE_TIMEOUT_MS = 60000; // 60 วินาที Kiosk Timeout
-
+const IDLE_TIMEOUT_MS = 60000;
 const MourningRibbon = () => ( <Box sx={{ position: "absolute", top: 0, left: 0, zIndex: 9999, pointerEvents: "none", width: { xs: 80, md: 120 }, height: { xs: 80, md: 120 } }}><img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain" }} /></Box> );
-
-function FormSection({ title, icon, children }) { return ( <Card variant="outlined" sx={{ borderRadius: 3, border: '1px solid #e0e0e0', overflow: 'hidden', mb: 2.5 }}><Box sx={{ bgcolor: '#fff3e0', px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #ffe0b2' }}><Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>{icon}</Avatar><Typography variant="subtitle1" fontWeight={800} color="#5d4037">{title}</Typography></Box><CardContent sx={{ p: 2.5 }}><Stack spacing={2.5}>{children}</Stack></CardContent></Card> ); }
-
+function FormSection({ title, icon, children }) { return ( <Card variant="outlined" sx={{ borderRadius: 3, border: '1px solid #e0e0e0', overflow: 'hidden', mb: 2.5 }}><Box sx={{ bgcolor: '#fff3e0', px: 2.5, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5 }}><Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>{icon}</Avatar><Typography variant="subtitle1" fontWeight={800} color="#5d4037">{title}</Typography></Box><CardContent sx={{ p: 2.5 }}><Stack spacing={2.5}>{children}</Stack></CardContent></Card> ); }
 function OptionCard({ value, label, selected }) { return ( <Paper variant="outlined" sx={{ mb: 1.5, p: 0, borderRadius: 2, border: selected ? "2px solid #1976d2" : "1px solid #e0e0e0", bgcolor: selected ? "#f0f7ff" : "#fff" }}><FormControlLabel value={value} control={<Radio sx={{ ml: 1 }} />} label={<Box sx={{ py: 1.5, pr: 1 }}>{label}</Box>} sx={{ width: '100%', m: 0, alignItems: 'flex-start' }} /></Paper> ); }
 
 export default function KioskPage() {
@@ -35,6 +32,9 @@ export default function KioskPage() {
   const [form, setForm] = useState({});
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // [เพิ่ม] State เช็คเวลา Kiosk
+  const [systemStatus, setSystemStatus] = useState({ isOpen: true, message: "" });
 
   const [membershipOption, setMembershipOption] = useState(null);
   const [bringFollowers, setBringFollowers] = useState(false);
@@ -52,38 +52,37 @@ export default function KioskPage() {
   const [exitPassword, setExitPassword] = useState("");
   const [exitError, setExitError] = useState("");
   const [verifyingExit, setVerifyingExit] = useState(false);
-
   const lastActivityRef = useRef(Date.now());
 
   useEffect(() => {
     if (!selectedPoint) { navigate("/select-point"); return; }
     getMe(token).then((res) => setMe(res.data || res)).catch(() => {});
     listParticipantFields(token).then((res) => setFields(res.data || res)).catch(() => {});
+    
+    // [เพิ่ม] ดึงตั้งค่าเวลาหน้างาน Kiosk
+    getSystemSettings().then((resSet) => {
+        const set = resSet.data?.data;
+        if (set) {
+          const now = new Date();
+          const start = set.kioskStartDate ? new Date(set.kioskStartDate) : null;
+          const end = set.kioskEndDate ? new Date(set.kioskEndDate) : null;
+          if (start && now < start) setSystemStatus({ isOpen: false, message: `ระบบ Kiosk จะเปิดให้ใช้งานเวลา ${start.toLocaleString('th-TH')}` });
+          else if (end && now > end) setSystemStatus({ isOpen: false, message: "หมดเวลาลงทะเบียนหน้างาน (Kiosk) แล้ว" });
+        }
+    }).catch(()=>{});
   }, [token, selectedPoint, navigate]);
 
   useEffect(() => {
     const handleActivity = () => { lastActivityRef.current = Date.now(); };
     window.addEventListener("mousemove", handleActivity);
     window.addEventListener("keydown", handleActivity);
-    window.addEventListener("touchstart", handleActivity);
-    window.addEventListener("scroll", handleActivity);
-
     const timer = setInterval(() => {
-      const inactiveMs = Date.now() - lastActivityRef.current;
-      if (inactiveMs > IDLE_TIMEOUT_MS) {
-        const hasData = Object.keys(form).length > 0 || membershipOption !== null || reviewOpen || result;
-        if (hasData) handleReset();
+      if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT_MS) {
+        if (Object.keys(form).length > 0 || membershipOption !== null || reviewOpen || result) handleReset();
         lastActivityRef.current = Date.now();
       }
     }, 1000);
-
-    return () => {
-      window.removeEventListener("mousemove", handleActivity);
-      window.removeEventListener("keydown", handleActivity);
-      window.removeEventListener("touchstart", handleActivity);
-      window.removeEventListener("scroll", handleActivity);
-      clearInterval(timer);
-    };
+    return () => { window.removeEventListener("mousemove", handleActivity); window.removeEventListener("keydown", handleActivity); clearInterval(timer); };
   }, [form, membershipOption, reviewOpen, result]);
 
   const fieldGroups = useMemo(() => {
@@ -103,10 +102,7 @@ export default function KioskPage() {
 
   const handleInput = (e) => {
     const { name, value } = e.target;
-    if (name === 'date_year') {
-        const nums = value.replace(/[^\d]/g, '').slice(0, 4);
-        setForm((f) => ({ ...f, [name]: nums })); return;
-    }
+    if (name === 'date_year') { setForm((f) => ({ ...f, [name]: value.replace(/[^\d]/g, '').slice(0, 4) })); return; }
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   };
 
@@ -115,9 +111,7 @@ export default function KioskPage() {
     const missingFields = fields.filter(f => f.required && f.enabled && !['usr_add', 'usr_add_post'].includes(f.name) && !form[f.name]);
     if (missingFields.length > 0) { alert(`กรุณากรอกข้อมูลส่วนตัวให้ครบถ้วน`); return; }
     if (!membershipOption) { alert("กรุณาเลือกสถานะสมาชิก"); return; }
-    if (membershipOption !== 'none') {
-        if (!form['usr_add'] || !form['usr_add_post']) { alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์"); return; }
-    }
+    if (membershipOption !== 'none') { if (!form['usr_add'] || !form['usr_add_post']) { alert("กรุณากรอกที่อยู่และรหัสไปรษณีย์"); return; } }
     setResult(null); setReviewOpen(true);
   };
 
@@ -150,11 +144,24 @@ export default function KioskPage() {
     if (f.name === 'date_year') return <TextField key={f.name} name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth placeholder="25XX" InputProps={{ startAdornment: <InputAdornment position="start"><EventIcon color="action"/></InputAdornment>, style: { fontSize: '1.4rem', letterSpacing: '0.25em', textAlign: 'center', fontWeight: 'bold' } }} inputProps={{ maxLength: 4, inputMode: "numeric" }} sx={commonSx} />;
     if (f.type === "select") {
         const options = Array.isArray(f.options) ? f.options.map((o) => typeof o === "string" ? { label: o, value: o } : { label: o.label, value: o.value }) : [];
-        return ( <TextField key={f.name} select name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth SelectProps={{ displayEmpty: true }} sx={commonSx} InputProps={{ startAdornment: f.name === 'dept' ? <InputAdornment position="start"><SchoolIcon/></InputAdornment> : null }}><MenuItem value=""><em>— เลือก —</em></MenuItem>{options.map((opt) => (<MenuItem key={`${f.name}-${opt.value}`} value={opt.value}>{opt.label}</MenuItem>))}</TextField> );
+        return ( <TextField key={f.name} select name={f.name} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth SelectProps={{ displayEmpty: true }} sx={commonSx}><MenuItem value=""><em>— เลือก —</em></MenuItem>{options.map((opt) => (<MenuItem key={`${f.name}-${opt.value}`} value={opt.value}>{opt.label}</MenuItem>))}</TextField> );
     }
     const inputType = f.type === "email" ? "email" : f.type === "number" ? "number" : "text";
-    return ( <TextField key={f.name} name={f.name} type={inputType} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth sx={commonSx} inputProps={inputType === "number" ? { inputMode: "numeric", pattern: "[0-9]*" } : undefined} /> );
+    return ( <TextField key={f.name} name={f.name} type={inputType} label={f.label} value={form[f.name] || ""} onChange={handleInput} required={!!isRequired} fullWidth sx={commonSx} /> );
   };
+
+  // [เพิ่ม] แสดงหน้าจอระบบปิด หาก Kiosk ยังไม่เปิดหรือหมดเวลา
+  if (!systemStatus.isOpen && !kioskMode) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: "#f8f9fa", display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3 }}>
+         <Card elevation={4} sx={{ maxWidth: 500, width: '100%', borderRadius: 4, textAlign: 'center', p: 4 }}>
+            <LockIcon sx={{ fontSize: 80, color: 'text.disabled', mb: 2 }} />
+            <Typography variant="h5" fontWeight="bold" color="error.main" gutterBottom>{systemStatus.message}</Typography>
+            <Button variant="outlined" onClick={() => navigate('/dashboard')} sx={{ mt: 3 }}>กลับ Dashboard</Button>
+         </Card>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: 'relative' }}>
@@ -165,13 +172,6 @@ export default function KioskPage() {
             <Avatar src="/logo.svg" alt="Logo" sx={{ width: 64, height: 64, bgcolor: "#fff" }} />
             <Box textAlign="center"><Typography variant="h5" fontWeight={900} color="primary">ลงทะเบียนหน้างาน (Kiosk)</Typography><Chip label={`จุด: ${selectedPoint || "-"}`} size="small" color="warning" sx={{fontWeight: 'bold', mt: 1}} /></Box>
           </Stack>
-          <Paper variant="outlined" sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: "rgba(255,255,255,0.6)", display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-             <Stack direction="row" spacing={1} alignItems="center"><Avatar sx={{ width: 24, height: 24, bgcolor: 'primary.main' }}><PersonOutlineIcon sx={{ fontSize: 16 }} /></Avatar><Typography variant="body2" fontWeight={600}>{me?.fullName || "Staff"}</Typography></Stack>
-             <Stack direction="row" spacing={1} alignItems="center">
-                {kioskMode && <Tooltip title="ระบบจะรีเซ็ตอัตโนมัติหากไม่มีการใช้งาน 60 วินาที"><Chip icon={<TimerIcon />} label="Auto-Reset ON" size="small" variant="outlined" /></Tooltip>}
-                <Chip label={kioskMode ? "Kiosk Mode" : "Normal Mode"} size="small" color={kioskMode ? "success" : "default"} variant="outlined" />
-             </Stack>
-          </Paper>
         </Paper>
 
         <Box component="form" onSubmit={handleCheckInfo} noValidate>

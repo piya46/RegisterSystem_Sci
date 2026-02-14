@@ -1,5 +1,6 @@
 const ParticipantField = require('../models/participantField');
 const Participant = require('../models/participant');
+const SystemSetting = require('../models/SystemSetting'); // [เพิ่ม] ดึง Setting มาเช็คเวลา
 const { v4: uuidv4 } = require('uuid');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
@@ -9,21 +10,24 @@ const verifyTurnstile = require('../utils/verifyTurnstile');
 
 function checkAdmin(req, res) {
   if (!req.user?.role || !Array.isArray(req.user.role) || !req.user.role.includes('admin')) {
-    auditLog && auditLog({
-      req,
-      action: 'UNAUTHORIZED_ACCESS_PARTICIPANT',
-      detail: 'Not admin',
-      status: 403
-    });
+    auditLog && auditLog({ req, action: 'UNAUTHORIZED_ACCESS_PARTICIPANT', detail: 'Not admin', status: 403 });
     res.status(403).json({ error: 'Admin only!' });
     return false;
   }
   return true;
 }
 
-// === Public Pre-registration ===
 exports.createParticipant = async (req, res) => {
   try {
+    // [เพิ่ม] ตรวจสอบเวลาเปิดปิดฟอร์ม
+    const setting = await SystemSetting.findOne();
+    if (setting) {
+      if (!setting.enableRegister) return res.status(403).json({ error: 'ระบบปิดรับการลงทะเบียนชั่วคราว' });
+      const now = new Date();
+      if (setting.preRegStartDate && now < new Date(setting.preRegStartDate)) return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดรับลงทะเบียน' });
+      if (setting.preRegEndDate && now > new Date(setting.preRegEndDate)) return res.status(403).json({ error: 'หมดเวลาลงทะเบียนล่วงหน้าแล้ว' });
+    }
+
     const { cfToken } = req.body;
     const isHuman = await verifyTurnstile(cfToken, req.ip);
     
@@ -45,8 +49,6 @@ exports.createParticipant = async (req, res) => {
       if (req.body[f] !== undefined) userFields[f] = req.body[f];
     }
     
-    // [แก้ไข Task 5] บังคับเก็บที่อยู่ด้วยในกรณีที่เลือกสนับสนุนแบบ Package
-    // แก้ไขให้ใช้ฟิลด์ usr_add และ usr_add_post ตามที่ Frontend ส่งมา
     const isPackageSelected = req.body.isPackage === true || req.body.isPackage === 'true';
     if (isPackageSelected) {
       if (!userFields.usr_add || !userFields.usr_add_post || userFields.usr_add === '-' || userFields.usr_add_post === '-') {
@@ -55,7 +57,6 @@ exports.createParticipant = async (req, res) => {
     }
 
     for (const f of requiredFields) {
-      // ยกเว้นกรณีที่ไม่ได้เลือกลงทะเบียนแพ็กเกจ และระบบบังคับฟิลด์เหล่านี้
       if (!userFields[f] && !['usr_add', 'usr_add_post'].includes(f)) {
         return res.status(400).json({ error: `Field ${f} is required` });
       }
@@ -63,20 +64,14 @@ exports.createParticipant = async (req, res) => {
 
     if (userFields.date_year) {
       const yearVal = parseInt(userFields.date_year, 10);
-      if (!isNaN(yearVal) && yearVal < 2400) {
-        return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
-      }
+      if (!isNaN(yearVal) && yearVal < 2400) return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
     }
 
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
-      if (!phoneRegex.test(userFields.phone)) {
-        return res.status(400).json({ error: 'Phone number format is invalid.' });
-      }
+      if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
       const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone });
-      if (checkedIn) {
-        return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียนไปแล้ว' });
-      }
+      if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียนไปแล้ว' });
     }
 
     const qrCode = uuidv4();
@@ -95,12 +90,7 @@ exports.createParticipant = async (req, res) => {
       try {
         await sendTicketMail(userFields.email, participant);
       } catch (err) {
-        auditLog && auditLog({
-          req,
-          action: 'SEND_TICKET_EMAIL_FAIL',
-          detail: `email=${userFields.email} error=${err.message}`,
-          status: 500
-        });
+        auditLog && auditLog({ req, action: 'SEND_TICKET_EMAIL_FAIL', detail: `email=${userFields.email} error=${err.message}`, status: 500 });
       }
     }
 
@@ -114,21 +104,22 @@ exports.createParticipant = async (req, res) => {
 
 exports.createParticipantByStaff = async (req, res) => {
   try {
+    // [เพิ่ม] ตรวจสอบเวลา Kiosk
+    const setting = await SystemSetting.findOne();
+    if (setting) {
+      const now = new Date();
+      if (setting.kioskStartDate && now < new Date(setting.kioskStartDate)) return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดระบบลงทะเบียนหน้างาน (Kiosk)' });
+      if (setting.kioskEndDate && now > new Date(setting.kioskEndDate)) return res.status(403).json({ error: 'หมดเวลาลงทะเบียนหน้างานแล้ว (Kiosk)' });
+    }
+
     const { registrationPoint } = req.body;
     if (!canRegisterAtPoint(req.user, registrationPoint)) {
-      auditLog && auditLog({
-        req,
-        action: 'STAFF_CHECKIN_PARTICIPANT_FAIL',
-        detail: `Unauthorized at point: ${registrationPoint}`,
-        status: 403
-      });
       return res.status(403).json({ error: 'You do not have permission to register at this point.' });
     }
 
     const fieldsDef = await ParticipantField.find({ enabled: true });
     const allowedFields = fieldsDef.map(f => f.name);
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
-
     const followers = Math.max(0, Number.parseInt(req.body.followers || 0, 10) || 0);
 
     const userFields = {};
@@ -136,20 +127,14 @@ exports.createParticipantByStaff = async (req, res) => {
       if (req.body[f] !== undefined) userFields[f] = req.body[f];
     }
     for (const f of requiredFields) {
-      if (!userFields[f]) {
-        return res.status(400).json({ error: `Field '${f}' is required.` });
-      }
+      if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
-      if (!phoneRegex.test(userFields.phone)) {
-        return res.status(400).json({ error: 'Phone number format is invalid.' });
-      }
+      if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
       const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone });
-      if (checkedIn) {
-        return res.status(400).json({ error: 'This phone number already checked in.' });
-      }
+      if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียน/เช็คอิน ไปแล้ว' });
     }
 
     const qrCode = uuidv4();
@@ -164,28 +149,9 @@ exports.createParticipantByStaff = async (req, res) => {
       followers
     });
 
-    auditLog && auditLog({
-      req,
-      action: 'STAFF_CHECKIN_PARTICIPANT',
-      detail: `registeredPoint=${registrationPoint}, by=${req.user.username}, participantId=${participant._id}`
-    });
-
-    return res.json({
-      _id: participant._id,
-      fields: participant.fields,
-      status: participant.status,
-      checkedInAt: participant.checkedInAt,
-      registeredPoint: participant.registeredPoint,
-      registrationType: participant.registrationType
-    });
+    res.json({ _id: participant._id, fields: participant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
   } catch (err) {
-    auditLog && auditLog({
-      req,
-      action: 'STAFF_CHECKIN_PARTICIPANT_ERROR',
-      detail: err.message,
-      status: 500
-    });
-    return res.status(500).json({ error: 'Internal server error', detail: err.message });
+    res.status(500).json({ error: 'Internal server error', detail: err.message });
   }
 };
 
@@ -194,160 +160,84 @@ exports.listParticipants = async (req, res) => {
     if (!checkAdmin(req, res)) return;
     const participants = await Participant.find({ isDeleted: false }).sort({ createdAt: -1 });
     res.json(participants);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.updateParticipant = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-
     const participant = await Participant.findById(req.params.id);
     if (!participant || participant.isDeleted) return res.status(404).json({ error: 'Participant not found' });
-
     const fieldsDef = await ParticipantField.find({ enabled: true });
     const allowedFields = fieldsDef.map(f => f.name);
 
-    if (req.body.followers !== undefined) {
-      participant.followers = Math.max(0, Number.parseInt(req.body.followers, 10) || 0);
-    }
-    if (req.body.consent !== undefined) {
-      participant.consent = req.body.consent;
-    }
-    if (req.body.specialAssistance !== undefined) {
-      participant.specialAssistance = req.body.specialAssistance;
-    }
+    if (req.body.followers !== undefined) participant.followers = Math.max(0, Number.parseInt(req.body.followers, 10) || 0);
+    if (req.body.consent !== undefined) participant.consent = req.body.consent;
+    if (req.body.specialAssistance !== undefined) participant.specialAssistance = req.body.specialAssistance;
 
     const inputFields = req.body.fields || req.body;
-    for (const f of allowedFields) {
-      if (inputFields[f] !== undefined) {
-        participant.fields[f] = inputFields[f];
-      }
-    }
+    for (const f of allowedFields) { if (inputFields[f] !== undefined) participant.fields[f] = inputFields[f]; }
 
-    participant.markModified('fields');
-    participant.updatedAt = new Date();
+    participant.markModified('fields'); participant.updatedAt = new Date();
     await participant.save();
-
-    auditLog && auditLog({ req, action: 'UPDATE_PARTICIPANT', detail: `participantId=${participant._id}` });
     res.json(participant);
-  } catch (err) {
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.deleteParticipant = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-
     const participant = await Participant.findById(req.params.id);
     if (!participant || participant.isDeleted) return res.status(404).json({ error: 'Participant not found' });
-
     participant.isDeleted = true;
     await participant.save();
-
-    auditLog && auditLog({ req, action: 'DELETE_PARTICIPANT', detail: `participantId=${participant._id}` });
     res.json({ message: 'Participant deleted (soft)' });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.checkinByQr = async (req, res) => {
   try {
     const { qrCode, registrationPoint } = req.body;
-    const followers = req.body.followers != null
-      ? Math.max(0, Number.parseInt(req.body.followers, 10) || 0)
-      : undefined;
-
+    const followers = req.body.followers != null ? Math.max(0, Number.parseInt(req.body.followers, 10) || 0) : undefined;
     if (!qrCode) return res.status(400).json({ error: 'qrCode is required.' });
     if (!registrationPoint) return res.status(400).json({ error: 'registrationPoint is required.' });
-
-    if (!canRegisterAtPoint(req.user, registrationPoint)) {
-      return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
-    }
+    if (!canRegisterAtPoint(req.user, registrationPoint)) return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
 
     const participant = await Participant.findOne({ qrCode, isDeleted: false });
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
+    if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
-    if (participant.status === 'checkedIn') {
-      return res.status(400).json({ error: 'Already checked in.' });
-    }
-
-    if (followers !== undefined) {
-      participant.followers = followers;
-    }
-
-    participant.status = 'checkedIn';
-    participant.checkedInAt = new Date();
-    participant.registeredBy = req.user._id;
-    participant.registeredPoint = registrationPoint;
+    if (followers !== undefined) participant.followers = followers;
+    participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = registrationPoint;
     await participant.save();
-
-    auditLog && auditLog({
-      req,
-      action: 'CHECKIN_BY_QR',
-      detail: `participantId=${participant._id} by=${req.user.username} at=${registrationPoint}`
-    });
-
-    res.json({
-      message: 'Check-in successful',
-      participant: {
-        _id: participant._id,
-        fields: participant.fields,
-        checkedInAt: participant.checkedInAt,
-        registeredPoint: participant.registeredPoint,
-        registeredBy: req.user.username,
-        registrationType: participant.registrationType,
-        followers: participant.followers
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+    res.json({ message: 'Check-in successful', participant: { _id: participant._id, fields: participant.fields, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registeredBy: req.user.username, registrationType: participant.registrationType, followers: participant.followers } });
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.resendTicket = async (req, res) => {
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
-
   const participant = await Participant.findOne({ 'fields.phone': phone, isDeleted: false });
-  if (!participant) {
-    return res.status(404).json({ found: false, message: 'ไม่พบข้อมูลในระบบ' });
-  }
+  if (!participant) return res.status(404).json({ found: false, message: 'ไม่พบข้อมูลในระบบ' });
   const email = participant.fields.email;
   if (email) {
     try {
       await sendTicketMail(email, participant);
       return res.json({ found: true, sent: true, message: 'ส่งอีเมลแล้ว' });
-    } catch (err) {
-      console.error('SENDGRID ERROR', err.response?.body || err);
-      return res.status(500).json({ found: true, sent: false, message: 'พบข้อมูลแต่ส่งอีเมลไม่ได้', error: err.message });
-    }
-  } else {
-    return res.json({ found: true, sent: false, message: 'พบข้อมูลในระบบแต่ไม่ได้กรอกอีเมล' });
-  }
+    } catch (err) { return res.status(500).json({ found: true, sent: false, message: 'พบข้อมูลแต่ส่งอีเมลไม่ได้', error: err.message }); }
+  } else { return res.json({ found: true, sent: false, message: 'พบข้อมูลในระบบแต่ไม่ได้กรอกอีเมล' }); }
 };
 
 exports.searchParticipants = async (req, res) => {
   const { phone, name, email, qrCode, q } = req.query;
   let filter = { isDeleted: false };
-
-  if (q) {
-    filter.$or = [
-      { 'fields.name': { $regex: q, $options: 'i' } },
-      { 'fields.phone': q },
-      { 'fields.email': q },
-      { qrCode: q }
-    ];
-  } else {
+  if (q) { filter.$or = [ { 'fields.name': { $regex: q, $options: 'i' } }, { 'fields.phone': q }, { 'fields.email': q }, { qrCode: q } ]; } 
+  else {
     if (phone) filter['fields.phone'] = phone;
     if (name) filter['fields.name'] = { $regex: name, $options: 'i' };
     if (email) filter['fields.email'] = email;
     if (qrCode) filter['qrCode'] = qrCode;
   }
-
   const results = await Participant.find(filter);
   res.json(results);
 };
@@ -355,126 +245,33 @@ exports.searchParticipants = async (req, res) => {
 exports.exportParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-
     const { status } = req.query;
     const find = { isDeleted: false };
     if (status) find.status = status;
 
-    const participants = await Participant.find(find)
-      .populate('registeredBy', 'username fullName email')
-      .lean();
-
+    const participants = await Participant.find(find).populate('registeredBy', 'username fullName email').lean();
     const ExcelJS = require('exceljs');
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Participants');
 
     ws.columns = [
-      { header: 'No.', key: 'no', width: 6 },
-      { header: 'Name', key: 'name', width: 28 },
-      { header: 'Phone', key: 'phone', width: 16 },
-      { header: 'Email', key: 'email', width: 28 },
-      { header: 'Department', key: 'department', width: 24 },
-      // [แก้ไข Task 7] ดึงค่าที่อยู่และรหัสไปรษณีย์
-      { header: 'Address', key: 'address', width: 40 },
-      { header: 'ZipCode', key: 'zipcode', width: 15 },
-      { header: 'Status', key: 'status', width: 14 },
-      { header: 'RegisteredAt', key: 'registeredAt', width: 20 },
-      { header: 'CheckedInAt', key: 'checkedInAt', width: 20 },
-      { header: 'RegistrationPoint', key: 'registeredPoint', width: 26 },
-      { header: 'RegistrationType', key: 'registrationType', width: 14 },
-      { header: 'Followers', key: 'followers', width: 12 },
-      { header: 'Consent', key: 'consent', width: 12 }, 
-      { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, 
-      { header: 'QR Code', key: 'qrCode', width: 38 },
-      { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
+      { header: 'No.', key: 'no', width: 6 }, { header: 'Name', key: 'name', width: 28 }, { header: 'Phone', key: 'phone', width: 16 }, { header: 'Email', key: 'email', width: 28 }, { header: 'Department', key: 'department', width: 24 }, { header: 'Address', key: 'address', width: 40 }, { header: 'ZipCode', key: 'zipcode', width: 15 }, { header: 'Status', key: 'status', width: 14 }, { header: 'RegisteredAt', key: 'registeredAt', width: 20 }, { header: 'CheckedInAt', key: 'checkedInAt', width: 20 }, { header: 'RegistrationPoint', key: 'registeredPoint', width: 26 }, { header: 'RegistrationType', key: 'registrationType', width: 14 }, { header: 'Followers', key: 'followers', width: 12 }, { header: 'Consent', key: 'consent', width: 12 }, { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, { header: 'QR Code', key: 'qrCode', width: 38 }, { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
     ];
-
-    ws.getRow(1).font = { bold: true };
-    ws.views = [{ state: 'frozen', ySplit: 1 }];
-    ws.autoFilter = { from: 'A1', to: 'Q1' }; // ปรับ Range ของ Filter ให้ครอบคลุมคอลัมน์ใหม่ (ถึง Q)
+    ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }]; ws.autoFilter = { from: 'A1', to: 'Q1' };
 
     participants.forEach((p, idx) => {
       const f = p.fields || {};
-      const name = f.name || f.fullName || f.fullname || '';
-      const phone = f.phone || '';
-      const email = f.email || '';
-      const department = f.department || f.faculty || '';
-      
-      // ดึงข้อมูลที่อยู่และรหัสไปรษณีย์ที่ถูกต้องตามชื่อฟิลด์ในระบบ
-      const address = f.usr_add || '-'; 
-      const zipcode = f.usr_add_post || '-';
-
-      const statusText = p.status || 'registered';
-      const registeredAt = p.createdAt ? new Date(p.createdAt) : null;
-      const checkedInAt = p.checkedInAt ? new Date(p.checkedInAt) : null;
-      const registeredPoint =
-        p.registeredPoint?.name ||
-        p.registeredPoint?.pointName ||
-        p.registeredPoint ||
-        '';
-      const regType = p.registrationType || '';
-      const followers = Number.isFinite(p.followers) ? p.followers : 0;
-      const qrCode = p.qrCode || '';
-      const consentText = p.consent || '-'; 
-      const specialAssistance = p.specialAssistance || '-'; 
-      const regBy =
-        (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) ||
-        (typeof p.registeredBy === 'string' ? p.registeredBy : '') ||
-        '';
-
       ws.addRow({
-        no: idx + 1,
-        name,
-        phone,
-        email,
-        department,
-        address, // ที่อยู่
-        zipcode, // รหัสไปรษณีย์
-        status: statusText,
-        registeredAt,
-        checkedInAt,
-        registeredPoint,
-        registrationType: regType,
-        followers,
-        consent: consentText, 
-        specialAssistance,
-        qrCode,
-        registeredBy: regBy,
+        no: idx + 1, name: f.name || f.fullName || f.fullname || '', phone: f.phone || '', email: f.email || '', department: f.department || f.faculty || '', address: f.usr_add || '-', zipcode: f.usr_add_post || '-', status: p.status || 'registered', registeredAt: p.createdAt ? new Date(p.createdAt) : null, checkedInAt: p.checkedInAt ? new Date(p.checkedInAt) : null, registeredPoint: p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '', registrationType: p.registrationType || '', followers: Number.isFinite(p.followers) ? p.followers : 0, consent: p.consent || '-', specialAssistance: p.specialAssistance || '-', qrCode: p.qrCode || '', registeredBy: (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) || (typeof p.registeredBy === 'string' ? p.registeredBy : '') || '',
       });
     });
 
-    const dateFmt = (c) => {
-      if (!c.value) return;
-      try {
-        const d = new Date(c.value);
-        if (!isNaN(d.getTime())) {
-          c.value = new Date(d.getTime() - d.getTimezoneOffset() * 60000)
-            .toISOString()
-            .replace('T', ' ')
-            .slice(0, 19);
-        }
-      } catch {}
-    };
-    ws.getColumn('registeredAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); });
-    ws.getColumn('checkedInAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); });
+    const dateFmt = (c) => { if (!c.value) return; try { const d = new Date(c.value); if (!isNaN(d.getTime())) c.value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().replace('T', ' ').slice(0, 19); } catch {} };
+    ws.getColumn('registeredAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); }); ws.getColumn('checkedInAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); });
 
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const fileName = `participants-${y}${m}${d}.xlsx`;
-
+    const now = new Date(); const fileName = `participants-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    await wb.xlsx.write(res);
-    res.end();
-  } catch (err) {
-    auditLog && auditLog({
-      req,
-      action: 'EXPORT_PARTICIPANTS_ERROR',
-      detail: err.message,
-      status: 500
-    });
-    res.status(500).json({ error: 'Server error', detail: err.message });
-  }
+    await wb.xlsx.write(res); res.end();
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
