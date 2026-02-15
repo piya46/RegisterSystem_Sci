@@ -430,10 +430,38 @@ export default function PreRegistrationPage() {
                <Stack direction="row" alignItems="center" spacing={1} mb={2}><SecurityIcon color="primary" /><Typography fontWeight={800} fontSize="1.1rem" color="#1565c0">สมาชิกสมาคมฯ <span style={{color:'red'}}>*</span></Typography></Stack>
                <FormControl component="fieldset" sx={{ width: '100%' }}>
                 <RadioGroup name="membershipOption" value={membershipOption} onChange={(e) => setMembershipOption(e.target.value)}>
-                  <OptionCard value="existing" selected={membershipOption === 'existing'} label={<Box><Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว (อัปเดต)</Typography></Box>} />
-                  <OptionCard value="new" selected={membershipOption === 'new'} label={<Box><Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ (ฟรี)</Typography></Box>} />
-                  <OptionCard value="none" label="ไม่ประสงค์สมัครสมาชิกสมาคมฯ" selected={membershipOption === 'none'} />
-                </RadioGroup>
+  <OptionCard 
+    value="existing" 
+    selected={membershipOption === 'existing'} 
+    label={
+      <Box>
+        <Typography fontWeight={600}>เป็นสมาชิกสมาคมฯ อยู่แล้ว และยินยอมอัปเดตข้อมูลสมาชิกฯ</Typography>
+        <Typography variant="body2" color="text.secondary">
+          (กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อปรับปรุงข้อมูลให้เป็นปัจจุบัน)
+        </Typography>
+      </Box>
+    } 
+  />
+  <OptionCard 
+    value="new" 
+    selected={membershipOption === 'new'} 
+    label={
+      <Box>
+        <Typography fontWeight={600}>สมัครสมาชิกสมาคมฯ</Typography>
+        <Typography variant="body2" color="text.secondary">
+          (สมัครฟรีไม่มีค่าใช้จ่าย กรุณากรอกข้อมูลที่อยู่ให้ครบถ้วนเพื่อประกอบการสมัคร ทีมงานจะบันทึกข้อมูลลงฐานข้อมูลสมาชิกสมาคมฯ หลังจบกิจกรรม)
+        </Typography>
+      </Box>
+    } 
+  />
+  <OptionCard 
+    value="none" 
+    selected={membershipOption === 'none'} 
+    label={
+      <Typography fontWeight={600}>ไม่ประสงค์สมัครสมาชิกสมาคมฯ</Typography>
+    } 
+  />
+</RadioGroup>
               </FormControl>
               <Collapse in={requireAddress}>
                 <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #90caf9' }}>
