@@ -1,29 +1,34 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+
+// 1. นำเข้า Middleware และ Helpers
+const rateLimit = require('express-rate-limit');
+const requestLogger = require('./middleware/requestLogger');
+const errorHandler = require('./middleware/errorHandler');
+const auditLog = require('./helpers/auditLog');
+
+// 2. นำเข้า Routes ต่างๆ
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const sessionRoutes = require('./routes/session');
-const requestLogger = require('./middleware/requestLogger');
-const auditLog = require('./helpers/auditLog');
 const participantFieldRoutes = require('./routes/participantFields');
 const participantRoutes = require('./routes/participants');
 const registrationPointRoutes = require('./routes/registrationPoints');
 const donationsRoutes = require('./routes/donationRoutes');
-
-// [เพิ่มใหม่] นำเข้า Router สำหรับหน้าตั้งค่าระบบและจัดการแพ็กเกจ
 const systemSettingRoutes = require('./routes/systemSettingRoutes');
 const packageRoutes = require('./routes/packageRoutes');
-
-const path = require('path');
-const rateLimit = require('express-rate-limit'); 
+const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
 
+// Trust Proxy จำเป็นมากถ้าระบบของคุณรันอยู่หลัง Nginx หรือ Load Balancer เพื่อให้ Rate Limit อ่าน IP จริงได้
 app.set('trust proxy', 1);
 
 app.use(express.json());
 
-const rawOrigin = process.env.CORS_ORIGIN || '*';
+// 3. ตั้งค่า CORS (Cross-Origin Resource Sharing)
+const rawOrigin = process.env.CORS_ORIGIN;
 let originOption;
 
 if (rawOrigin === '*') {
@@ -40,41 +45,51 @@ const corsOptions = {
 };
 app.use(cors(corsOptions));
 
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 300, 
+// 4. ตั้งค่า Rate Limit ป้องกันการสแปม (Brute-force)
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 นาที
+  max: 100, // ปรับให้จำกัดที่ 100 ครั้งต่อ 15 นาที (300 อาจจะเยอะไปสำหรับ API ทั่วไป)
   standardHeaders: true, 
   legacyHeaders: false, 
-  message: "Too many requests from this IP, please try again after 15 minutes"
+  message: { error: "ยิง Request ถี่เกินไป กรุณารอสักครู่ (Too many requests)" }
 });
-app.use(limiter);
 
+// นำ apiLimiter ไปครอบทุก Route ที่ขึ้นต้นด้วย /api
+app.use('/api', apiLimiter);
+
+// 5. บันทึก Log การยิง Request เข้ามา
 app.use(requestLogger);
 
+// 6. เสิร์ฟไฟล์ Static (เช่น ไฟล์อัปโหลด)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 7. ลงทะเบียน API Endpoints (Routes)
 app.use('/api/auth', authRoutes);
 app.use('/api/admins', adminRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/participant-fields', participantFieldRoutes);
 app.use('/api/participants', participantRoutes);
 app.use('/api/registration-points', registrationPointRoutes);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-app.use('/api/dashboard', require('./routes/dashboard'));
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/donations', donationsRoutes);
 
-// [เพิ่มใหม่] ลงทะเบียน Endpoint สำหรับการตั้งค่าและแพ็กเกจ
+// เส้นทางตั้งค่าระบบและจัดการแพ็กเกจ
 app.use('/api/settings', systemSettingRoutes);
 app.use('/api/packages', packageRoutes);
 
+// 8. จัดการ Error (Global Error Handler) ต้องอยู่ล่างสุดเสมอ!
 app.use((err, req, res, next) => {
+  // บันทึก Audit Log ทันทีที่มี Error เกิดขึ้นในระบบ
   auditLog({
     req,
     action: 'ERROR',
     detail: '',
-    status: 500,
+    status: err.statusCode || 500,
     error: err.stack || String(err)
-  });
-  console.error(err.stack); 
-  res.status(500).json({ error: 'Internal Server Error' });
+  }).catch(console.error); // ใส่ catch เผื่อตัว auditLog เองเกิดบัค จะได้ไม่ทำให้เซิร์ฟเวอร์ค้าง
+
+  // โยน Error ไปให้ errorHandler กลางจัดการส่ง Response กลับไปหา Frontend
+  errorHandler(err, req, res, next);
 });
 
 module.exports = app;
