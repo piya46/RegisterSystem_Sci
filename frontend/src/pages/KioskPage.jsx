@@ -40,7 +40,6 @@ const MourningRibbon = () => (
   </Box> 
 );
 
-// 🌟 เพิ่ม Props
 export default function KioskPage({ isSelfRegisterMode = false, forcePointId = null }) {
   const { user } = useAuth(); 
   const [fields, setFields] = useState([]);
@@ -65,7 +64,6 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const navigate = useNavigate();
   const [kioskMode, setKioskMode] = useState(false);
   
-  // 🌟 บังคับใช้ forcePointId ถ้ามี
   const selectedPoint = forcePointId || searchParams.get("point");
 
   const [exitOpen, setExitOpen] = useState(false);
@@ -122,7 +120,6 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   }, [selectedPoint, navigate]);
 
   useEffect(() => {
-    // 🌟 ถ่าเป็นมือถือไม่ต้องจับเวลา Idle
     if (isSelfRegisterMode) return; 
 
     const handleActivity = () => { lastActivityRef.current = Date.now(); };
@@ -147,7 +144,6 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   }, [form, membershipOption, reviewOpen, result, followersCount, isSelfRegisterMode]);
 
   useEffect(() => {
-      // 🌟 ถ้าเป็นมือถือ ไม่ต้องนับถอยหลัง ให้ค้างไว้ให้เขาแคปจอ
       if (result && !isSelfRegisterMode) {
           setCountdownProgress(100);
           const interval = setInterval(() => {
@@ -256,7 +252,6 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         
         setResult(res.data?.participant || res.data || res);
 
-        // 🌟 ถ้าเป็นมือถือ ให้ลบ Session ทิ้งเลย (ใช้ได้ครั้งเดียว)
         if (isSelfRegisterMode) sessionStorage.removeItem('kioskToken');
 
       } catch (err) {
@@ -337,6 +332,15 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
                         <ApartmentIcon color="action"/>
                         <Typography variant="body1" color="text.secondary">ภาควิชา:</Typography>
                         <Typography variant="h6" fontWeight="bold">{pickField(result, ["dept", "department"])}</Typography>
+                     </Box>
+                     {/* 🌟 เพิ่มส่วนแสดงผู้ติดตามตรงนี้ */}
+                     <Divider flexItem />
+                     <Box display="flex" alignItems="center" gap={1}>
+                        <GroupAddIcon color="action"/>
+                        <Typography variant="body1" color="text.secondary">ผู้ติดตาม:</Typography>
+                        <Typography variant="h6" fontWeight="bold">
+                           {result.followers > 0 ? `${result.followers} คน` : "ไม่มี"}
+                        </Typography>
                      </Box>
                 </Stack>
               </CardContent>
