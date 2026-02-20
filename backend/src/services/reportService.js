@@ -48,9 +48,15 @@ exports.getReportData = async () => {
       }
       
       // ดึงข้อมูล
-      const year = f.date_year || 'ไม่ระบุ'; // รุ่นปี
-      const dept = f.dept || 'ไม่ระบุ';      // ภาควิชา
-      const special = p.specialAssistance || '-';
+      const year = f.date_year || 'ไม่ระบุ'; 
+      const dept = f.dept || 'ไม่ระบุ';      
+      
+      // 🌟 แก้ไข: ลบการเคาะบรรทัด (\n) ออกจากความช่วยเหลือพิเศษและอีเมล เพื่อไม่ให้ตารางเพี้ยน
+      let special = p.specialAssistance || '-';
+      special = special.replace(/\r?\n|\r/g, ' ').trim(); 
+
+      let email = f.email || '-';
+      email = email.replace(/\r?\n|\r/g, '').trim();
 
       // นับจำนวนผู้ติดตาม
       let followers = 0;
@@ -69,7 +75,7 @@ exports.getReportData = async () => {
       summary.byDept[dept]++;
 
       // เก็บข้อมูลช่วยเหลือพิเศษ (เฉพาะที่มีข้อมูล)
-      if (special && special !== '-' && special.trim() !== '') {
+      if (special && special !== '-' && special !== '') {
         summary.specialNeeds.push(`(${year}) ${fname}: ${special}`);
       }
       // -----------------------------------
@@ -84,7 +90,7 @@ exports.getReportData = async () => {
         dept: dept,
         year: year,
         phone: f.phone || '-',
-        email: f.email || '-',
+        email: email,
         type: p.registrationType === 'onsite' ? 'หน้างาน' : 'ออนไลน์',
         followers: followers,
         special: special,
@@ -93,7 +99,6 @@ exports.getReportData = async () => {
     });
 
     // จัดเรียงข้อมูลสรุปให้สวยงาม (เช่น เรียงปีจากมากไปน้อย)
-    // แปลง Object เป็น Array เพื่อส่งไปวนลูปแสดงผล
     const sortedYears = Object.entries(summary.byYear)
       .sort((a, b) => b[1] - a[1]) // เรียงตามจำนวนคนมากไปน้อย
       .map(([key, val]) => ({ label: key, count: val }));
@@ -105,7 +110,7 @@ exports.getReportData = async () => {
     return { 
       count: rows.length, 
       rows, 
-      summary: { ...summary, sortedYears, sortedDepts } // ส่ง summary กลับไปด้วย
+      summary: { ...summary, sortedYears, sortedDepts } 
     };
 
   } catch (error) {
