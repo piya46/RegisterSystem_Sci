@@ -1,6 +1,6 @@
 const ParticipantField = require('../models/participantField');
 const Participant = require('../models/participant');
-const SystemSetting = require('../models/SystemSetting'); // [เพิ่ม] ดึง Setting มาเช็คเวลา
+const SystemSetting = require('../models/SystemSetting'); 
 const { v4: uuidv4 } = require('uuid');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
@@ -18,8 +18,8 @@ function checkAdmin(req, res) {
 }
 
 exports.createParticipant = async (req, res) => {
+  /* โค้ดเดิมคงไว้ ไม่มีการเปลี่ยนแปลง */
   try {
-    // [เพิ่ม] ตรวจสอบเวลาเปิดปิดฟอร์ม
     const setting = await SystemSetting.findOne();
     if (setting) {
       if (!setting.enableRegister) return res.status(403).json({ error: 'ระบบปิดรับการลงทะเบียนชั่วคราว' });
@@ -104,7 +104,6 @@ exports.createParticipant = async (req, res) => {
 
 exports.createParticipantByStaff = async (req, res) => {
   try {
-    // [เพิ่ม] ตรวจสอบเวลา Kiosk
     const setting = await SystemSetting.findOne();
     if (setting) {
       const now = new Date();
@@ -113,8 +112,15 @@ exports.createParticipantByStaff = async (req, res) => {
     }
 
     const { registrationPoint } = req.body;
-    if (!canRegisterAtPoint(req.user, registrationPoint)) {
+    
+    // [แก้ไข] อนุญาตถ้าเป็น Kiosk Shared Token หรือถ้าเป็นคนให้เช็คสิทธิ์ปกติ
+    const isKioskDevice = req.user.role?.includes('kiosk_device');
+    if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to register at this point.' });
+    }
+    // ถ้าเป็น Token ของ Kiosk ให้บังคับเช็คว่า Point ตรงกันไหม (ป้องกันเอา Link ไปใช้ผิดจุด)
+    if (isKioskDevice && req.kioskPoint !== registrationPoint) {
+      return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     }
 
     const fieldsDef = await ParticipantField.find({ enabled: true });
@@ -174,6 +180,11 @@ exports.updateParticipant = async (req, res) => {
     if (req.body.followers !== undefined) participant.followers = Math.max(0, Number.parseInt(req.body.followers, 10) || 0);
     if (req.body.consent !== undefined) participant.consent = req.body.consent;
     if (req.body.specialAssistance !== undefined) participant.specialAssistance = req.body.specialAssistance;
+    
+    // [เพิ่ม] บันทึก Tags ถ้ามีการส่งมา
+    if (req.body.tags !== undefined && Array.isArray(req.body.tags)) {
+      participant.tags = req.body.tags;
+    }
 
     const inputFields = req.body.fields || req.body;
     for (const f of allowedFields) { if (inputFields[f] !== undefined) participant.fields[f] = inputFields[f]; }
@@ -201,7 +212,12 @@ exports.checkinByQr = async (req, res) => {
     const followers = req.body.followers != null ? Math.max(0, Number.parseInt(req.body.followers, 10) || 0) : undefined;
     if (!qrCode) return res.status(400).json({ error: 'qrCode is required.' });
     if (!registrationPoint) return res.status(400).json({ error: 'registrationPoint is required.' });
-    if (!canRegisterAtPoint(req.user, registrationPoint)) return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
+    
+    // [แก้ไข] รองรับ Kiosk token
+    const isKioskDevice = req.user.role?.includes('kiosk_device');
+    if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
+      return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
+    }
 
     const participant = await Participant.findOne({ qrCode, isDeleted: false });
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
@@ -215,6 +231,7 @@ exports.checkinByQr = async (req, res) => {
 };
 
 exports.resendTicket = async (req, res) => {
+  // โค้ดเดิม
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
   const participant = await Participant.findOne({ 'fields.phone': phone, isDeleted: false });
@@ -229,6 +246,7 @@ exports.resendTicket = async (req, res) => {
 };
 
 exports.searchParticipants = async (req, res) => {
+  // โค้ดเดิม
   const { phone, name, email, qrCode, q } = req.query;
   let filter = { isDeleted: false };
   if (q) { filter.$or = [ { 'fields.name': { $regex: q, $options: 'i' } }, { 'fields.phone': q }, { 'fields.email': q }, { qrCode: q } ]; } 
@@ -243,6 +261,7 @@ exports.searchParticipants = async (req, res) => {
 };
 
 exports.exportParticipants = async (req, res) => {
+  // โค้ดเดิม เพิ่ม Export Tag ถ้าต้องการ
   try {
     if (!checkAdmin(req, res)) return;
     const { status } = req.query;
@@ -255,14 +274,14 @@ exports.exportParticipants = async (req, res) => {
     const ws = wb.addWorksheet('Participants');
 
     ws.columns = [
-      { header: 'No.', key: 'no', width: 6 }, { header: 'Name', key: 'name', width: 28 }, { header: 'Phone', key: 'phone', width: 16 }, { header: 'Email', key: 'email', width: 28 }, { header: 'Department', key: 'department', width: 24 }, { header: 'Address', key: 'address', width: 40 }, { header: 'ZipCode', key: 'zipcode', width: 15 }, { header: 'Status', key: 'status', width: 14 }, { header: 'RegisteredAt', key: 'registeredAt', width: 20 }, { header: 'CheckedInAt', key: 'checkedInAt', width: 20 }, { header: 'RegistrationPoint', key: 'registeredPoint', width: 26 }, { header: 'RegistrationType', key: 'registrationType', width: 14 }, { header: 'Followers', key: 'followers', width: 12 }, { header: 'Consent', key: 'consent', width: 12 }, { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, { header: 'QR Code', key: 'qrCode', width: 38 }, { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
+      { header: 'No.', key: 'no', width: 6 }, { header: 'Name', key: 'name', width: 28 }, { header: 'Phone', key: 'phone', width: 16 }, { header: 'Email', key: 'email', width: 28 }, { header: 'Department', key: 'department', width: 24 }, { header: 'Address', key: 'address', width: 40 }, { header: 'ZipCode', key: 'zipcode', width: 15 }, { header: 'Status', key: 'status', width: 14 }, { header: 'RegisteredAt', key: 'registeredAt', width: 20 }, { header: 'CheckedInAt', key: 'checkedInAt', width: 20 }, { header: 'RegistrationPoint', key: 'registeredPoint', width: 26 }, { header: 'RegistrationType', key: 'registrationType', width: 14 }, { header: 'Followers', key: 'followers', width: 12 }, { header: 'Consent', key: 'consent', width: 12 }, { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, { header: 'Tags', key: 'tags', width: 20 }, { header: 'QR Code', key: 'qrCode', width: 38 }, { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
     ];
     ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }]; ws.autoFilter = { from: 'A1', to: 'Q1' };
 
     participants.forEach((p, idx) => {
       const f = p.fields || {};
       ws.addRow({
-        no: idx + 1, name: f.name || f.fullName || f.fullname || '', phone: f.phone || '', email: f.email || '', department: f.department || f.faculty || '', address: f.usr_add || '-', zipcode: f.usr_add_post || '-', status: p.status || 'registered', registeredAt: p.createdAt ? new Date(p.createdAt) : null, checkedInAt: p.checkedInAt ? new Date(p.checkedInAt) : null, registeredPoint: p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '', registrationType: p.registrationType || '', followers: Number.isFinite(p.followers) ? p.followers : 0, consent: p.consent || '-', specialAssistance: p.specialAssistance || '-', qrCode: p.qrCode || '', registeredBy: (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) || (typeof p.registeredBy === 'string' ? p.registeredBy : '') || '',
+        no: idx + 1, name: f.name || f.fullName || f.fullname || '', phone: f.phone || '', email: f.email || '', department: f.department || f.faculty || '', address: f.usr_add || '-', zipcode: f.usr_add_post || '-', status: p.status || 'registered', registeredAt: p.createdAt ? new Date(p.createdAt) : null, checkedInAt: p.checkedInAt ? new Date(p.checkedInAt) : null, registeredPoint: p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '', registrationType: p.registrationType || '', followers: Number.isFinite(p.followers) ? p.followers : 0, consent: p.consent || '-', specialAssistance: p.specialAssistance || '-', tags: p.tags ? p.tags.join(', ') : '-', qrCode: p.qrCode || '', registeredBy: (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) || (typeof p.registeredBy === 'string' ? p.registeredBy : '') || '',
       });
     });
 

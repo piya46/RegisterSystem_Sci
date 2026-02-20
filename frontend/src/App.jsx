@@ -20,6 +20,13 @@ import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import TermsPage from './pages/TermsPage';
 import SessionManagerPage from "./pages/SessionManagerPage";
 
+// [เพิ่ม] หน้าใหม่ที่สร้างขึ้น
+import KioskJoinPage from "./pages/KioskJoinPage";
+import PublicReportPage from "./pages/PublicReportPage";
+import LuckyDrawPage from "./pages/LuckyDrawPage";
+import PublicDashboardPage from "./pages/PublicDashboardPage";
+import PrizeManagementPage from "./pages/PrizeManagementPage"; // 🌟 [เพิ่มบรรทัดนี้]
+
 export default function App() {
   return (
     <Router>
@@ -30,12 +37,22 @@ export default function App() {
             <Route path="/" element={<PreRegistrationPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-of-service" element={<TermsPage />} />
+            
+            {/* [เพิ่ม] Route สำหรับแชร์ลิงก์ Public (ไม่ต้อง Login) */}
+            {/* <Route path="/public/report" element={<PublicReportPage />} /> */}
+            <Route path="/public/dashboard" element={<PublicDashboardPage />} />
+            <Route path="/kiosk/join/:token" element={<KioskJoinPage />} />
 
             <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><DashboardPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><ProfilePage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute roles={["admin"]}><SystemSettingsPage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute roles={["admin"]}><AdminPage /></ProtectedRoute>} />
             <Route path="/registration-points" element={<ProtectedRoute roles={["admin"]}><RegistrationPointPage /></ProtectedRoute>} />
+            
+            {/* [เพิ่ม] Route สำหรับสุ่มรางวัล */}
+            <Route path="/admin/lucky-draw" element={<ProtectedRoute roles={["admin"]}><LuckyDrawPage /></ProtectedRoute>} />
+            {/* <Route path="/admin/prizes" element={<ProtectedRoute roles={["admin"]}><PrizeManagementPage /></ProtectedRoute>} /> 🌟 [เพิ่มบรรทัดนี้] */}
+
             <Route path="/staff" element={<ProtectedRoute roles={["admin", "staff"]}><CheckinStaffPage /></ProtectedRoute>} />
             <Route path="/kiosk" element={<ProtectedRoute roles={["kiosk", "admin", "staff"]}><KioskPage /></ProtectedRoute>} />
             <Route path="/select-point" element={<ProtectedRoute roles={["kiosk", "staff", "admin"]}><SelectPointPage /></ProtectedRoute>} />
@@ -50,7 +67,6 @@ export default function App() {
           </Routes>
         </Box>
         
-        {/* Footer ลิขสิทธิ์แสดงทุกหน้า (Task 1) */}
         <Box component="footer" sx={{ textAlign: 'center', py: 2, bgcolor: '#f5f5f5', borderTop: '1px solid #e0e0e0' }}>
           <Typography variant="body2" color="text.secondary" fontWeight="500">
             &copy; copyright 2026 PSTDEV

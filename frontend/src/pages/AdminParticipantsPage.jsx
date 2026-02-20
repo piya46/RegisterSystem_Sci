@@ -5,15 +5,14 @@ import {
   Paper, TextField, Button, IconButton, Tooltip, CircularProgress, 
   Typography, MenuItem, Select, InputLabel, FormControl, Stack, Chip, 
   Snackbar, Alert, Grid, Card, CardContent, InputAdornment, Fade,
-  Dialog, DialogTitle, DialogContent, DialogActions, Divider
+  Dialog, DialogTitle, DialogContent, DialogActions, Divider,
+  Autocomplete, Tabs, Tab
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom'; 
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save'; 
-import CancelIcon from '@mui/icons-material/Cancel'; 
 import DeleteIcon from '@mui/icons-material/Delete';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -26,10 +25,15 @@ import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'; 
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
-import { QRCodeSVG } from 'qrcode.react';
+import IosShareIcon from '@mui/icons-material/IosShare'; 
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard'; 
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'; 
+import ReplayIcon from '@mui/icons-material/Replay'; 
 
+import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
-import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket } from '../utils/api';
+
+import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner } from '../utils/api';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
@@ -48,6 +52,11 @@ const StatusChip = styled(Chip)(({ status }) => {
 
 export default function AdminParticipantsPage() {
   const navigate = useNavigate();
+  const token = localStorage.getItem('token');
+  
+  const [activeTab, setActiveTab] = useState(0);
+
+  // States: Participants
   const [participants, setParticipants] = useState([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -59,32 +68,44 @@ export default function AdminParticipantsPage() {
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [editId, setEditId] = useState(null);
   
-  // 🌟 เพิ่ม email, usr_add (ที่อยู่) และ usr_add_post (รหัสไปรษณีย์)
   const [editFields, setEditFields] = useState({ 
-    name: '', phone: '', dept: '', date_year: '', 
-    email: '', usr_add: '', usr_add_post: '' 
+    name: '', phone: '', dept: '', date_year: '', email: '', usr_add: '', usr_add_post: '' 
   });
-  // 🌟 แยก followers ออกมาเพราะเก็บอยู่นอก fields
   const [editFollowers, setEditFollowers] = useState(0); 
-  
-  // สถานะสำหรับโชว์ QR Code
+  const [editTags, setEditTags] = useState([]); 
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [selectedParticipantForQr, setSelectedParticipantForQr] = useState(null);
 
-  const token = localStorage.getItem('token');
+  // States: Prizes
+  const [prizes, setPrizes] = useState([]);
+  const [prizeLoading, setPrizeLoading] = useState(false);
+  const [openAddPrize, setOpenAddPrize] = useState(false);
+  const [newPrize, setNewPrize] = useState({ name: '', totalQuantity: 1 });
 
+  // 🌟 โหลดข้อมูลทั้ง Participants และ Prizes พร้อมกันเมื่อเข้าหน้าเว็บ
+  useEffect(() => { 
+    fetchParticipants(); 
+    fetchPrizes();
+  }, [token]);
+
+  // Functions: Participants
   const fetchParticipants = async () => {
     setLoading(true);
     try {
       const res = await listParticipants(token);
       setParticipants(res.data || res);
-    } catch (err) {
-      setSnackbar({ open: true, message: 'โหลดข้อมูลผิดพลาด', severity: 'error' });
-    }
+    } catch (err) { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
     setLoading(false);
   };
 
-  useEffect(() => { fetchParticipants(); }, [token]);
+  const fetchPrizes = async () => {
+    setPrizeLoading(true);
+    try {
+      const res = await listPrizes();
+      setPrizes(res.data);
+    } catch (err) { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
+    setPrizeLoading(false);
+  };
 
   const uniqueDepts = Array.from(new Set(participants.map(p => p.fields.dept).filter(Boolean))).sort();
   const uniqueYears = Array.from(new Set(participants.map(p => p.fields.date_year).filter(Boolean))).sort();
@@ -114,64 +135,47 @@ export default function AdminParticipantsPage() {
       await deleteParticipant(id, token);
       setSnackbar({ open: true, message: 'ลบข้อมูลสำเร็จ', severity: 'success' });
       fetchParticipants();
-    } catch {
-      setSnackbar({ open: true, message: 'ลบไม่สำเร็จ', severity: 'error' });
-    }
+    } catch { setSnackbar({ open: true, message: 'ลบไม่สำเร็จ', severity: 'error' }); }
   };
 
-  // 🌟 ดึงข้อมูลมาแสดงในหน้าต่างแก้ไข
   const handleEditClick = (participant) => {
     setEditId(participant._id);
     setEditFields({ 
-      name: participant.fields.name || '', 
-      phone: participant.fields.phone || '', 
-      dept: participant.fields.dept || '', 
-      date_year: participant.fields.date_year || '',
-      email: participant.fields.email || '',
-      usr_add: participant.fields.usr_add || '',
-      usr_add_post: participant.fields.usr_add_post || ''
+      name: participant.fields.name || '', phone: participant.fields.phone || '', 
+      dept: participant.fields.dept || '', date_year: participant.fields.date_year || '',
+      email: participant.fields.email || '', usr_add: participant.fields.usr_add || '', usr_add_post: participant.fields.usr_add_post || ''
     });
-    setEditFollowers(participant.followers || 0); // ดึงจำนวนผู้ติดตาม
+    setEditFollowers(participant.followers || 0); 
+    setEditTags(participant.tags || []); 
     setOpenEditDialog(true);
   };
 
-  const handleCloseDialog = () => { setOpenEditDialog(false); setEditId(null); };
+  const handleCloseDialog = () => { setOpenEditDialog(false); setEditId(null); setEditTags([]); };
+  const handleDialogInputChange = (e) => { const { name, value } = e.target; setEditFields(prev => ({ ...prev, [name]: value })); };
 
-  const handleDialogInputChange = (e) => {
-    const { name, value } = e.target;
-    setEditFields(prev => ({ ...prev, [name]: value }));
-  };
-
-  // 🌟 บันทึกข้อมูลกลับไปที่ API
   const handleSaveEdit = async () => {
     try {
-      // อัปเดตทั้ง fields และ followers
-      await updateParticipant(editId, { 
-        fields: editFields, 
-        followers: Number(editFollowers) 
-      }, token);
-      
+      await updateParticipant(editId, { fields: editFields, followers: Number(editFollowers), tags: editTags }, token);
       setSnackbar({ open: true, message: 'บันทึกการแก้ไขแล้ว', severity: 'success' });
       handleCloseDialog();
       fetchParticipants();
-    } catch {
-      setSnackbar({ open: true, message: 'บันทึกไม่สำเร็จ', severity: 'error' });
-    }
+    } catch { setSnackbar({ open: true, message: 'บันทึกไม่สำเร็จ', severity: 'error' }); }
   };
 
   const exportExcel = () => {
-    const dataToExport = filteredParticipants.map(p => ({
-      ชื่อ: p.fields.name || '',
-      เบอร์โทร: p.fields.phone || '',
-      อีเมล: p.fields.email || '',
-      สถานะ: p.status || '',
-      เวลาเช็คอิน: formatCheckinDate(p.checkedInAt),
-      ภาควิชา: p.fields.dept || '',
-      ปีการศึกษา: p.fields.date_year || '',
-      ที่อยู่: p.fields.usr_add ? `${p.fields.usr_add} ${p.fields.usr_add_post || ''}` : '-',
-      ผู้ติดตาม: p.followers || 0
-    }));
+    const dataToExport = filteredParticipants.map(p => {
+      // ค้นหาของรางวัลที่คนนี้ได้
+      const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id)).map(pz => pz.name).join(', ');
 
+      return {
+        ชื่อ: p.fields.name || '', เบอร์โทร: p.fields.phone || '', อีเมล: p.fields.email || '',
+        สถานะ: p.status || '', เวลาเช็คอิน: formatCheckinDate(p.checkedInAt),
+        ภาควิชา: p.fields.dept || '', ปีการศึกษา: p.fields.date_year || '',
+        ที่อยู่: p.fields.usr_add ? `${p.fields.usr_add} ${p.fields.usr_add_post || ''}` : '-',
+        ผู้ติดตาม: p.followers || 0, Tags: p.tags ? p.tags.join(', ') : '',
+        ของรางวัลที่ได้: wonPrizes || '-'
+      };
+    });
     const worksheet = XLSX.utils.json_to_sheet(dataToExport);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Participants");
@@ -198,88 +202,269 @@ export default function AdminParticipantsPage() {
         link.href = url;
         link.setAttribute('download', `Report_${new Date().toISOString().slice(0,10)}.pdf`);
         document.body.appendChild(link);
-        link.click();
-        link.remove();
+        link.click(); link.remove();
     } catch (err) { alert("ดาวน์โหลดล้มเหลว"); }
+  };
+
+  const handleSharePublicReport = () => {
+    const link = `${window.location.origin}/public/report`;
+    navigator.clipboard.writeText(link);
+    setSnackbar({ open: true, message: 'คัดลอกลิงก์รายงาน (Public) สำเร็จ', severity: 'success' });
+  };
+
+  // Functions: Prizes
+  const handleAddPrize = async () => {
+    if (!newPrize.name || newPrize.totalQuantity < 1) return;
+    try {
+      await createPrize({ ...newPrize, remainingQuantity: newPrize.totalQuantity });
+      setOpenAddPrize(false); setNewPrize({ name: '', totalQuantity: 1 });
+      setSnackbar({ open: true, message: 'เพิ่มของรางวัลแล้ว', severity: 'success' });
+      fetchPrizes();
+    } catch (err) { setSnackbar({ open: true, message: 'เพิ่มรางวัลไม่สำเร็จ', severity: 'error' }); }
+  };
+
+  const handleDeletePrize = async (id) => {
+    if (!window.confirm("ยืนยันการลบของรางวัลชิ้นนี้ออกจากระบบ?")) return;
+    try { 
+      await deletePrize(id); 
+      setSnackbar({ open: true, message: 'ลบของรางวัลแล้ว', severity: 'success' });
+      fetchPrizes(); 
+    } catch (err) { setSnackbar({ open: true, message: 'ลบรางวัลไม่สำเร็จ', severity: 'error' }); }
+  };
+
+  // 🌟 ฟังก์ชันดึงโควต้ารางวัลคืน (Revoke) 
+  const handleRevokePrize = async (prizeId, winnerId) => {
+    if (!window.confirm("ยืนยันการยกเลิกสิทธิ์ผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัล และผู้ใช้ท่านนี้จะมีสิทธิ์จับรางวัลใหม่อีกครั้ง")) return;
+    try {
+      await cancelPrizeWinner(prizeId, winnerId); // ส่ง winnerId ไปตามที่ Backend ต้องการ
+      setSnackbar({ open: true, message: 'ยกเลิกสิทธิ์และดึงโควต้าคืนสำเร็จ', severity: 'success' });
+      fetchPrizes(); // รีเฟรชของรางวัลเพื่ออัปเดตจำนวนและรายชื่อ
+    } catch (err) {
+      setSnackbar({ open: true, message: err.response?.data?.error || 'เกิดข้อผิดพลาดในการยกเลิกสิทธิ์', severity: 'error' });
+    }
+  };
+
+  const handleRefreshAll = () => {
+    fetchParticipants();
+    fetchPrizes();
   };
 
   return (
     <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" mb={4}>
+      
+      {/* Header Section */}
+      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" mb={3}>
         <Box>
            <Typography variant="h4" fontWeight={800} sx={{ color: Y.text, mb: 0.5 }}>Admin Dashboard</Typography>
-           <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและตรวจสอบสถานะ</Typography>
+           <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
         <Stack direction="row" spacing={2} sx={{ mt: {xs: 2, md: 0} }}>
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
-            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchParticipants} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
+            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
         </Stack>
       </Stack>
 
-      <Grid container spacing={2} mb={4}>
-        <Grid xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">ผู้ลงทะเบียนทั้งหมด</Typography><Typography variant="h4" fontWeight={800} color={Y.text}>{stats.total}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E3F2FD', color: '#1565C0' }}><PeopleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
-        <Grid xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">เช็คอินแล้ว</Typography><Typography variant="h4" fontWeight={800} color={Y.success}>{stats.checkedIn}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E8F5E9', color: '#2E7D32' }}><CheckCircleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
-        <Grid xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">รอเช็คอิน</Typography><Typography variant="h4" fontWeight={800} color={Y.dark}>{stats.registered}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: Y.light, color: Y.dark }}><AccessTimeIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
-      </Grid>
-
-      <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff" }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid xs={12} lg={4}>
-            <TextField fullWidth placeholder="ค้นหาชื่อ หรือ เบอร์โทร..." value={search} onChange={e => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>, sx: { borderRadius: 3, bgcolor: "#fafafa" } }} size="small" />
-          </Grid>
-          <Grid xs={12} lg={8}>
-            <Grid container spacing={2} alignItems="center" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }}>
-               <Grid xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>สถานะ</InputLabel><Select value={statusFilter} label="สถานะ" onChange={e => setStatusFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem><MenuItem value="registered">รอเช็คอิน</MenuItem><MenuItem value="checkedIn">เช็คอินแล้ว</MenuItem><MenuItem value="cancelled">ยกเลิก</MenuItem></Select></FormControl></Grid>
-               <Grid xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ภาควิชา</InputLabel><Select value={deptFilter} label="ภาควิชา" onChange={e => setDeptFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueDepts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}</Select></FormControl></Grid>
-               <Grid xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ปีการศึกษา</InputLabel><Select value={yearFilter} label="ปีการศึกษา" onChange={e => setYearFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}</Select></FormControl></Grid>
-               <Grid xs={6} sm={3} md={3}><Button fullWidth variant="contained" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 3, fontWeight: 700, height: 40, background: `linear-gradient(45deg, ${Y.main}, ${Y.dark})`, color: '#fff', boxShadow: '0 4px 12px rgba(245, 127, 23, 0.3)' }}>EXPORT</Button></Grid>
-               <Grid xs={12} sm={3} md={3}><Button fullWidth variant="contained" color="error" startIcon={<PictureAsPdfIcon />} onClick={handleDownloadPdf} sx={{ borderRadius: 3, height: 40 }}>PDF Report</Button></Grid>
-            </Grid>
-          </Grid>
-        </Grid>
+      {/* Tabs สำหรับสลับหน้าจอ */}
+      <Paper elevation={0} sx={{ mb: 4, borderBottom: 1, borderColor: 'divider', bgcolor: 'transparent' }}>
+        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} textColor="primary" indicatorColor="primary">
+          <Tab icon={<FormatListBulletedIcon />} iconPosition="start" label={<Typography fontWeight={700}>รายชื่อผู้เข้าร่วม</Typography>} sx={{ textTransform: 'none', fontSize: '1.1rem' }} />
+          <Tab icon={<CardGiftcardIcon />} iconPosition="start" label={<Typography fontWeight={700}>จัดการของรางวัล</Typography>} sx={{ textTransform: 'none', fontSize: '1.1rem' }} />
+        </Tabs>
       </Paper>
 
-      {loading ? ( <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}><CircularProgress sx={{ color: Y.main }} /></Box> ) : (
+      {/* ======================================================== */}
+      {/* TAB 0: รายชื่อผู้เข้าร่วม */}
+      {/* ======================================================== */}
+      {activeTab === 0 && (
         <Fade in>
-          <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 4, border: "1px solid #eee", overflow: 'hidden' }}>
-            <Table stickyHeader>
-              <TableHead>
-                <TableRow>
-                  {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'เวลาเช็คอิน', 'ภาควิชา', 'ปีการศึกษา', 'จัดการ'].map((head) => (
-                    <TableCell key={head} align="center" sx={{ bgcolor: Y.light, color: Y.text, fontWeight: 800, whiteSpace: 'nowrap' }}>{head}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {filteredParticipants.length === 0 ? (
-                  <TableRow><TableCell colSpan={7} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
-                ) : (
-                  filteredParticipants.map(p => (
-                    <TableRow key={p._id} hover sx={{ "&:hover": { bgcolor: "#fffcf2" } }}>
-                      <TableCell align="left"><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
-                      <TableCell align="center"><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
-                      <TableCell align="center"><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
-                      <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>{formatCheckinDate(p.checkedInAt)}</TableCell>
-                      <TableCell align="center">{p.fields.dept || '-'}</TableCell>
-                      <TableCell align="center">{p.fields.date_year || '-'}</TableCell>
-                      <TableCell align="center">
-                        <Stack direction="row" justifyContent="center" spacing={1}>
-                          <Tooltip title="ดู QR Code">
-                             <IconButton onClick={() => { setSelectedParticipantForQr(p); setQrDialogOpen(true); }} size="small" sx={{ color: '#00bcd4', "&:hover": { bgcolor: '#e0f7fa' } }}><QrCode2Icon fontSize="small" /></IconButton>
-                          </Tooltip>
-                          <Tooltip title="แก้ไข"><IconButton onClick={() => handleEditClick(p)} size="small" sx={{ color: 'primary.main', "&:hover": { bgcolor: '#e3f2fd' } }}><EditIcon fontSize="small" /></IconButton></Tooltip>
-                          <Tooltip title="ลบ"><IconButton onClick={() => handleDelete(p._id)} size="small" sx={{ color: 'error.main', "&:hover": { bgcolor: '#ffebee' } }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
-                          {p.fields.email && ( <Tooltip title="ส่งบัตร E-Ticket อีกครั้ง"><span><IconButton onClick={() => handleResend(p)} disabled={resendLoadingId === p._id} size="small" sx={{ color: Y.dark, "&:hover": { bgcolor: Y.light } }}>{resendLoadingId === p._id ? <CircularProgress size={16} color="inherit" /> : <EmailIcon fontSize="small" />}</IconButton></span></Tooltip> )}
-                        </Stack>
-                      </TableCell>
+          <Box>
+            <Grid container spacing={2} mb={4}>
+              <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">ผู้ลงทะเบียนทั้งหมด</Typography><Typography variant="h4" fontWeight={800} color={Y.text}>{stats.total}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E3F2FD', color: '#1565C0' }}><PeopleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
+              <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">เช็คอินแล้ว</Typography><Typography variant="h4" fontWeight={800} color={Y.success}>{stats.checkedIn}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E8F5E9', color: '#2E7D32' }}><CheckCircleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
+              <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">รอเช็คอิน</Typography><Typography variant="h4" fontWeight={800} color={Y.dark}>{stats.registered}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: Y.light, color: Y.dark }}><AccessTimeIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
+            </Grid>
+
+            <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff" }}>
+              <Grid container spacing={2} alignItems="center">
+                <Grid item xs={12} lg={4}>
+                  <TextField fullWidth placeholder="ค้นหาชื่อ หรือ เบอร์โทร..." value={search} onChange={e => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>, sx: { borderRadius: 3, bgcolor: "#fafafa" } }} size="small" />
+                </Grid>
+                <Grid item xs={12} lg={8}>
+                  <Grid container spacing={2} alignItems="center" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }}>
+                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>สถานะ</InputLabel><Select value={statusFilter} label="สถานะ" onChange={e => setStatusFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem><MenuItem value="registered">รอเช็คอิน</MenuItem><MenuItem value="checkedIn">เช็คอินแล้ว</MenuItem><MenuItem value="cancelled">ยกเลิก</MenuItem></Select></FormControl></Grid>
+                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ภาควิชา</InputLabel><Select value={deptFilter} label="ภาควิชา" onChange={e => setDeptFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueDepts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}</Select></FormControl></Grid>
+                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ปีการศึกษา</InputLabel><Select value={yearFilter} label="ปีการศึกษา" onChange={e => setYearFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}</Select></FormControl></Grid>
+                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="contained" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 3, fontWeight: 700, height: 40, background: `linear-gradient(45deg, ${Y.main}, ${Y.dark})`, color: '#fff', boxShadow: '0 4px 12px rgba(245, 127, 23, 0.3)' }}>EXPORT</Button></Grid>
+                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="contained" color="error" startIcon={<PictureAsPdfIcon />} onClick={handleDownloadPdf} sx={{ borderRadius: 3, height: 40 }}>PDF Report</Button></Grid>
+                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublicReport} sx={{ borderRadius: 3, height: 40, borderColor: Y.main, color: Y.dark, "&:hover": { bgcolor: Y.light } }}>Public Link</Button></Grid>
+                  </Grid>
+                </Grid>
+              </Grid>
+            </Paper>
+
+            {loading ? ( <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}><CircularProgress sx={{ color: Y.main }} /></Box> ) : (
+              <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 4, border: "1px solid #eee", overflow: 'hidden' }}>
+                <Table stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      {/* 🌟 อัปเดตคอลัมน์ใหม่ เพิ่ม 'ของรางวัล' */}
+                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'Tags', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
+                        <TableCell key={head} align="center" sx={{ bgcolor: Y.light, color: Y.text, fontWeight: 800, whiteSpace: 'nowrap' }}>{head}</TableCell>
+                      ))}
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {filteredParticipants.length === 0 ? (
+                      <TableRow><TableCell colSpan={8} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
+                    ) : (
+                      filteredParticipants.map(p => {
+                        // 🌟 หาว่าคนๆ นี้ ได้รางวัลอะไรไปบ้าง
+                        const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id));
+
+                        return (
+                          <TableRow key={p._id} hover sx={{ "&:hover": { bgcolor: "#fffcf2" } }}>
+                            <TableCell align="left"><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
+                            <TableCell align="center"><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
+                            <TableCell align="center"><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
+                            <TableCell align="center">
+                              {p.tags && p.tags.length > 0 ? (
+                                <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
+                                  {p.tags.map((tag, idx) => (
+                                    <Chip key={idx} label={tag} size="small" sx={{ bgcolor: Y.main, color: '#fff', fontWeight: 600, fontSize: '0.75rem', height: 20 }} />
+                                  ))}
+                                </Stack>
+                              ) : '-'}
+                            </TableCell>
+
+                            {/* 🌟 แสดงของรางวัลที่ได้รับ */}
+                            <TableCell align="center">
+                              {wonPrizes.length > 0 ? (
+                                <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
+                                  {wonPrizes.map(pz => (
+                                    <Tooltip key={pz._id} title="คลิก (x) เพื่อยกเลิกสิทธิ์และดึงโควต้าคืน">
+                                      <Chip 
+                                        icon={<CardGiftcardIcon style={{ color: '#E65100' }} />} 
+                                        label={pz.name} 
+                                        size="small" 
+                                        sx={{ bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700, border: '1px solid #FFE0B2' }}
+                                        onDelete={() => handleRevokePrize(pz._id, p._id)} // 🌟 กดยกเลิกสิทธิ์จากหน้านี้ได้เลย
+                                      />
+                                    </Tooltip>
+                                  ))}
+                                </Stack>
+                              ) : <Typography variant="caption" color="text.disabled">-</Typography>}
+                            </TableCell>
+
+                            <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>{formatCheckinDate(p.checkedInAt)}</TableCell>
+                            <TableCell align="center">{p.fields.dept || '-'}</TableCell>
+                            <TableCell align="center">
+                              <Stack direction="row" justifyContent="center" spacing={1}>
+                                <Tooltip title="ดู QR Code"><IconButton onClick={() => { setSelectedParticipantForQr(p); setQrDialogOpen(true); }} size="small" sx={{ color: '#00bcd4', "&:hover": { bgcolor: '#e0f7fa' } }}><QrCode2Icon fontSize="small" /></IconButton></Tooltip>
+                                <Tooltip title="แก้ไข"><IconButton onClick={() => handleEditClick(p)} size="small" sx={{ color: 'primary.main', "&:hover": { bgcolor: '#e3f2fd' } }}><EditIcon fontSize="small" /></IconButton></Tooltip>
+                                <Tooltip title="ลบ"><IconButton onClick={() => handleDelete(p._id)} size="small" sx={{ color: 'error.main', "&:hover": { bgcolor: '#ffebee' } }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
+                                {p.fields.email && ( <Tooltip title="ส่งบัตร E-Ticket อีกครั้ง"><span><IconButton onClick={() => handleResend(p)} disabled={resendLoadingId === p._id} size="small" sx={{ color: Y.dark, "&:hover": { bgcolor: Y.light } }}>{resendLoadingId === p._id ? <CircularProgress size={16} color="inherit" /> : <EmailIcon fontSize="small" />}</IconButton></span></Tooltip> )}
+                              </Stack>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Box>
         </Fade>
       )}
+
+      {/* ======================================================== */}
+      {/* TAB 1: จัดการของรางวัล */}
+      {/* ======================================================== */}
+      {activeTab === 1 && (
+        <Fade in>
+          <Box>
+            <Box mb={3} textAlign="right">
+              <Button variant="contained" onClick={() => setOpenAddPrize(true)} sx={{ bgcolor: Y.main, color: '#fff', borderRadius: 3, fontWeight: 'bold' }}>+ เพิ่มของรางวัลใหม่</Button>
+            </Box>
+
+            {prizeLoading ? <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}><CircularProgress sx={{ color: Y.main }} /></Box> : (
+              <Grid container spacing={3}>
+                {prizes.length === 0 ? (
+                  <Grid item xs={12}><Typography textAlign="center" color="text.secondary" py={5}>ยังไม่มีรายการของรางวัล</Typography></Grid>
+                ) : prizes.map((prize) => (
+                  <Grid item xs={12} sm={6} md={4} key={prize._id}>
+                    <Paper elevation={0} sx={{ p: 3, borderRadius: 4, textAlign: 'center', border: `2px solid ${prize.remainingQuantity === 0 ? '#eee' : Y.main}`, bgcolor: '#fff', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <Box>
+                        <CardGiftcardIcon sx={{ fontSize: 60, color: prize.remainingQuantity === 0 ? '#ccc' : Y.dark, mb: 1 }} />
+                        <Typography variant="h6" fontWeight="bold" color={Y.text}>{prize.name}</Typography>
+                        <Typography variant="body2" color="text.secondary" mb={2}>
+                          จำนวนคงเหลือ: <strong style={{color: prize.remainingQuantity === 0 ? 'red' : 'green'}}>{prize.remainingQuantity}</strong> / {prize.totalQuantity} รางวัล
+                        </Typography>
+                      </Box>
+                      
+                      <Divider sx={{ my: 1.5 }} />
+
+                      {/* แสดงรายชื่อคนได้รางวัล & ปุ่มลบสิทธิ์ */}
+                      <Box sx={{ flexGrow: 1, mb: 2, textAlign: 'left' }}>
+                        <Typography variant="caption" fontWeight="bold" color="text.secondary" display="block" mb={1}>รายชื่อผู้ได้รับรางวัล:</Typography>
+                        
+                        {prize.winners && prize.winners.length === 0 ? (
+                          <Typography variant="body2" color="text.disabled" textAlign="center" py={1}>ยังไม่มีผู้ได้รับรางวัล</Typography>
+                        ) : (
+                          <Stack spacing={1}>
+                            {prize.winners.map(w => (
+                              <Box key={w.participantId?._id || Math.random()} sx={{ bgcolor: '#FFF8E1', p: 1, borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Box>
+                                  <Typography variant="body2" fontWeight={600} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {w.participantId?.fields?.name || 'ไม่ทราบชื่อ'}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontSize: '10px' }}>
+                                    {new Date(w.wonAt).toLocaleTimeString('th-TH')}
+                                  </Typography>
+                                </Box>
+                                
+                                <Tooltip title="ยกเลิกสิทธิ์และดึงโควต้ารางวัลคืน">
+                                  <IconButton size="small" color="error" onClick={() => handleRevokePrize(prize._id, w.participantId?._id || w.participantId)}>
+                                    <ReplayIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            ))}
+                          </Stack>
+                        )}
+                      </Box>
+
+                      <Button variant="outlined" color="error" fullWidth size="small" onClick={() => handleDeletePrize(prize._id)} startIcon={<DeleteIcon/>} sx={{ borderRadius: 3, mt: 'auto' }}>
+                        ลบของรางวัลนี้ทิ้ง
+                      </Button>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            )}
+          </Box>
+        </Fade>
+      )}
+
+      {/* Dialog เพิ่มของรางวัล */}
+      <Dialog open={openAddPrize} onClose={() => setOpenAddPrize(false)} PaperProps={{ sx: { borderRadius: 4, p: 1 } }}>
+        <DialogTitle fontWeight="bold">เพิ่มรายการของรางวัล</DialogTitle>
+        <DialogContent>
+          <Stack spacing={3} mt={1} minWidth={{xs: 250, sm: 350}}>
+            <TextField label="ชื่อของรางวัล" fullWidth variant="outlined" value={newPrize.name} onChange={(e) => setNewPrize({...newPrize, name: e.target.value})} InputProps={{sx: {borderRadius: 2}}} />
+            <TextField label="จำนวนรางวัลทั้งหมด (ชิ้น)" type="number" fullWidth variant="outlined" value={newPrize.totalQuantity} onChange={(e) => setNewPrize({...newPrize, totalQuantity: parseInt(e.target.value) || ''})} InputProps={{sx: {borderRadius: 2}}} />
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, pt: 0, justifyContent: 'center' }}>
+          <Button onClick={() => setOpenAddPrize(false)} sx={{ color: 'text.secondary' }}>ยกเลิก</Button>
+          <Button onClick={handleAddPrize} variant="contained" sx={{ bgcolor: Y.main, color: '#fff', borderRadius: 2, px: 3 }}>บันทึกรางวัล</Button>
+        </DialogActions>
+      </Dialog>
+
+
+      {/* ======================================================== */}
+      {/* Dialogs ที่ใช้ร่วมกัน */}
+      {/* ======================================================== */}
 
       {/* QR Code Dialog */}
       <Dialog open={qrDialogOpen} onClose={() => setQrDialogOpen(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 4, textAlign: 'center', p: 2 } }}>
@@ -294,7 +479,7 @@ export default function AdminParticipantsPage() {
          <DialogActions sx={{ justifyContent: 'center' }}><Button onClick={() => setQrDialogOpen(false)} variant="contained" color="primary">ปิดหน้าต่าง</Button></DialogActions>
       </Dialog>
 
-      {/* Edit Dialog 🌟 อัปเดตให้มีฟิลด์ครบและจัดเป็นหมวดหมู่ */}
+      {/* Edit Participant Dialog */}
       <Dialog open={openEditDialog} onClose={handleCloseDialog} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 4 } }}>
         <DialogTitle sx={{ textAlign: 'center', fontWeight: 800, color: Y.text, pt: 3 }}>
           แก้ไขข้อมูลผู้เข้าร่วม
@@ -305,27 +490,26 @@ export default function AdminParticipantsPage() {
         <Divider />
         <DialogContent sx={{ px: { xs: 3, sm: 4 }, py: 3 }}>
           <Stack spacing={2.5}>
+            <Autocomplete
+              multiple freeSolo options={[]} value={editTags} onChange={(event, newValue) => setEditTags(newValue)}
+              renderTags={(value, getTagProps) => value.map((option, index) => ( <Chip variant="outlined" label={option} {...getTagProps({ index })} color="primary" /> ))}
+              renderInput={(params) => ( <TextField {...params} variant="outlined" label="Tags บุคคลพิเศษ (พิมพ์แล้วกด Enter)" placeholder="เช่น VIP, สปอนเซอร์, ศิษย์เก่าดีเด่น" InputProps={{ ...params.InputProps, sx: { borderRadius: 2 } }} /> )}
+            />
             <TextField label="ชื่อ-นามสกุล" name="name" fullWidth value={editFields.name} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
-            
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="อีเมล" name="email" fullWidth value={editFields.email} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
               <TextField label="เบอร์โทรศัพท์" name="phone" fullWidth value={editFields.phone} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
             </Stack>
-
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="ภาควิชา" name="dept" fullWidth value={editFields.dept} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
               <TextField label="ปีการศึกษา (รุ่น)" name="date_year" fullWidth value={editFields.date_year} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
             </Stack>
-            
             <Divider sx={{ my: 1 }}><Chip label="ข้อมูลติดต่อจัดส่ง" size="small" /></Divider>
-            
             <TextField label="ที่อยู่จัดส่ง" name="usr_add" fullWidth multiline rows={2} value={editFields.usr_add} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
-            
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField label="รหัสไปรษณีย์" name="usr_add_post" fullWidth value={editFields.usr_add_post} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
               <TextField label="จำนวนผู้ติดตาม (คน)" type="number" fullWidth value={editFollowers} onChange={(e) => setEditFollowers(e.target.value)} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
             </Stack>
-
           </Stack>
         </DialogContent>
         <DialogActions sx={{ pb: 3, px: 4, justifyContent: 'center', gap: 1 }}>

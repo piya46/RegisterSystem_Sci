@@ -1,6 +1,7 @@
 // frontend/src/pages/RegistrationPointSelector.jsx
 import React, { useEffect, useState } from "react";
-import { listRegistrationPoints } from "../utils/api";
+// [แก้ไข] นำเข้า generateKioskToken จาก API
+import { listRegistrationPoints, generateKioskToken } from "../utils/api"; 
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button,
@@ -11,6 +12,7 @@ import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import HistoryIcon from "@mui/icons-material/History";
+import IosShareIcon from "@mui/icons-material/IosShare"; // [เพิ่ม] ไอคอนแชร์
 
 // Theme Configuration
 const THEME = {
@@ -20,11 +22,6 @@ const THEME = {
   text: "#4E342E"
 };
 
-/**
- * Props:
- * - redirectTo: path ปลายทาง (Default: /kiosk or /staff)
- * - title: Custom Title
- */
 export default function RegistrationPointSelector({ redirectTo: propRedirectTo, title }) {
   const [points, setPoints] = useState([]);
   const [selectedPoint, setSelectedPoint] = useState("");
@@ -33,8 +30,6 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
 
   const navigate = useNavigate();
   const location = useLocation();
-
-  // 🌟 ลบ const token = localStorage.getItem("token"); ออกเพราะใช้ Cookie แล้ว
 
   // Determine Destination
   const params = new URLSearchParams(location.search);
@@ -54,15 +49,12 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     setLoading(true);
     setError("");
     
-    // 🌟 ไม่ต้องส่ง token ในฟังก์ชันแล้ว
     listRegistrationPoints()
       .then((res) => {
          const allPoints = res.data || res || [];
-         // 🌟 กรองเฉพาะจุดที่เปิดใช้งาน (enabled === true หรือ isActive === true)
          const activePoints = allPoints.filter(p => p.enabled === true || p.isActive === true);
          setPoints(activePoints);
          
-         // ถ้าจุดที่เคยเลือกไว้โดนปิดไปแล้ว ให้เคลียร์ค่าทิ้ง
          const lastUsed = localStorage.getItem("lastPoint");
          if (lastUsed && !activePoints.find(p => p._id === lastUsed || p.id === lastUsed)) {
             setSelectedPoint("");
@@ -78,7 +70,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   useEffect(() => {
     fetchPoints();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // ลบ dependency token ออก
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -87,7 +79,20 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     navigate(`${targetPath}?point=${selectedPoint}`);
   };
 
-  // Check if current selection is the same as last used
+  // [เพิ่ม] ฟังก์ชันสร้างลิงก์สำหรับ Kiosk โหมด
+  const handleShareKiosk = async () => {
+    if (!selectedPoint) return;
+    try {
+      const res = await generateKioskToken(selectedPoint);
+      const link = `${window.location.origin}/kiosk/join/${res.data.token}`;
+      navigator.clipboard.writeText(link);
+      alert('คัดลอกลิงก์ Kiosk สำเร็จ! สามารถนำไปเปิดลงทะเบียนหน้างานที่เครื่องอื่นได้ทันที\n' + link);
+    } catch (err) {
+      console.error(err);
+      setError("ไม่สามารถสร้างลิงก์สำหรับ Kiosk ได้");
+    }
+  };
+
   const lastPointId = localStorage.getItem("lastPoint");
   const isLastUsed = lastPointId && lastPointId === selectedPoint;
 
@@ -219,25 +224,49 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                      </Box>
                   )}
 
-                  {/* Submit Button */}
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    size="large"
-                    disabled={!selectedPoint}
-                    endIcon={<ArrowForwardIcon />}
-                    sx={{
-                      borderRadius: 3,
-                      fontWeight: 800,
-                      py: 1.5,
-                      bgcolor: THEME.primary,
-                      color: "#4e342e",
-                      boxShadow: "0 8px 16px rgba(255, 193, 7, 0.4)",
-                      "&:hover": { bgcolor: THEME.dark }
-                    }}
-                  >
-                    ดำเนินการต่อ
-                  </Button>
+                  {/* [แก้ไข] จัดการปุ่มให้เป็น Stack แนวตั้งเพื่อเพิ่มปุ่ม Share Kiosk */}
+                  <Stack spacing={1.5} sx={{ mt: 1 }}>
+                    <Button
+                      type="submit"
+                      variant="contained"
+                      size="large"
+                      fullWidth
+                      disabled={!selectedPoint}
+                      endIcon={<ArrowForwardIcon />}
+                      sx={{
+                        borderRadius: 3,
+                        fontWeight: 800,
+                        py: 1.5,
+                        bgcolor: THEME.primary,
+                        color: "#4e342e",
+                        boxShadow: "0 8px 16px rgba(255, 193, 7, 0.4)",
+                        "&:hover": { bgcolor: THEME.dark }
+                      }}
+                    >
+                      ดำเนินการต่อ
+                    </Button>
+
+                    {/* [เพิ่ม] ปุ่มสำหรับแชร์ลิงก์ให้ Tablet เครื่องอื่น */}
+                    <Button
+                      type="button"
+                      variant="outlined"
+                      size="large"
+                      fullWidth
+                      disabled={!selectedPoint}
+                      onClick={handleShareKiosk}
+                      startIcon={<IosShareIcon />}
+                      sx={{
+                        borderRadius: 3,
+                        fontWeight: 700,
+                        py: 1.2,
+                        borderColor: THEME.primary,
+                        color: THEME.dark,
+                        "&:hover": { borderColor: THEME.dark, bgcolor: "#FFF8E1" }
+                      }}
+                    >
+                      แชร์ลิงก์ Kiosk (Public)
+                    </Button>
+                  </Stack>
 
                 </Stack>
               </form>

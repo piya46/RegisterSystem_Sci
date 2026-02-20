@@ -4,7 +4,8 @@ import useAuth from "../hooks/useAuth";
 import {
   AppBar, Toolbar, Box, Typography, Button, Avatar,
   Stack, Chip, Card, CardContent, Container, Tooltip, Menu, MenuItem, Divider, CssBaseline, Switch, Skeleton, Fade, FormControlLabel,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Grid
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Grid,
+  Snackbar, Alert
 } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 
@@ -30,6 +31,8 @@ import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import UpdateIcon from '@mui/icons-material/Update';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import IosShareIcon from '@mui/icons-material/IosShare';
+import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพิ่ม] ไอคอนถ้วยรางวัลสำหรับ Lucky Draw
 
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
@@ -150,6 +153,8 @@ export default function DashboardPage() {
   const countdownRef = useRef(null);
   const fetchSummaryRef = useRef(null);
 
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
   async function fetchSummary() {
     setLoadingSummary(true);
     try {
@@ -163,6 +168,12 @@ export default function DashboardPage() {
     setLoadingSummary(false);
     setRefreshCountdown(60);
   }
+
+  const handleSharePublicDashboard = () => {
+    const link = `${window.location.origin}/public/dashboard`;
+    navigator.clipboard.writeText(link);
+    setSnackbar({ open: true, message: 'คัดลอกลิงก์ Live Dashboard สำเร็จ! นำไปส่งต่อได้เลย', severity: 'success' });
+  };
 
   async function handleDownloadExcel() {
     try {
@@ -321,21 +332,50 @@ export default function DashboardPage() {
                     <Typography variant="body2" color="text.secondary" fontWeight={500}>อัปเดตล่าสุด: {new Date().toLocaleTimeString('th-TH')}</Typography>
                 </Stack>
             </Box>
-            <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 } }}>
+            
+            <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 }, flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
+              
+              {/* 🌟 [เพิ่ม] ปุ่มเข้าหน้า Lucky Draw */}
+              <Button 
+                component={Link} 
+                to="/admin/lucky-draw"
+                size="small" 
+                variant="contained" 
+                startIcon={<EmojiEventsIcon />} 
+                sx={{ borderRadius: 3, bgcolor: '#FF9800', color: '#fff', '&:hover': { bgcolor: '#F57C00' }, boxShadow: '0 4px 12px rgba(255, 152, 0, 0.4)' }}
+              >
+                สุ่มรางวัล
+              </Button>
+              
+              <Button 
+                size="small" 
+                variant="outlined" 
+                onClick={handleSharePublicDashboard} 
+                startIcon={<IosShareIcon />} 
+                sx={{ borderRadius: 3, borderColor: '#FFC107', color: '#F57F17', '&:hover': { bgcolor: '#FFF8E1', borderColor: '#F57F17' } }}
+              >
+                Share
+              </Button>
+              
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+              
               <FormControlLabel
                 control={<Switch checked={withFollowers} onChange={e => setWithFollowers(e.target.checked)} size="small" color="success" />}
-                label={<Typography variant="body2" fontWeight={600} color="text.secondary">รวมผู้ติดตามในกราฟ</Typography>}
+                label={<Typography variant="body2" fontWeight={600} color="text.secondary">รวมผู้ติดตาม</Typography>}
                 sx={{ ml: 1, mr: 0 }}
               />
-              <Divider orientation="vertical" flexItem />
+              
+              <Divider orientation="vertical" flexItem sx={{ display: { xs: 'none', sm: 'block' } }} />
+              
               <Button size="small" onClick={() => fetchSummary()} disabled={loadingSummary} startIcon={loadingSummary ? <CircularProgress size={14} color="inherit" /> : <TrendingUpIcon fontSize="small" />} sx={{ minWidth: 100, borderRadius: 3, bgcolor: '#FFF8E1', color: '#FF8F00', '&:hover': { bgcolor: '#FFECB3' } }}>
                 รีเฟรช ({refreshCountdown}s)
               </Button>
+              
             </Stack>
           </Stack>
 
           <ChartErrorBoundary>
-            {/* 🌟 1. Main Stats Cards (ปรับแยกผู้ติดตามให้เห็นชัดเจน) */}
+            {/* 🌟 1. Main Stats Cards */}
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} mb={4}>
               <StatCard 
                 title="ผู้ลงทะเบียนหลัก" 
@@ -355,7 +395,6 @@ export default function DashboardPage() {
                 subtext="ผู้เข้าร่วม + ผู้ติดตาม ที่เช็คอินแล้ว"
                 icon={<PeopleIcon />} color1="#AB47BC" color2="#7B1FA2" loading={loadingSummary} 
               />
-              {/* เปลี่ยนใบสุดท้ายเป็นยอดเงิน เพื่อให้ผู้บริหารเห็นง่ายๆ */}
               <StatCard 
                 title="ยอดสนับสนุนรวมทั้งหมด" 
                 value={`฿${totalDonationAmount.toLocaleString()}`} 
@@ -368,7 +407,6 @@ export default function DashboardPage() {
             {donationStats && (
               <Box sx={{ mb: 4 }}>
                 <Grid container spacing={3}>
-                    {/* Breakdown */}
                     <Grid item xs={12} md={5}>
                         <Card sx={{ height: '100%', bgcolor: '#fff', border: '1px solid #FFECB3' }}>
                             <CardContent>
@@ -395,7 +433,6 @@ export default function DashboardPage() {
                         </Card>
                     </Grid>
 
-                    {/* Recent Transactions Table */}
                     <Grid item xs={12} md={7}>
                         <Card sx={{ height: '100%' }}>
                             <CardContent sx={{ p: 0 }}>
@@ -499,7 +536,6 @@ export default function DashboardPage() {
 
             {/* Tables Section */}
             <Stack spacing={4}>
-                {/* 🌟 3. ตารางแยกตามจุดลงทะเบียน (แยกผู้ติดตามแล้ว) */}
                 <Card>
                   <CardContent>
                     <Typography variant="h6" fontWeight={800} gutterBottom>สถิติปริมาณคน แยกตามจุดลงทะเบียน</Typography>
@@ -648,6 +684,18 @@ export default function DashboardPage() {
         </Container>
 
         <ChangePasswordDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
+        
+        <Snackbar 
+          open={snackbar.open} 
+          autoHideDuration={4000} 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2, fontWeight: 'bold' }} variant="filled">
+            {snackbar.message}
+          </Alert>
+        </Snackbar>
+
       </Box>
     </ThemeProvider>
   );

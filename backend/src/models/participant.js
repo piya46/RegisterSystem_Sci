@@ -5,6 +5,7 @@ const participantSchema = new mongoose.Schema({
 
 
   fields: { type: Object, default: {} },
+  tags: [{ type: String, trim: true }],
 
   status: {
     type: String,
