@@ -1,4 +1,3 @@
-// src/pages/AdminPage.jsx
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box, Typography, Card, CardContent, Button,
@@ -81,10 +80,11 @@ const stringAvatar = (name) => {
   return { children: n.charAt(0).toUpperCase() };
 };
 
-const AUTO_REFRESH_SEC = 10; // ปรับเวลาให้เหมาะสมขึ้น
+const AUTO_REFRESH_SEC = 10; 
 
 export default function AdminPage() {
-  const { token, user } = useAuth();
+  // ✅ เอา token ออก
+  const { user } = useAuth();
   const [admins, setAdmins] = useState([]);
   const [fetching, setFetching] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -97,20 +97,24 @@ export default function AdminPage() {
   const [pointsList, setPointsList] = useState([]);
 
   const fetchAdmins = useCallback(() => {
-    if (!token) return;
+    // ✅ ไม่ต้องเช็ค !token แล้ว แต่เช็ค !user แทน
+    if (!user) return; 
     setFetching(true);
-    api.listAdmins(token)
+    // ✅ ไม่ต้องส่ง token ไป
+    api.listAdmins()
       .then(res => setAdmins(res.data || []))
       .catch(() => setAdmins([]))
       .finally(() => setFetching(false));
     setRefreshCountdown(AUTO_REFRESH_SEC);
-  }, [token]);
+  }, [user]);
 
   useEffect(() => {
-    api.listRegistrationPoints(token)
+    if (!user) return;
+    // ✅ ไม่ต้องส่ง token ไป
+    api.listRegistrationPoints()
        .then(res => setPointsList(res.data || res || []))
        .catch(err => console.error("Load points failed", err));
-  }, [token]);
+  }, [user]);
 
   useEffect(() => {
     fetchAdmins();
@@ -137,7 +141,8 @@ export default function AdminPage() {
       return;
     }
     if (!window.confirm("ยืนยันการลบผู้ใช้นี้?")) return;
-    await api.deleteAdmin(id, token);
+    // ✅ ไม่ต้องส่ง token ไป
+    await api.deleteAdmin(id);
     fetchAdmins();
   };
 
@@ -145,8 +150,9 @@ export default function AdminPage() {
   const handleOpenEdit = (admin) => { setEditData(admin); setDialogOpen(true); };
 
   const handleDialogSave = async (data) => {
-    if (editData) await api.updateAdmin(editData._id, data, token);
-    else          await api.createAdmin(data, token);
+    // ✅ ไม่ต้องส่ง token ไป
+    if (editData) await api.updateAdmin(editData._id, data);
+    else          await api.createAdmin(data);
     setDialogOpen(false);
     fetchAdmins();
   };
@@ -161,10 +167,12 @@ export default function AdminPage() {
     if (!passwordTarget) return;
     const isSelf = (passwordTarget._id === user?._id) || (passwordTarget.id === user?.id);
     if (isSelf) {
-      await api.changePassword({ password: newPassword }, token);
+      // ✅ ไม่ต้องส่ง token ไป
+      await api.changePassword({ password: newPassword });
       alert("เปลี่ยนรหัสผ่านของคุณสำเร็จ");
     } else {
-      await api.resetPassword({ userId: passwordTarget._id, newPassword }, token);
+      // ✅ ไม่ต้องส่ง token ไป
+      await api.resetPassword({ userId: passwordTarget._id, newPassword });
       alert("รีเซ็ตรหัสผ่านสำเร็จ และส่งอีเมลแจ้งผู้ใช้แล้ว");
     }
     setPasswordDialogOpen(false);
@@ -203,19 +211,18 @@ export default function AdminPage() {
             </Typography>
           </Box>
           <Button
-        variant="outlined"
-        startIcon={<HistoryIcon />}
-        onClick={() => navigate("/admin/sessions")}
-        sx={{ 
-            color: "#6d4c41", 
-            borderColor: "#6d4c41",
-            borderRadius: 3,
-            fontWeight: 700 
-        }}
-    >
-        จัดการ Sessions
-    </Button>
-          
+            variant="outlined"
+            startIcon={<HistoryIcon />}
+            onClick={() => navigate("/admin/sessions")}
+            sx={{ 
+                color: "#6d4c41", 
+                borderColor: "#6d4c41",
+                borderRadius: 3,
+                fontWeight: 700 
+            }}
+          >
+            จัดการ Sessions
+          </Button>
 
           {canEdit && (
              <Button
@@ -272,7 +279,6 @@ export default function AdminPage() {
         {/* Main Content Card */}
         <StyledCard>
           <Box sx={{ position: 'relative', height: 4 }}>
-             {/* Subtle Loading Bar */}
              <LinearProgress
                 variant="determinate"
                 value={progressValue}
@@ -327,7 +333,6 @@ export default function AdminPage() {
                   ) : (
                     admins.map((admin) => {
                       const isSelf = admin._id === user?._id || admin.id === user?.id;
-                      // Logic: ถ้าไม่ใช่ admin ใหญ่ (canEdit) ให้เห็นแค่ตัวเอง
                       if (!canEdit && !isSelf) return null;
 
                       return (

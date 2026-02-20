@@ -1,10 +1,10 @@
 // frontend/src/pages/RegistrationPointSelector.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { listRegistrationPoints } from "../utils/api";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button,
-  CircularProgress, Alert, Stack, Avatar, Chip, InputAdornment, Container
+  CircularProgress, Alert, Stack, Avatar, InputAdornment, Container
 } from "@mui/material";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
@@ -15,7 +15,7 @@ import HistoryIcon from "@mui/icons-material/History";
 // Theme Configuration
 const THEME = {
   gradientBg: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #ffe082 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)",
-  primary: "#FFC107", // Amber
+  primary: "#FFC107", 
   dark: "#F57F17",
   text: "#4E342E"
 };
@@ -33,7 +33,8 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
 
   const navigate = useNavigate();
   const location = useLocation();
-  const token = localStorage.getItem("token");
+
+  // 🌟 ลบ const token = localStorage.getItem("token"); ออกเพราะใช้ Cookie แล้ว
 
   // Determine Destination
   const params = new URLSearchParams(location.search);
@@ -52,11 +53,24 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   const fetchPoints = () => {
     setLoading(true);
     setError("");
-    listRegistrationPoints(token)
-      .then((res) => setPoints(res.data || res || []))
+    
+    // 🌟 ไม่ต้องส่ง token ในฟังก์ชันแล้ว
+    listRegistrationPoints()
+      .then((res) => {
+         const allPoints = res.data || res || [];
+         // 🌟 กรองเฉพาะจุดที่เปิดใช้งาน (enabled === true หรือ isActive === true)
+         const activePoints = allPoints.filter(p => p.enabled === true || p.isActive === true);
+         setPoints(activePoints);
+         
+         // ถ้าจุดที่เคยเลือกไว้โดนปิดไปแล้ว ให้เคลียร์ค่าทิ้ง
+         const lastUsed = localStorage.getItem("lastPoint");
+         if (lastUsed && !activePoints.find(p => p._id === lastUsed || p.id === lastUsed)) {
+            setSelectedPoint("");
+         }
+      })
       .catch((err) => {
         console.error(err);
-        setError("Failed to load registration points.");
+        setError("ไม่สามารถโหลดข้อมูลจุดลงทะเบียนได้");
       })
       .finally(() => setLoading(false));
   };
@@ -64,7 +78,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   useEffect(() => {
     fetchPoints();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, []); // ลบ dependency token ออก
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -96,7 +110,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
             background: "rgba(255, 255, 255, 0.85)",
             backdropFilter: "blur(12px)",
             border: "1px solid rgba(255, 193, 7, 0.3)",
-            overflow: "visible" // Allow Avatar to float if needed
+            overflow: "visible" 
           }}
         >
           <CardContent sx={{ p: 4, textAlign: "center" }}>
@@ -117,10 +131,10 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
 
             {/* Header */}
             <Typography variant="h5" fontWeight={800} sx={{ color: THEME.text, mb: 0.5 }}>
-              {title || "Select Registration Point"}
+              {title || "เลือกจุดลงทะเบียน"}
             </Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-              Choose your location to proceed
+              กรุณาเลือกสถานที่/จุดปฏิบัติงานของคุณ
             </Typography>
 
             {/* Content Area */}
@@ -128,7 +142,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
               <Box sx={{ py: 4 }}>
                 <CircularProgress sx={{ color: THEME.primary }} />
                 <Typography variant="caption" display="block" sx={{ mt: 2, color: "text.secondary" }}>
-                  Loading Points...
+                  กำลังโหลดข้อมูล...
                 </Typography>
               </Box>
             ) : error ? (
@@ -136,7 +150,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                 severity="error" 
                 action={
                   <Button color="inherit" size="small" onClick={fetchPoints} startIcon={<RefreshIcon />}>
-                    Retry
+                    ลองใหม่
                   </Button>
                 }
                 sx={{ borderRadius: 3, mb: 2, textAlign: "left" }}
@@ -150,7 +164,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                   {/* Selector */}
                   <TextField
                     select
-                    label="Registration Point"
+                    label="สถานที่จุดลงทะเบียน"
                     value={selectedPoint}
                     onChange={(e) => setSelectedPoint(e.target.value)}
                     fullWidth
@@ -168,18 +182,23 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                         bgcolor: "#fff",
                         "& fieldset": { borderColor: "#FFECB3" },
                         "&:hover fieldset": { borderColor: THEME.primary },
-                        "&.Mui-focused fieldset": { borderColor: THEME.primary }
+                        "&.Mui-focused fieldset": { borderColor: THEME.primary },
+                        textAlign: "left"
                       }
                     }}
                   >
                     <MenuItem value="" disabled>
-                      <em>-- Select Location --</em>
+                      <em>-- กรุณาเลือก --</em>
                     </MenuItem>
-                    {points.map((p) => (
-                      <MenuItem key={p._id || p.id} value={p._id || p.id}>
-                        {p.name}
-                      </MenuItem>
-                    ))}
+                    {points.length === 0 ? (
+                      <MenuItem value="" disabled>ไม่มีจุดลงทะเบียนที่เปิดใช้งาน</MenuItem>
+                    ) : (
+                      points.map((p) => (
+                        <MenuItem key={p._id || p.id} value={p._id || p.id}>
+                          {p.name}
+                        </MenuItem>
+                      ))
+                    )}
                   </TextField>
 
                   {/* Feedback / Status */}
@@ -195,7 +214,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                      >
                         {isLastUsed ? <HistoryIcon color="warning" fontSize="small"/> : <CheckCircleIcon color="success" fontSize="small"/>}
                         <Typography variant="caption" fontWeight={600} color={isLastUsed ? "warning.dark" : "success.dark"}>
-                           {isLastUsed ? "Last Used Location" : "Location Selected"}
+                           {isLastUsed ? "ใช้งานล่าสุด" : "เลือกจุดนี้"}
                         </Typography>
                      </Box>
                   )}
@@ -217,13 +236,8 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                       "&:hover": { bgcolor: THEME.dark }
                     }}
                   >
-                    Next
+                    ดำเนินการต่อ
                   </Button>
-
-                  {/* Destination Hint */}
-                  <Typography variant="caption" color="text.disabled">
-                    Target Path: <b>{targetPath}</b>
-                  </Typography>
 
                 </Stack>
               </form>

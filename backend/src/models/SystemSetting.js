@@ -4,6 +4,8 @@ const systemSettingSchema = new mongoose.Schema({
   eventName: { type: String, default: 'Event Name' },
   enableRegister: { type: Boolean, default: true },
   maintenanceMode: { type: Boolean, default: false },
+  enablePickup: { type: Boolean, default: true },   // เพิ่มบรรทัดนี้: เปิดให้รับหน้างาน
+  enableDelivery: { type: Boolean, default: true },
   contactEmail: { type: String, default: '' },
   welcomeMessage: { type: String, default: '' },
   

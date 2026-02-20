@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const cookieParser = require('cookie-parser'); // ✅ 1. นำเข้า cookie-parser
 
 // 1. นำเข้า Middleware และ Helpers
 const rateLimit = require('express-rate-limit');
@@ -26,6 +27,7 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(express.json());
+app.use(cookieParser()); // ✅ 2. เปิดใช้งาน cookie-parser
 
 // 3. ตั้งค่า CORS (Cross-Origin Resource Sharing)
 const rawOrigin = process.env.CORS_ORIGIN;
@@ -41,14 +43,14 @@ const corsOptions = {
   origin: originOption, 
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true 
+  credentials: true // ✅ 3. ต้องเป็น true เพื่อให้อนุญาตการส่ง Cookie ข้ามโดเมนได้
 };
 app.use(cors(corsOptions));
 
 // 4. ตั้งค่า Rate Limit ป้องกันการสแปม (Brute-force)
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 นาที
-  max: 100, // ปรับให้จำกัดที่ 100 ครั้งต่อ 15 นาที (300 อาจจะเยอะไปสำหรับ API ทั่วไป)
+  max: 3000, 
   standardHeaders: true, 
   legacyHeaders: false, 
   message: { error: "ยิง Request ถี่เกินไป กรุณารอสักครู่ (Too many requests)" }
@@ -79,16 +81,14 @@ app.use('/api/packages', packageRoutes);
 
 // 8. จัดการ Error (Global Error Handler) ต้องอยู่ล่างสุดเสมอ!
 app.use((err, req, res, next) => {
-  // บันทึก Audit Log ทันทีที่มี Error เกิดขึ้นในระบบ
   auditLog({
     req,
     action: 'ERROR',
     detail: '',
     status: err.statusCode || 500,
     error: err.stack || String(err)
-  }).catch(console.error); // ใส่ catch เผื่อตัว auditLog เองเกิดบัค จะได้ไม่ทำให้เซิร์ฟเวอร์ค้าง
+  }).catch(console.error); 
 
-  // โยน Error ไปให้ errorHandler กลางจัดการส่ง Response กลับไปหา Frontend
   errorHandler(err, req, res, next);
 });
 

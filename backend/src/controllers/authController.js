@@ -8,7 +8,7 @@ const verifyTurnstile = require('../utils/verifyTurnstile');
 const { generateOTP, generateRef } = require('../utils/otp'); // ✅ OTP 8 หลัก
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
-const { OAuth2Client } = require('google-auth-library'); // ✅ เพิ่ม import
+const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 
 // --- Login ---
@@ -58,8 +58,16 @@ exports.login = async (req, res) => {
         userId: admin._id, token, userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
     });
 
+    // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
+    res.cookie('token', token, {
+        httpOnly: true, 
+        secure: process.env.NODE_ENV === 'production', 
+        sameSite: 'lax', 
+        maxAge: expiresInMs 
+    });
+
     res.json({
-        token,
+        success: true, // ✅ ไม่ต้องส่ง token ไปใน JSON แล้ว
         admin: {
             id: admin._id, username: admin.username, role: admin.role,
             email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
@@ -100,12 +108,10 @@ exports.verify = async (req, res) => {
     }
 };
 
-
 exports.googleLogin = async (req, res) => {
     const { token } = req.body;
 
     try {
-        // 1. Verify Token กับ Google
         const ticket = await client.verifyIdToken({
             idToken: token,
             audience: process.env.LOGIN_CLIENT_ID,
@@ -113,7 +119,6 @@ exports.googleLogin = async (req, res) => {
         const payload = ticket.getPayload();
         const { email, sub: googleId, picture } = payload;
 
-        // 2. ตรวจสอบว่ามีอีเมลนี้ในระบบหรือไม่
         const admin = await Admin.findOne({ email });
 
         if (!admin) {
@@ -124,29 +129,23 @@ exports.googleLogin = async (req, res) => {
             });
         }
 
-        // 3. ผูกบัญชี (Link Account) ถ้ายังไม่เคยผูก หรืออัปเดตข้อมูล
         if (!admin.googleId) {
             admin.googleId = googleId;
-            if (!admin.avatarUrl) admin.avatarUrl = picture; // ใช้อรูปจาก Google ถ้ายังไม่มี
+            if (!admin.avatarUrl) admin.avatarUrl = picture; 
             await admin.save();
             auditLog({ req, action: 'GOOGLE_BIND', detail: `Linked ${email} with Google` });
         }
 
-        // 4. สร้าง Session (Logic เดียวกับ Login ปกติ)
         const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
         const expiresInMs = ms(jwtExpiresIn);
         const expiresAt = new Date(Date.now() + expiresInMs);
 
-        // ลบ Session เก่าที่หมดอายุ
         await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
 
-        // เช็คจำนวน Session
         const activeSessionCount = await Session.countDocuments({
             userId: admin._id, revoked: false, expiresAt: { $gt: new Date() }
         });
         if (activeSessionCount >= 3) {
-             // อนุโลมให้ login ได้แต่ต้องเตือน หรือ ลบอันเก่าสุด (ในที่นี้ทำตาม Logic เดิมคือ block)
-             // หรือคุณอาจเลือกที่จะลบ session เก่าสุดอัตโนมัติเพื่อให้ Google Login สะดวกขึ้น
              return res.status(400).json({ error: 'Login from too many devices (Max 3)' });
         }
 
@@ -159,8 +158,16 @@ exports.googleLogin = async (req, res) => {
 
         auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });
 
+        // ✅ สร้าง HttpOnly Cookie สำหรับ Google Login
+        res.cookie('token', jwtToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: expiresInMs
+        });
+
         res.json({
-            token: jwtToken,
+            success: true, // ✅ ไม่ต้องส่ง token กลับไปแล้ว
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
                 email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
@@ -175,7 +182,6 @@ exports.googleLogin = async (req, res) => {
 
 // --- FORGOT PASSWORD SECTION (Self-Service) ---
 
-// 1. ขอ OTP สำหรับรีเซตรหัสผ่าน (ลืมรหัส)
 exports.requestPasswordReset = async (req, res) => {
     try {
         const { username } = req.body;
@@ -193,7 +199,6 @@ exports.requestPasswordReset = async (req, res) => {
         admin.resetPasswordExpires = expiresAt;
         await admin.save();
 
-        // ใช้ Template ลูกเสือ
         const htmlContent = getOtpTemplate(otp, ref, admin.username, 'ลืมรหัสผ่าน');
 
         await sendMail(
@@ -212,7 +217,6 @@ exports.requestPasswordReset = async (req, res) => {
     }
 };
 
-// 2. ยืนยัน OTP และตั้งรหัสใหม่ (ลืมรหัส)
 exports.resetPasswordWithOtp = async (req, res) => {
     try {
         const { username, otp, newPassword } = req.body;
@@ -220,7 +224,6 @@ exports.resetPasswordWithOtp = async (req, res) => {
 
         if (!admin) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
 
-        // Validate OTP
         if (!admin.resetPasswordOtp || admin.resetPasswordOtp !== otp) {
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
@@ -228,10 +231,8 @@ exports.resetPasswordWithOtp = async (req, res) => {
             return res.status(400).json({ error: 'รหัส OTP หมดอายุ' });
         }
 
-        // Reset Password
         admin.passwordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
         
-        // Clear OTP
         admin.resetPasswordOtp = undefined;
         admin.resetPasswordRef = undefined;
         admin.resetPasswordExpires = undefined;

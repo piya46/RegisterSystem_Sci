@@ -58,7 +58,14 @@ export default function AdminParticipantsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [editFields, setEditFields] = useState({ name: '', phone: '', dept: '', date_year: '' });
+  
+  // 🌟 เพิ่ม email, usr_add (ที่อยู่) และ usr_add_post (รหัสไปรษณีย์)
+  const [editFields, setEditFields] = useState({ 
+    name: '', phone: '', dept: '', date_year: '', 
+    email: '', usr_add: '', usr_add_post: '' 
+  });
+  // 🌟 แยก followers ออกมาเพราะเก็บอยู่นอก fields
+  const [editFollowers, setEditFollowers] = useState(0); 
   
   // สถานะสำหรับโชว์ QR Code
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
@@ -112,23 +119,38 @@ export default function AdminParticipantsPage() {
     }
   };
 
+  // 🌟 ดึงข้อมูลมาแสดงในหน้าต่างแก้ไข
   const handleEditClick = (participant) => {
     setEditId(participant._id);
-    setEditFields({ name: participant.fields.name || '', phone: participant.fields.phone || '', dept: participant.fields.dept || '', date_year: participant.fields.date_year || '' });
+    setEditFields({ 
+      name: participant.fields.name || '', 
+      phone: participant.fields.phone || '', 
+      dept: participant.fields.dept || '', 
+      date_year: participant.fields.date_year || '',
+      email: participant.fields.email || '',
+      usr_add: participant.fields.usr_add || '',
+      usr_add_post: participant.fields.usr_add_post || ''
+    });
+    setEditFollowers(participant.followers || 0); // ดึงจำนวนผู้ติดตาม
     setOpenEditDialog(true);
   };
 
   const handleCloseDialog = () => { setOpenEditDialog(false); setEditId(null); };
 
-  // ✅ เพิ่มฟังก์ชันที่หายไปตรงนี้ เพื่อให้พิมพ์ข้อมูลใน Dialog แก้ไขได้
   const handleDialogInputChange = (e) => {
     const { name, value } = e.target;
     setEditFields(prev => ({ ...prev, [name]: value }));
   };
 
+  // 🌟 บันทึกข้อมูลกลับไปที่ API
   const handleSaveEdit = async () => {
     try {
-      await updateParticipant(editId, { fields: editFields }, token);
+      // อัปเดตทั้ง fields และ followers
+      await updateParticipant(editId, { 
+        fields: editFields, 
+        followers: Number(editFollowers) 
+      }, token);
+      
       setSnackbar({ open: true, message: 'บันทึกการแก้ไขแล้ว', severity: 'success' });
       handleCloseDialog();
       fetchParticipants();
@@ -141,6 +163,7 @@ export default function AdminParticipantsPage() {
     const dataToExport = filteredParticipants.map(p => ({
       ชื่อ: p.fields.name || '',
       เบอร์โทร: p.fields.phone || '',
+      อีเมล: p.fields.email || '',
       สถานะ: p.status || '',
       เวลาเช็คอิน: formatCheckinDate(p.checkedInAt),
       ภาควิชา: p.fields.dept || '',
@@ -271,19 +294,44 @@ export default function AdminParticipantsPage() {
          <DialogActions sx={{ justifyContent: 'center' }}><Button onClick={() => setQrDialogOpen(false)} variant="contained" color="primary">ปิดหน้าต่าง</Button></DialogActions>
       </Dialog>
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog 🌟 อัปเดตให้มีฟิลด์ครบและจัดเป็นหมวดหมู่ */}
       <Dialog open={openEditDialog} onClose={handleCloseDialog} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: 4 } }}>
-        <DialogTitle sx={{ textAlign: 'center', fontWeight: 800, color: Y.text, pt: 3 }}>แก้ไขข้อมูลผู้เข้าร่วม<IconButton aria-label="close" onClick={handleCloseDialog} sx={{ position: 'absolute', right: 8, top: 8, color: (theme) => theme.palette.grey[500] }}><CloseIcon /></IconButton></DialogTitle>
+        <DialogTitle sx={{ textAlign: 'center', fontWeight: 800, color: Y.text, pt: 3 }}>
+          แก้ไขข้อมูลผู้เข้าร่วม
+          <IconButton aria-label="close" onClick={handleCloseDialog} sx={{ position: 'absolute', right: 8, top: 8, color: (theme) => theme.palette.grey[500] }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
         <Divider />
-        <DialogContent sx={{ px: 4, py: 3 }}>
+        <DialogContent sx={{ px: { xs: 3, sm: 4 }, py: 3 }}>
           <Stack spacing={2.5}>
             <TextField label="ชื่อ-นามสกุล" name="name" fullWidth value={editFields.name} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
-            <TextField label="เบอร์โทรศัพท์" name="phone" fullWidth value={editFields.phone} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
-            <TextField label="ภาควิชา" name="dept" fullWidth value={editFields.dept} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
-            <TextField label="ปีการศึกษา" name="date_year" fullWidth value={editFields.date_year} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+            
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="อีเมล" name="email" fullWidth value={editFields.email} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+              <TextField label="เบอร์โทรศัพท์" name="phone" fullWidth value={editFields.phone} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+            </Stack>
+
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="ภาควิชา" name="dept" fullWidth value={editFields.dept} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+              <TextField label="ปีการศึกษา (รุ่น)" name="date_year" fullWidth value={editFields.date_year} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+            </Stack>
+            
+            <Divider sx={{ my: 1 }}><Chip label="ข้อมูลติดต่อจัดส่ง" size="small" /></Divider>
+            
+            <TextField label="ที่อยู่จัดส่ง" name="usr_add" fullWidth multiline rows={2} value={editFields.usr_add} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+            
+            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+              <TextField label="รหัสไปรษณีย์" name="usr_add_post" fullWidth value={editFields.usr_add_post} onChange={handleDialogInputChange} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+              <TextField label="จำนวนผู้ติดตาม (คน)" type="number" fullWidth value={editFollowers} onChange={(e) => setEditFollowers(e.target.value)} variant="outlined" InputProps={{ sx: { borderRadius: 2 } }} />
+            </Stack>
+
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ pb: 3, px: 4, justifyContent: 'center' }}><Button onClick={handleCloseDialog} variant="outlined" sx={{ borderRadius: 2, px: 3, borderColor: 'text.secondary', color: 'text.secondary' }}>ยกเลิก</Button><Button onClick={handleSaveEdit} variant="contained" sx={{ borderRadius: 2, px: 4, fontWeight: 700, bgcolor: Y.main, color: '#fff', ":hover": { bgcolor: Y.dark } }}>บันทึกข้อมูล</Button></DialogActions>
+        <DialogActions sx={{ pb: 3, px: 4, justifyContent: 'center', gap: 1 }}>
+          <Button onClick={handleCloseDialog} variant="outlined" sx={{ borderRadius: 2, px: 3, borderColor: 'text.secondary', color: 'text.secondary' }}>ยกเลิก</Button>
+          <Button onClick={handleSaveEdit} variant="contained" sx={{ borderRadius: 2, px: 4, fontWeight: 700, bgcolor: Y.main, color: '#fff', ":hover": { bgcolor: Y.dark } }}>บันทึกข้อมูล</Button>
+        </DialogActions>
       </Dialog>
 
       <Snackbar open={snackbar.open} autoHideDuration={3000} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} onClose={() => setSnackbar({ ...snackbar, open: false })}>

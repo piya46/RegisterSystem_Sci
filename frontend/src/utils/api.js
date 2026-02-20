@@ -3,17 +3,11 @@ import axios from 'axios';
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '/api', 
   timeout: 30000, 
+  withCredentials: true // ✅ บอกให้ Axios ส่ง HttpOnly Cookie ไปด้วยเสมอ
 });
 
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+// ✅ ลบ Interceptor อันเก่าที่ทำหน้าที่ดึง token จาก localStorage แล้วเอามาต่อ Header ทิ้งไปได้เลย 
+// เพราะ Browser จัดการเรื่องแนบ Cookie ให้เราแล้ว
 
 // ==========================================
 // 🔐 Auth & Self-Service
