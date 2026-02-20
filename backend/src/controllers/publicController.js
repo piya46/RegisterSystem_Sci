@@ -19,7 +19,7 @@ exports.generateKioskToken = async (req, res) => {
 exports.getPublicReport = async (req, res) => {
   try {
     const participants = await Participant.find({ isDeleted: false, status: 'checkedIn' }, 'fields.name fields.department registeredPoint checkedInAt tags').lean();
-    
+
     const maskedData = participants.map(p => {
       let maskedName = p.fields?.name ? p.fields.name.substring(0, 3) + '***' : 'Unknown';
       return {
@@ -38,10 +38,10 @@ exports.getPublicReport = async (req, res) => {
 exports.getPublicDashboardStats = async (req, res) => {
   try {
     const participants = await Participant.find(
-      { isDeleted: false, status: 'checkedIn' }, 
+      { isDeleted: false, status: 'checkedIn' },
       'fields.dept fields.date_year followers'
     ).lean();
-    
+
     let totalCheckedIn = participants.length;
     let totalFollowers = 0;
     let deptCount = {};
@@ -59,9 +59,9 @@ exports.getPublicDashboardStats = async (req, res) => {
       totalCheckedIn,
       totalFollowers,
       totalAttendees: totalCheckedIn + totalFollowers,
-      deptStats: Object.keys(deptCount).map(k => ({ name: k, count: deptCount[k] })).sort((a,b) => b.count - a.count),
-      yearStats: Object.keys(yearCount).map(k => ({ name: k, count: yearCount[k] })).sort((a,b) => b.count - a.count),
-      updatedAt: new Date() 
+      deptStats: Object.keys(deptCount).map(k => ({ name: k, count: deptCount[k] })).sort((a, b) => b.count - a.count),
+      yearStats: Object.keys(yearCount).map(k => ({ name: k, count: yearCount[k] })).sort((a, b) => b.count - a.count),
+      updatedAt: new Date()
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
@@ -71,15 +71,19 @@ exports.getPublicDashboardStats = async (req, res) => {
 // 🌟 [เพิ่มใหม่] สร้าง Master Token (กำหนดเวลาได้) สำหรับ Staff เอาไปให้คนอื่นสแกน
 exports.generateSelfRegisterLink = async (req, res) => {
   try {
-    const { pointId, validFrom, validUntil } = req.body;
+    const { pointId, validFrom, validUntil, forStaffId } = req.body;
     if (!pointId || !validFrom || !validUntil) {
       return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน และเวลาเริ่มต้น-สิ้นสุด ให้ครบถ้วน' });
     }
 
+    // 🌟 ถ้าเป็น Admin และมีการส่ง forStaffId มา ให้ใช้ forStaffId แทน ID ของคนกดสร้าง
+    const isAdmin = req.user.role && (Array.isArray(req.user.role) ? req.user.role.includes('admin') : req.user.role === 'admin');
+    const targetStaffId = (isAdmin && forStaffId) ? forStaffId : req.user._id;
+
     const payload = {
       role: 'self_register_master',
       pointId,
-      staffId: req.user._id,
+      staffId: targetStaffId,
       nbf: Math.floor(new Date(validFrom).getTime() / 1000), // Not Before (เวลาเริ่ม)
       exp: Math.floor(new Date(validUntil).getTime() / 1000) // Expiration (เวลาหมดอายุ)
     };
@@ -108,7 +112,7 @@ exports.requestShortSession = async (req, res) => {
     const shortToken = jwt.sign(
       { role: 'self_register_session', pointId: decoded.pointId, staffId: decoded.staffId },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' } 
+      { expiresIn: '15m' }
     );
 
     res.json({ shortToken, pointId: decoded.pointId });

@@ -114,7 +114,7 @@ exports.createParticipantByStaff = async (req, res) => {
     const { registrationPoint } = req.body;
     
     // [แก้ไข] อนุญาตถ้าเป็น Kiosk Shared Token หรือถ้าเป็นคนให้เช็คสิทธิ์ปกติ
-    const isKioskDevice = req.user.role?.includes('kiosk_device');
+    const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
     if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to register at this point.' });
     }
@@ -127,6 +127,7 @@ exports.createParticipantByStaff = async (req, res) => {
     const allowedFields = fieldsDef.map(f => f.name);
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
     const followers = Math.max(0, Number.parseInt(req.body.followers || 0, 10) || 0);
+    const consent = req.body.consent;
 
     const userFields = {};
     for (const f of allowedFields) {
@@ -152,7 +153,8 @@ exports.createParticipantByStaff = async (req, res) => {
       qrCode,
       registeredPoint: registrationPoint,
       registrationType: 'onsite',
-      followers
+      followers,
+      consent
     });
 
     res.json({ _id: participant._id, fields: participant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
@@ -275,7 +277,7 @@ exports.checkinByQr = async (req, res) => {
     if (!registrationPoint) return res.status(400).json({ error: 'registrationPoint is required.' });
     
     // [แก้ไข] รองรับ Kiosk token
-    const isKioskDevice = req.user.role?.includes('kiosk_device');
+    const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
     if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }

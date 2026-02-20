@@ -96,4 +96,7 @@ export const cancelPrizeWinner = (prizeId, winnerId) => api.post('/prizes/cancel
 export const generateSelfRegisterLink = (data) => api.post('/public/self-register-link', data);
 export const requestShortSession = (masterToken) => api.post('/public/request-short-session', { masterToken });
 
+export const getPublicPrizes = () => api.get('/public/prizes');
+
+
 export default api;

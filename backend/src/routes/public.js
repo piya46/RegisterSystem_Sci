@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const publicController = require('../controllers/publicController');
 const auth = require('../middleware/auth');
+const prizeController = require('../controllers/prizeController');
 
 router.get('/report', publicController.getPublicReport);
 router.get('/dashboard', publicController.getPublicDashboardStats);
@@ -10,6 +11,10 @@ router.post('/kiosk-token', auth, publicController.generateKioskToken);
 
 // 🌟 Routes สำหรับ Self-Registration (Mobile)
 router.post('/self-register-link', auth, publicController.generateSelfRegisterLink);
-router.post('/request-short-session', publicController.requestShortSession); 
+router.post('/request-short-session', publicController.requestShortSession);
+
+// 🌟 Public Prizes (For Public Lucky Draw Screen)
+router.get('/prizes', prizeController.listPrizes);
+
 
 module.exports = router;

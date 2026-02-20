@@ -1,17 +1,17 @@
 // frontend/src/App.jsx
 import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import { Box, Typography } from "@mui/material"; 
+import { Box, Typography } from "@mui/material";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import AdminPage from "./pages/AdminPage";
 import RegistrationPointPage from "./pages/RegistrationPointPage";
-import SystemSettingsPage from "./pages/SystemSettingsPage"; 
+import SystemSettingsPage from "./pages/SystemSettingsPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ProfilePage from "./pages/ProfilePage";
 import CheckinStaffPage from "./pages/CheckinStaffPage";
-import KioskPage from "./pages/KioskPage"; 
+import KioskPage from "./pages/KioskPage";
 import SelectPointPage from './pages/SelectPointPage';
 import AdminParticipantsPage from './pages/AdminParticipantsPage';
 import PreRegistrationPage from './pages/PreRegistrationPage';
@@ -24,7 +24,8 @@ import KioskJoinPage from "./pages/KioskJoinPage";
 import PublicReportPage from "./pages/PublicReportPage";
 import LuckyDrawPage from "./pages/LuckyDrawPage";
 import PublicDashboardPage from "./pages/PublicDashboardPage";
-import SelfRegisterPage from "./pages/SelfRegisterPage"; // 🌟 [เพิ่มนำเข้า]
+import SelfRegisterPage from "./pages/SelfRegisterPage";
+import PublicLuckyDrawPage from "./pages/PublicLuckyDrawPage"; // 🌟 [เพิ่มนำเข้า]
 
 export default function App() {
   return (
@@ -36,9 +37,10 @@ export default function App() {
             <Route path="/" element={<PreRegistrationPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-of-service" element={<TermsPage />} />
-            
+
             <Route path="/public/report" element={<PublicReportPage />} />
             <Route path="/public/dashboard" element={<PublicDashboardPage />} />
+            <Route path="/public/lucky-draw" element={<PublicLuckyDrawPage />} /> {/* 🌟 [เพิ่ม Route] */}
             <Route path="/kiosk/join/:token" element={<KioskJoinPage />} />
             <Route path="/self-register/:masterToken" element={<SelfRegisterPage />} /> {/* 🌟 [เพิ่ม Route] */}
 
@@ -48,7 +50,7 @@ export default function App() {
             <Route path="/admin" element={<ProtectedRoute roles={["admin"]}><AdminPage /></ProtectedRoute>} />
             <Route path="/registration-points" element={<ProtectedRoute roles={["admin"]}><RegistrationPointPage /></ProtectedRoute>} />
             <Route path="/admin/lucky-draw" element={<ProtectedRoute roles={["admin"]}><LuckyDrawPage /></ProtectedRoute>} />
-            
+
             <Route path="/staff" element={<ProtectedRoute roles={["admin", "staff"]}><CheckinStaffPage /></ProtectedRoute>} />
             <Route path="/kiosk" element={<ProtectedRoute roles={["kiosk", "admin", "staff"]}><KioskPage /></ProtectedRoute>} />
             <Route path="/select-point" element={<ProtectedRoute roles={["kiosk", "staff", "admin"]}><SelectPointPage /></ProtectedRoute>} />
@@ -62,7 +64,7 @@ export default function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </Box>
-        
+
         <Box component="footer" sx={{ textAlign: 'center', py: 2, bgcolor: '#f5f5f5', borderTop: '1px solid #e0e0e0' }}>
           <Typography variant="body2" color="text.secondary" fontWeight="500">
             &copy; copyright 2026 PSTDEV

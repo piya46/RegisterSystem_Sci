@@ -61,16 +61,20 @@ exports.getDashboardSummary = async (req, res) => {
     // -------- Peak Hour (รวมผู้ติดตาม) --------
     const peakHourAgg = await Participant.aggregate([
       { $match: { isDeleted: false, status: 'checkedIn', checkedInAt: { $ne: null } } },
-      { $project: {
+      {
+        $project: {
           hour: { $hour: { date: '$checkedInAt', timezone: 'Asia/Bangkok' } },
           followerCount: { $ifNull: ['$followers', 0] }
-      }},
-      { $group: {
+        }
+      },
+      {
+        $group: {
           _id: '$hour',
           participantCount: { $sum: 1 },
           followerCount: { $sum: '$followerCount' },
           totalCount: { $sum: { $add: [1, '$followerCount'] } }
-      }},
+        }
+      },
       { $sort: { totalCount: -1 } },
       { $limit: 1 }
     ]);
@@ -80,10 +84,12 @@ exports.getDashboardSummary = async (req, res) => {
     // -------- Peak Day (นับรายการลงทะเบียน) --------
     const peakDayAgg = await Participant.aggregate([
       { $match: { isDeleted: false, registeredAt: { $ne: null } } },
-      { $project: {
+      {
+        $project: {
           day: { $dateToString: { format: '%Y-%m-%d', date: '$registeredAt', timezone: 'Asia/Bangkok' } },
           followerCount: { $ifNull: ['$followers', 0] }
-      }},
+        }
+      },
       { $group: { _id: '$day', count: { $sum: 1 }, followerCount: { $sum: '$followerCount' } } },
       { $sort: { count: -1 } },
       { $limit: 1 }
@@ -94,195 +100,206 @@ exports.getDashboardSummary = async (req, res) => {
     // -------- Check-in by hour (มีทั้ง participantCount และ totalCount) --------
     const checkinByHour = await Participant.aggregate([
       { $match: { isDeleted: false, status: 'checkedIn', checkedInAt: { $ne: null } } },
-      { $project: {
+      {
+        $project: {
           hour: { $hour: { date: '$checkedInAt', timezone: 'Asia/Bangkok' } },
           followerCount: { $ifNull: ['$followers', 0] }
-      }},
-      { $group: {
+        }
+      },
+      {
+        $group: {
           _id: '$hour',
           participantCount: { $sum: 1 },
           followerCount: { $sum: '$followerCount' },
           totalCount: { $sum: { $add: [1, '$followerCount'] } }
-      }},
+        }
+      },
       { $sort: { _id: 1 } }
     ]);
 
     // -------- Registration by day (มีทั้ง count และ totalCount) --------
     const registrationByDay = await Participant.aggregate([
       { $match: { isDeleted: false, registeredAt: { $ne: null } } },
-      { $project: {
+      {
+        $project: {
           day: { $dateToString: { format: '%Y-%m-%d', date: '$registeredAt', timezone: 'Asia/Bangkok' } },
           followerCount: { $ifNull: ['$followers', 0] }
-      }},
-      { $group: {
+        }
+      },
+      {
+        $group: {
           _id: '$day',
           count: { $sum: 1 },
           followerCount: { $sum: '$followerCount' },
           totalCount: { $sum: { $add: [1, '$followerCount'] } }
-      }},
+        }
+      },
       { $sort: { _id: 1 } }
     ]);
 
-  // -------- By Registration Point (รองรับ OID/สตริง + เคส online/onsite + fallback ชื่อเดิม) --------
-const byRegistrationPoint = await Participant.aggregate([
-  { $match: { isDeleted: false, registeredPoint: { $ne: null } } },
+    // -------- By Registration Point (รองรับ OID/สตริง + เคส online/onsite + fallback ชื่อเดิม) --------
+    const byRegistrationPoint = await Participant.aggregate([
+      { $match: { isDeleted: false, registeredPoint: { $ne: null } } },
 
-  // ระบุชนิดค่า: objectId จริง, สตริง 24-hex, หรือสตริงทั่วไป
-  {
-    $addFields: {
-      _type: { $type: "$registeredPoint" },
-      _isHexStr: {
-        $and: [
-          { $eq: [{ $type: "$registeredPoint" }, "string"] },
-          { $regexMatch: { input: "$registeredPoint", regex: /^[a-f\d]{24}$/i } }
-        ]
-      }
-    }
-  },
-  {
-    $addFields: {
-      rp_oid: {
-        $cond: [
-          { $eq: ["$_type", "objectId"] },
-          "$registeredPoint",
-          { $cond: ["$_isHexStr", { $toObjectId: "$registeredPoint" }, null] }
-        ]
-      },
-      rp_nameRaw: {
-        $cond: [
-          { $or: [{ $eq: ["$_type", "objectId"] }, "$_isHexStr"] },
-          null,
-          { $toString: "$registeredPoint" }
-        ]
-      }
-    }
-  },
-  {
-    $addFields: {
-      rp_nameKey: {
-        $cond: [
-          { $ne: ["$rp_nameRaw", null] },
-          { $toLower: { $trim: { input: "$rp_nameRaw" } } },
-          null
-        ]
-      }
-    }
-  },
-
-  // รวมสถิติ
-  {
-    $group: {
-      _id: { oid: "$rp_oid", nameKey: "$rp_nameKey" },
-      registered: { $sum: 1 },
-      checkedIn: { $sum: { $cond: [{ $eq: ["$status", "checkedIn"] }, 1, 0] } },
-      cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
-      followerRegistered: { $sum: { $ifNull: ["$followers", 0] } },
-      followerCheckedIn: {
-        $sum: {
-          $cond: [{ $eq: ["$status", "checkedIn"] }, { $ifNull: ["$followers", 0] }, 0]
-        }
-      }
-    }
-  },
-
-  // หา RegistrationPoint:
-  // - ถ้า oid มี: จับคู่ _id
-  // - ถ้า nameKey มี: จับคู่ name แบบ case-insensitive
-  {
-    $lookup: {
-      from: "registrationpoints",
-      let: { oid: "$_id.oid", nameKey: "$_id.nameKey" },
-      pipeline: [
-        {
-          $match: {
-            $expr: {
-              $or: [
-                { $and: [{ $ne: ["$$oid", null] }, { $eq: ["$_id", "$$oid"] }] },
-                {
-                  $and: [
-                    { $ne: ["$$nameKey", null] },
-                    { $eq: [{ $toLower: { $trim: { input: "$name" } } }, "$$nameKey"] }
-                  ]
-                }
-              ]
-            }
+      // ระบุชนิดค่า: objectId จริง, สตริง 24-hex, หรือสตริงทั่วไป
+      {
+        $addFields: {
+          _type: { $type: "$registeredPoint" },
+          _isHexStr: {
+            $and: [
+              { $eq: [{ $type: "$registeredPoint" }, "string"] },
+              { $regexMatch: { input: "$registeredPoint", regex: /^[a-f\d]{24}$/i } }
+            ]
           }
-        },
-        { $limit: 1 }
-      ],
-      as: "pointDoc"
-    }
-  },
-  { $addFields: { _point: { $arrayElemAt: ["$pointDoc", 0] } } },
-
-  // ตั้งชื่อจุดตามลำดับ:
-  // 1) _point.name จากคอลเลกชัน
-  // 2) mapping ชื่อพิเศษ (online/onsite)
-  // 3) ฟื้นจาก nameKey (capitalize) ถ้ามี
-  // 4) สุดท้าย "ไม่ทราบจุด"
-  {
-    $addFields: {
-      _mappedName: {
-        $switch: {
-          branches: [
-            { case: { $eq: ["$_id.nameKey", "online"] }, then: "ลงทะเบียนออนไลน์" },
-            { case: { $eq: ["$_id.nameKey", "onsite"] }, then: "ลงทะเบียนหน้างาน" }
-          ],
-          default: null
         }
       },
-      _capFromKey: {
-        $cond: [
-          { $ne: ["$_id.nameKey", null] },
-          {
-            $concat: [
-              { $toUpper: { $substrCP: ["$_id.nameKey", 0, 1] } },
-              { $substrCP: ["$_id.nameKey", 1, { $strLenCP: "$_id.nameKey" }] }
+      {
+        $addFields: {
+          rp_oid: {
+            $cond: [
+              { $eq: ["$_type", "objectId"] },
+              "$registeredPoint",
+              { $cond: ["$_isHexStr", { $toObjectId: "$registeredPoint" }, null] }
             ]
           },
-          null
-        ]
-      }
-    }
-  },
-  {
-    $addFields: {
-      pointName: {
-        $ifNull: ["$_point.name", { $ifNull: ["$_mappedName", { $ifNull: ["$_capFromKey", "ไม่ทราบจุด"] }] }]
-      }
-    }
-  },
+          rp_nameRaw: {
+            $cond: [
+              { $or: [{ $eq: ["$_type", "objectId"] }, "$_isHexStr"] },
+              null,
+              { $toString: "$registeredPoint" }
+            ]
+          }
+        }
+      },
+      {
+        $addFields: {
+          rp_nameKey: {
+            $cond: [
+              { $ne: ["$rp_nameRaw", null] },
+              { $toLower: { $trim: { input: "$rp_nameRaw" } } },
+              null
+            ]
+          }
+        }
+      },
 
-  {
-    $project: {
-      pointId: "$_id",
-      pointName: 1,
-      registered: 1,
-      checkedIn: 1,
-      cancelled: 1,
-      followerRegistered: 1,
-      followerCheckedIn: 1,
-      totalRegisteredPeople: { $add: ["$registered", "$followerRegistered"] },
-      totalCheckedInPeople: { $add: ["$checkedIn", "$followerCheckedIn"] },
-      _id: 0
-    }
-  },
-  { $sort: { pointName: 1 } }
-]);
+      // รวมสถิติ
+      {
+        $group: {
+          _id: { oid: "$rp_oid", nameKey: "$rp_nameKey" },
+          registered: { $sum: 1 },
+          checkedIn: { $sum: { $cond: [{ $eq: ["$status", "checkedIn"] }, 1, 0] } },
+          cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+          followerRegistered: { $sum: { $ifNull: ["$followers", 0] } },
+          followerCheckedIn: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "checkedIn"] }, { $ifNull: ["$followers", 0] }, 0]
+            }
+          }
+        }
+      },
+
+      // หา RegistrationPoint:
+      // - ถ้า oid มี: จับคู่ _id
+      // - ถ้า nameKey มี: จับคู่ name แบบ case-insensitive
+      {
+        $lookup: {
+          from: "registrationpoints",
+          let: { oid: "$_id.oid", nameKey: "$_id.nameKey" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    { $and: [{ $ne: ["$$oid", null] }, { $eq: ["$_id", "$$oid"] }] },
+                    {
+                      $and: [
+                        { $ne: ["$$nameKey", null] },
+                        { $eq: [{ $toLower: { $trim: { input: "$name" } } }, "$$nameKey"] }
+                      ]
+                    }
+                  ]
+                }
+              }
+            },
+            { $limit: 1 }
+          ],
+          as: "pointDoc"
+        }
+      },
+      { $addFields: { _point: { $arrayElemAt: ["$pointDoc", 0] } } },
+
+      // ตั้งชื่อจุดตามลำดับ:
+      // 1) _point.name จากคอลเลกชัน
+      // 2) mapping ชื่อพิเศษ (online/onsite)
+      // 3) ฟื้นจาก nameKey (capitalize) ถ้ามี
+      // 4) สุดท้าย "ไม่ทราบจุด"
+      {
+        $addFields: {
+          _mappedName: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$_id.nameKey", "online"] }, then: "ลงทะเบียนออนไลน์" },
+                { case: { $eq: ["$_id.nameKey", "onsite"] }, then: "ลงทะเบียนหน้างาน" }
+              ],
+              default: null
+            }
+          },
+          _capFromKey: {
+            $cond: [
+              { $ne: ["$_id.nameKey", null] },
+              {
+                $concat: [
+                  { $toUpper: { $substrCP: ["$_id.nameKey", 0, 1] } },
+                  { $substrCP: ["$_id.nameKey", 1, { $strLenCP: "$_id.nameKey" }] }
+                ]
+              },
+              null
+            ]
+          }
+        }
+      },
+      {
+        $addFields: {
+          pointName: {
+            $ifNull: ["$_point.name", { $ifNull: ["$_mappedName", { $ifNull: ["$_capFromKey", "ไม่ทราบจุด"] }] }]
+          }
+        }
+      },
+
+      {
+        $project: {
+          pointId: "$_id",
+          pointName: 1,
+          registered: 1,
+          checkedIn: 1,
+          cancelled: 1,
+          followerRegistered: 1,
+          followerCheckedIn: 1,
+          totalRegisteredPeople: { $add: ["$registered", "$followerRegistered"] },
+          totalCheckedInPeople: { $add: ["$checkedIn", "$followerCheckedIn"] },
+          _id: 0
+        }
+      },
+      { $sort: { pointName: 1 } }
+    ]);
 
 
     // -------- By Department --------
     const byDepartment = await Participant.aggregate([
       { $match: { isDeleted: false, 'fields.dept': { $exists: true, $ne: null } } },
-      { $group: {
+      {
+        $group: {
           _id: '$fields.dept',
           registered: { $sum: 1 },
           checkedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
           followerRegistered: { $sum: { $ifNull: ['$followers', 0] } },
           followerCheckedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } }
-      }},
-      { $project: {
+        }
+      },
+      {
+        $project: {
           department: '$_id',
           registered: 1,
           checkedIn: 1,
@@ -292,22 +309,26 @@ const byRegistrationPoint = await Participant.aggregate([
           totalRegisteredPeople: { $add: ['$registered', '$followerRegistered'] },
           totalCheckedInPeople: { $add: ['$checkedIn', '$followerCheckedIn'] },
           _id: 0
-      }},
+        }
+      },
       { $sort: { department: 1 } }
     ]);
 
     // -------- By Year --------
     const byYear = await Participant.aggregate([
       { $match: { isDeleted: false, 'fields.date_year': { $exists: true, $ne: null } } },
-      { $group: {
+      {
+        $group: {
           _id: '$fields.date_year',
           registered: { $sum: 1 },
           checkedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
           followerRegistered: { $sum: { $ifNull: ['$followers', 0] } },
           followerCheckedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } }
-      }},
-      { $project: {
+        }
+      },
+      {
+        $project: {
           year: '$_id',
           registered: 1,
           checkedIn: 1,
@@ -317,7 +338,8 @@ const byRegistrationPoint = await Participant.aggregate([
           totalRegisteredPeople: { $add: ['$registered', '$followerRegistered'] },
           totalCheckedInPeople: { $add: ['$checkedIn', '$followerCheckedIn'] },
           _id: 0
-      }},
+        }
+      },
       { $sort: { year: 1 } }
     ]);
 
@@ -326,8 +348,18 @@ const byRegistrationPoint = await Participant.aggregate([
       { $match: { isDeleted: false, status: 'checkedIn', registeredBy: { $ne: null } } },
       { $group: { _id: '$registeredBy', count: { $sum: 1 } } },
       { $lookup: { from: 'admins', localField: '_id', foreignField: '_id', as: 'user' } },
-      { $unwind: '$user' },
-      { $project: { userId: '$user._id', username: '$user.username', fullName: '$user.fullName', count: 1 } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      { $project: { userId: '$user._id', username: { $ifNull: ['$user.username', 'Unknown'] }, fullName: { $ifNull: ['$user.fullName', 'Unknown'] }, count: 1 } },
+      { $sort: { count: -1 } }
+    ]);
+
+    // -------- ผู้ใช้ที่ลงทะเบียน (ทั้งหมด) --------
+    const registeredByUsers = await Participant.aggregate([
+      { $match: { isDeleted: false, registeredBy: { $ne: null } } },
+      { $group: { _id: '$registeredBy', count: { $sum: 1 } } },
+      { $lookup: { from: 'admins', localField: '_id', foreignField: '_id', as: 'user' } },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      { $project: { userId: '$user._id', username: { $ifNull: ['$user.username', 'Unknown'] }, fullName: { $ifNull: ['$user.fullName', 'Unknown'] }, count: 1 } },
       { $sort: { count: -1 } }
     ]);
 
@@ -405,6 +437,7 @@ const byRegistrationPoint = await Participant.aggregate([
 
       // admins & recents
       checkedInUsers,
+      registeredByUsers,
       lastCheckedIn
     });
   } catch (error) {
