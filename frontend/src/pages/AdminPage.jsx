@@ -1,9 +1,10 @@
+// frontend/src/pages/AdminPage.jsx
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Box, Typography, Card, CardContent, Button,
   Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, IconButton, Chip,
-  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert, Grid, Fade
+  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert, Grid, Fade, Checkbox
 } from "@mui/material";
 import { styled, keyframes } from "@mui/material/styles";
 
@@ -17,6 +18,9 @@ import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import SecurityIcon from "@mui/icons-material/Security";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 import SupervisorAccountIcon from "@mui/icons-material/SupervisorAccount";
+import HistoryIcon from "@mui/icons-material/History";
+import QrCode2Icon from "@mui/icons-material/QrCode2";
+import ViewModuleIcon from "@mui/icons-material/ViewModule";
 
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
@@ -24,8 +28,6 @@ import AdminUserDialog from "../components/AdminUserDialog";
 import AdminPasswordDialog from "../components/AdminPasswordDialog";
 import AdminGenerateLinkDialog from "../components/AdminGenerateLinkDialog";
 import { useNavigate } from "react-router-dom";
-import HistoryIcon from "@mui/icons-material/History";
-import QrCode2Icon from "@mui/icons-material/QrCode2";
 
 /* ---------- Premium Gold Theme ---------- */
 const Y = {
@@ -60,7 +62,7 @@ const StyledCard = styled(Card)(({ theme }) => ({
   overflow: "hidden"
 }));
 
-const StatCard = styled(Box)(({ theme, color }) => ({
+const StatCard = styled(Box)(({ theme }) => ({
   padding: theme.spacing(2.5),
   borderRadius: 20,
   backgroundColor: "#fff",
@@ -85,7 +87,6 @@ const stringAvatar = (name) => {
 const AUTO_REFRESH_SEC = 10;
 
 export default function AdminPage() {
-  // ✅ เอา token ออก
   const { user } = useAuth();
   const [admins, setAdmins] = useState([]);
   const [fetching, setFetching] = useState(true);
@@ -96,17 +97,18 @@ export default function AdminPage() {
   const [passwordTarget, setPasswordTarget] = useState(null);
 
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
-  const [qrTarget, setQrTarget] = useState(null);
+  const [qrTargetAdmins, setQrTargetAdmins] = useState([]); // 🌟 เปลี่ยนเป็นเก็บ Array ของ Admin
+
+  // 🌟 State สำหรับการเลือก Checkbox
+  const [selectedAdmins, setSelectedAdmins] = useState([]);
 
   const intervalRef = useRef(null);
   const navigate = useNavigate();
   const [pointsList, setPointsList] = useState([]);
 
   const fetchAdmins = useCallback(() => {
-    // ✅ ไม่ต้องเช็ค !token แล้ว แต่เช็ค !user แทน
     if (!user) return;
     setFetching(true);
-    // ✅ ไม่ต้องส่ง token ไป
     api.listAdmins()
       .then(res => setAdmins(res.data || []))
       .catch(() => setAdmins([]))
@@ -116,7 +118,6 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!user) return;
-    // ✅ ไม่ต้องส่ง token ไป
     api.listRegistrationPoints()
       .then(res => setPointsList(res.data || res || []))
       .catch(err => console.error("Load points failed", err));
@@ -147,8 +148,8 @@ export default function AdminPage() {
       return;
     }
     if (!window.confirm("ยืนยันการลบผู้ใช้นี้?")) return;
-    // ✅ ไม่ต้องส่ง token ไป
     await api.deleteAdmin(id);
+    setSelectedAdmins(prev => prev.filter(adminId => adminId !== id)); // ลบออกจากรายการที่เลือกด้วย
     fetchAdmins();
   };
 
@@ -156,14 +157,12 @@ export default function AdminPage() {
   const handleOpenEdit = (admin) => { setEditData(admin); setDialogOpen(true); };
 
   const handleDialogSave = async (data) => {
-    // ✅ ไม่ต้องส่ง token ไป
     if (editData) await api.updateAdmin(editData._id, data);
     else await api.createAdmin(data);
     setDialogOpen(false);
     fetchAdmins();
   };
 
-  // ---- Reset/Change Password ----
   const openPasswordDialog = (admin) => {
     setPasswordTarget(admin);
     setPasswordDialogOpen(true);
@@ -173,19 +172,35 @@ export default function AdminPage() {
     if (!passwordTarget) return;
     const isSelf = (passwordTarget._id === user?._id) || (passwordTarget.id === user?.id);
     if (isSelf) {
-      // ✅ ไม่ต้องส่ง token ไป
       await api.changePassword({ password: newPassword });
       alert("เปลี่ยนรหัสผ่านของคุณสำเร็จ");
     } else {
-      // ✅ ไม่ต้องส่ง token ไป
       await api.resetPassword({ userId: passwordTarget._id, newPassword });
       alert("รีเซ็ตรหัสผ่านสำเร็จ และส่งอีเมลแจ้งผู้ใช้แล้ว");
     }
     setPasswordDialogOpen(false);
   };
 
-  const openQrDialog = (admin) => {
-    setQrTarget(admin);
+  // 🌟 ฟังก์ชันจัดการ Checkbox
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedAdmins(admins.map(a => a._id));
+    } else {
+      setSelectedAdmins([]);
+    }
+  };
+
+  const handleSelectOne = (e, id) => {
+    if (e.target.checked) {
+      setSelectedAdmins(prev => [...prev, id]);
+    } else {
+      setSelectedAdmins(prev => prev.filter(item => item !== id));
+    }
+  };
+
+  // 🌟 ฟังก์ชันเปิดหน้าต่าง QR (รองรับทั้งเดี่ยวและกลุ่ม)
+  const openQrDialog = (adminArray) => {
+    setQrTargetAdmins(adminArray);
     setQrDialogOpen(true);
   };
 
@@ -236,20 +251,41 @@ export default function AdminPage() {
           </Button>
 
           {canEdit && (
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={handleOpenAdd}
-              sx={{
-                bgcolor: Y.main, color: "#000", fontWeight: 800,
-                px: 3, py: 1.2, borderRadius: 3,
-                boxShadow: "0 8px 20px rgba(255, 193, 7, 0.4)",
-                ":hover": { bgcolor: Y.dark, color: "#fff", transform: "translateY(-2px)" },
-                transition: "all 0.2s"
-              }}
-            >
-              เพิ่มผู้ดูแล
-            </Button>
+            <Stack direction="row" spacing={1}>
+              {/* 🌟 ปุ่มสร้าง QR แบบกลุ่ม จะโผล่มาเมื่อมีการเลือก Checkbox */}
+              {selectedAdmins.length > 0 && (
+                 <Button
+                    variant="contained"
+                    color="info"
+                    startIcon={<ViewModuleIcon />}
+                    onClick={() => {
+                        const selectedObjects = admins.filter(a => selectedAdmins.includes(a._id));
+                        openQrDialog(selectedObjects);
+                    }}
+                    sx={{
+                      fontWeight: 800, borderRadius: 3,
+                      boxShadow: "0 8px 20px rgba(2, 136, 209, 0.3)",
+                    }}
+                 >
+                   สร้าง QR แบบกลุ่ม ({selectedAdmins.length})
+                 </Button>
+              )}
+
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={handleOpenAdd}
+                sx={{
+                  bgcolor: Y.main, color: "#000", fontWeight: 800,
+                  px: 3, py: 1.2, borderRadius: 3,
+                  boxShadow: "0 8px 20px rgba(255, 193, 7, 0.4)",
+                  ":hover": { bgcolor: Y.dark, color: "#fff", transform: "translateY(-2px)" },
+                  transition: "all 0.2s"
+                }}
+              >
+                เพิ่มผู้ดูแล
+              </Button>
+            </Stack>
           )}
         </Stack>
 
@@ -320,6 +356,17 @@ export default function AdminPage() {
               <Table>
                 <TableHead>
                   <TableRow sx={{ bgcolor: Y.light }}>
+                    {/* 🌟 หัวตาราง Checkbox */}
+                    {canEdit && (
+                       <TableCell padding="checkbox">
+                         <Checkbox
+                           color="primary"
+                           indeterminate={selectedAdmins.length > 0 && selectedAdmins.length < admins.length}
+                           checked={admins.length > 0 && selectedAdmins.length === admins.length}
+                           onChange={handleSelectAll}
+                         />
+                       </TableCell>
+                    )}
                     <TableCell sx={{ fontWeight: 800, color: Y.text }}>ผู้ใช้งาน (User)</TableCell>
                     <TableCell sx={{ fontWeight: 800, color: Y.text }}>อีเมล</TableCell>
                     <TableCell sx={{ fontWeight: 800, color: Y.text }}>สิทธิ์ (Role)</TableCell>
@@ -329,13 +376,13 @@ export default function AdminPage() {
                 <TableBody>
                   {fetching && admins.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
+                      <TableCell colSpan={canEdit ? 5 : 4} align="center" sx={{ py: 6 }}>
                         <CircularProgress sx={{ color: Y.main }} />
                       </TableCell>
                     </TableRow>
                   ) : admins.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
+                      <TableCell colSpan={canEdit ? 5 : 4} align="center" sx={{ py: 6 }}>
                         <Alert severity="info" sx={{ display: 'inline-flex', borderRadius: 3 }}>
                           ไม่พบข้อมูลผู้ดูแลระบบ
                         </Alert>
@@ -345,16 +392,22 @@ export default function AdminPage() {
                     admins.map((admin) => {
                       const isSelf = admin._id === user?._id || admin.id === user?.id;
                       if (!canEdit && !isSelf) return null;
+                      const isItemSelected = selectedAdmins.includes(admin._id);
 
                       return (
                         <TableRow
                           key={admin._id}
                           hover
-                          sx={{
-                            "&:hover": { backgroundColor: "#FFF8E1" },
-                            transition: "background-color 0.2s"
-                          }}
+                          selected={isItemSelected}
+                          sx={{ "&:hover": { backgroundColor: "#FFF8E1" }, transition: "background-color 0.2s" }}
                         >
+                          {/* 🌟 Checkbox รายคน */}
+                          {canEdit && (
+                            <TableCell padding="checkbox">
+                              <Checkbox color="primary" checked={isItemSelected} onChange={(e) => handleSelectOne(e, admin._id)} />
+                            </TableCell>
+                          )}
+
                           <TableCell>
                             <Stack direction="row" alignItems="center" spacing={2}>
                               <Avatar {...stringAvatar(admin.fullName || admin.username)} sx={{ bgcolor: isSelf ? Y.main : "#bdbdbd", fontWeight: 700 }} />
@@ -393,10 +446,7 @@ export default function AdminPage() {
                                 />
                               ))
                               : (
-                                <Chip
-                                  label={admin.role}
-                                  size="small"
-                                />
+                                <Chip label={admin.role} size="small" />
                               )}
                           </TableCell>
 
@@ -425,7 +475,7 @@ export default function AdminPage() {
                                 <Tooltip title="สร้าง QR ให้สตาฟ (Self-Register)">
                                   <IconButton
                                     size="small"
-                                    onClick={() => openQrDialog(admin)}
+                                    onClick={() => openQrDialog([admin])} // 🌟 ส่งเป็น Array เสมอ
                                     sx={{ color: '#FF9800', bgcolor: '#FFF3E0', '&:hover': { bgcolor: '#FFE0B2' } }}
                                   >
                                     <QrCode2Icon fontSize="small" />
@@ -460,7 +510,6 @@ export default function AdminPage() {
         </StyledCard>
       </Box>
 
-      {/* Dialog เพิ่ม/แก้ไข user */}
       <AdminUserDialog
         open={dialogOpen}
         onClose={() => setDialogOpen(false)}
@@ -470,7 +519,6 @@ export default function AdminPage() {
         pointsList={pointsList}
       />
 
-      {/* Dialog เปลี่ยน/รีเซ็ตรหัสผ่าน */}
       <AdminPasswordDialog
         open={passwordDialogOpen}
         onClose={() => setPasswordDialogOpen(false)}
@@ -479,11 +527,10 @@ export default function AdminPage() {
         user={passwordTarget}
       />
 
-      {/* Dialog สร้าง QR สำหรับ Self Registration */}
       <AdminGenerateLinkDialog
         open={qrDialogOpen}
         onClose={() => setQrDialogOpen(false)}
-        targetAdmin={qrTarget}
+        targetAdmins={qrTargetAdmins} // 🌟 เปลี่ยนชื่อ Prop
         pointsList={pointsList}
       />
     </Box>
