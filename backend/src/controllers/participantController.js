@@ -272,83 +272,25 @@ exports.deleteParticipant = async (req, res) => {
 exports.checkinByQr = async (req, res) => {
   try {
     const { qrCode, registrationPoint } = req.body;
-    
-    // จัดการจำนวนผู้ติดตามให้อยู่ในรูปแบบตัวเลขและไม่ติดลบ
-    const followers = req.body.followers != null 
-        ? Math.max(0, Number.parseInt(req.body.followers, 10) || 0) 
-        : undefined;
-
+    const followers = req.body.followers != null ? Math.max(0, Number.parseInt(req.body.followers, 10) || 0) : undefined;
     if (!qrCode) return res.status(400).json({ error: 'qrCode is required.' });
     if (!registrationPoint) return res.status(400).json({ error: 'registrationPoint is required.' });
     
-    // 🌟 1. ดึง Role ของผู้ใช้งานที่ส่ง Request เข้ามาให้ชัดเจน
-    const userRoles = req.user.role || [];
-    const isKioskDevice = userRoles.includes('kiosk_device') || userRoles.includes('kiosk');
-    const isAdmin = userRoles.includes('admin');
-    const isStaff = userRoles.includes('staff');
-
-    // 🌟 2. ตรวจสอบสิทธิ์การเช็คอินที่จุดนี้
-    // - Admin: สามารถเช็คอินได้ทุกจุดลงทะเบียน (ข้ามการตรวจสอบ)
-    // - Kiosk: เช็คอินได้เฉพาะจุดที่ Token Kiosk ถูกสร้างขึ้นมาเท่านั้น
-    // - Staff: เช็คอินได้เฉพาะจุดที่ตัวเองได้รับมอบหมายสิทธิ์ไว้เท่านั้น
-    if (!isAdmin) {
-      if (isKioskDevice) {
-         if (req.kioskPoint && req.kioskPoint !== registrationPoint) {
-            return res.status(403).json({ error: 'Kiosk นี้ไม่ได้รับอนุญาตให้เช็คอินที่จุดนี้' });
-         }
-      } else if (isStaff) {
-         if (!canRegisterAtPoint(req.user, registrationPoint)) {
-            return res.status(403).json({ error: 'Staff ไม่มีสิทธิ์เช็คอินที่จุดลงทะเบียนนี้' });
-         }
-      } else {
-         return res.status(403).json({ error: 'ไม่อนุญาตให้เข้าถึงการเช็คอิน' });
-      }
+    // [แก้ไข] รองรับ Kiosk token
+    const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
+    if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
+      return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }
 
-    // 🌟 3. ค้นหาข้อมูลผู้เข้าร่วมงานจาก QR Code (ต้องยังไม่ถูกลบออกจากระบบ)
     const participant = await Participant.findOne({ qrCode, isDeleted: false });
-    
-    if (!participant) {
-        return res.status(404).json({ error: 'Ticket not found (ไม่พบข้อมูลบัตรในระบบ)' });
-    }
-    
-    if (participant.status === 'checkedIn') {
-        return res.status(400).json({ error: 'Already checked in (ผู้ใช้งานเช็คอินไปแล้ว)' });
-    }
+    if (!participant) return res.status(404).json({ error: 'Ticket not found' });
+    if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
-    // 🌟 4. อัปเดตข้อมูลการเช็คอิน
-    if (followers !== undefined) {
-        participant.followers = followers;
-    }
-    
-    participant.status = 'checkedIn'; 
-    participant.checkedInAt = new Date(); 
-    
-    // บันทึก ID ของคนที่ทำการสแกน (Admin, Staff, หรือ Kiosk-User)
-    participant.registeredBy = req.user._id; 
-    participant.registeredPoint = registrationPoint;
-    
-    // บันทึกลง Database (ข้อมูลที่ถูกเข้ารหัสด้วย mongoose-field-encryption จะทำงานอัตโนมัติ)
+    if (followers !== undefined) participant.followers = followers;
+    participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = registrationPoint;
     await participant.save();
-    
-    // 🌟 5. ส่ง Response กลับไปให้ Frontend
-    res.json({ 
-        message: 'Check-in successful', 
-        participant: { 
-            _id: participant._id, 
-            fields: participant.fields, // ข้อมูล fields จะถูกถอดรหัส (Decrypt) อัตโนมัติก่อนส่งกลับ
-            checkedInAt: participant.checkedInAt, 
-            registeredPoint: participant.registeredPoint, 
-            registeredBy: req.user.username, 
-            registrationType: participant.registrationType, 
-            followers: participant.followers 
-        } 
-    });
-    
-  } catch (err) { 
-      // ดักจับ Error หาก Server หรือ Database มีปัญหา
-      res.status(500).json({ error: 'Server error', detail: err.message }); 
-  }
+    res.json({ message: 'Check-in successful', participant: { _id: participant._id, fields: participant.fields, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registeredBy: req.user.username, registrationType: participant.registrationType, followers: participant.followers } });
+  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.resendTicket = async (req, res) => {
