@@ -29,11 +29,13 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard'; 
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'; 
 import ReplayIcon from '@mui/icons-material/Replay'; 
+import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore'; // 🌟 ไอคอนคืนสิทธิ์
 
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
-import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner } from '../utils/api';
+// 🌟 นำเข้าฟังก์ชัน restorePrizeRight
+import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
@@ -192,7 +194,7 @@ export default function AdminParticipantsPage() {
 
       return {
         ชื่อ: p.fields.name || '', เบอร์โทร: p.fields.phone || '', อีเมล: p.fields.email || '',
-        สถานะ: p.status || '', เวลาเช็คอิน: formatCheckinDate(p.checkedInAt),
+        สถานะ: p.status || '', สละสิทธิ์: p.isForfeited ? 'ใช่' : 'ไม่ใช่', เวลาเช็คอิน: formatCheckinDate(p.checkedInAt),
         ภาควิชา: p.fields.dept || '', ปีการศึกษา: p.fields.date_year || '',
         ที่อยู่: p.fields.usr_add ? `${p.fields.usr_add} ${p.fields.usr_add_post || ''}` : '-',
         ผู้ติดตาม: p.followers || 0, Tags: p.tags ? p.tags.join(', ') : '',
@@ -310,13 +312,24 @@ export default function AdminParticipantsPage() {
     }
   };
 
+  // 🌟 ฟังก์ชันจัดการเมื่อแอดมินกดปุ่มคืนสิทธิ์
+  const handleRestoreRight = async (id) => {
+    if (!window.confirm("ยืนยันการคืนสิทธิ์ให้ผู้เข้าร่วมท่านนี้?\nระบบจะปลดล็อกให้เขากลับไปมีชื่อในการสุ่มรางวัลอีกครั้ง")) return;
+    try {
+      await restorePrizeRight(id);
+      setSnackbar({ open: true, message: 'คืนสิทธิ์สำเร็จ ผู้เข้าร่วมสามารถลุ้นรางวัลได้แล้ว', severity: 'success' });
+      fetchParticipants(); 
+    } catch (err) {
+      setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการคืนสิทธิ์', severity: 'error' });
+    }
+  };
+
   const handleRefreshAll = () => {
     fetchParticipants();
     fetchPrizes();
   };
 
   return (
-    // 🌟 เปลี่ยนเป็น Container maxWidth="xl" หรือถอด Box maxWidth ออกเพื่อให้หน้าต่างยืดหยุ่นขึ้น
     <Container maxWidth="xl" sx={{ mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
       
       {/* Header Section */}
@@ -325,7 +338,6 @@ export default function AdminParticipantsPage() {
            <Typography variant="h4" fontWeight={800} sx={{ color: Y.text, mb: 0.5 }}>Admin Dashboard</Typography>
            <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
-        {/* 🌟 ปรับ Stack ของปุ่มขวาบนให้รองรับจอเล็กแบบ wrap */}
         <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
@@ -372,7 +384,7 @@ export default function AdminParticipantsPage() {
                   />
                 </Grid>
                 
-                {/* 🌟 6 ตัวกรอง (Filters) - ปรับสัดส่วน Grid ให้กระจายเท่าๆ กัน ไม่เบียด */}
+                {/* 6 ตัวกรอง (Filters) */}
                 <Grid item xs={6} sm={4} md={2}>
                   <FormControl fullWidth size="small">
                     <InputLabel>สถานะ</InputLabel>
@@ -432,7 +444,7 @@ export default function AdminParticipantsPage() {
                   </FormControl>
                 </Grid>
 
-                {/* 🌟 กลุ่มปุ่ม Actions ด้านล่างตัวกรอง - จัดชิดขวาและเรียงตัวสวยงาม */}
+                {/* กลุ่มปุ่ม Actions ด้านล่างตัวกรอง */}
                 <Grid item xs={12}>
                   <Divider sx={{ my: 1, borderStyle: 'dashed' }} />
                   <Stack 
@@ -473,14 +485,15 @@ export default function AdminParticipantsPage() {
                 <Table stickyHeader>
                   <TableHead>
                     <TableRow>
-                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'ผู้ติดตาม', 'Tags', 'อีเมล', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
+                      {/* 🌟 เพิ่มหัวตาราง "สละสิทธิ์" */}
+                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'สละสิทธิ์', 'ผู้ติดตาม', 'Tags', 'อีเมล', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
                         <TableCell key={head} align="center" sx={{ bgcolor: Y.light, color: Y.text, fontWeight: 800, whiteSpace: 'nowrap' }}>{head}</TableCell>
                       ))}
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {filteredParticipants.length === 0 ? (
-                      <TableRow><TableCell colSpan={10} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={11} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
                     ) : (
                       filteredParticipants.map(p => {
                         const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id));
@@ -491,6 +504,22 @@ export default function AdminParticipantsPage() {
                             <TableCell align="center"><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
                             <TableCell align="center"><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
                             
+                            {/* 🌟 คอลัมน์สละสิทธิ์ */}
+                            <TableCell align="center">
+                              {p.isForfeited ? (
+                                <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
+                                  <Chip label="หมดสิทธิ์สุ่ม" size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontWeight: 700 }} />
+                                  <Tooltip title="คลิกเพื่อคืนสิทธิ์ให้กลับไปสุ่มรางวัลได้">
+                                    <IconButton size="small" color="success" onClick={() => handleRestoreRight(p._id)}>
+                                      <SettingsBackupRestoreIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              ) : (
+                                <Typography variant="body2" color="text.secondary">-</Typography>
+                              )}
+                            </TableCell>
+
                             <TableCell align="center">
                               <Typography fontWeight={600} color={p.followers > 0 ? "primary" : "text.secondary"}>
                                 {p.followers || 0}

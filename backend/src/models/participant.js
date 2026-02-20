@@ -34,6 +34,8 @@ const participantSchema = new mongoose.Schema({
 
   followers: { type: Number, default: 0, min: 0 },
 
+  
+
 
   consent: { 
     type: String, 
@@ -42,7 +44,8 @@ const participantSchema = new mongoose.Schema({
   },
 
 
-  specialAssistance: { type: String, default: "" }
+  specialAssistance: { type: String, default: "" },
+  isForfeited: { type: Boolean, default: false, index: true }
 
 }, { timestamps: true, versionKey: false });
 

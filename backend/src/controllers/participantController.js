@@ -368,3 +368,18 @@ exports.exportParticipants = async (req, res) => {
     await wb.xlsx.write(res); res.end();
   } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
+
+exports.restorePrizeRight = async (req, res) => {
+  try {
+    if (!checkAdmin(req, res)) return; 
+    const participant = await Participant.findByIdAndUpdate(
+      req.params.id, 
+      { isForfeited: false }, 
+      { new: true }
+    );
+    if (!participant) return res.status(404).json({ error: 'ไม่พบผู้เข้าร่วม' });
+    res.json({ message: 'คืนสิทธิ์จับรางวัลสำเร็จ', participant });
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+};

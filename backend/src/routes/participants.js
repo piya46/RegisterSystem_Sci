@@ -42,4 +42,6 @@ router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
   }
 });
 
+router.put('/restore-prize/:id', auth, requireAdmin, participantController.restorePrizeRight);
+
 module.exports = router;

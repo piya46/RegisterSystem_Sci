@@ -37,9 +37,9 @@ exports.drawPrize = async (req, res) => {
         p.winners.forEach(w => wonIds.push(w.participantId));
     });
 
-    // สุ่มคน Check-in ที่ยังไม่ได้รางวัล
+    // 🌟 สุ่มคน Check-in ที่ยังไม่ได้รางวัล และ "ไม่เคยสละสิทธิ์"
     const randomWinner = await Participant.aggregate([
-      { $match: { status: 'checkedIn', isDeleted: false, _id: { $nin: wonIds } } },
+      { $match: { status: 'checkedIn', isDeleted: false, isForfeited: { $ne: true }, _id: { $nin: wonIds } } },
       { $sample: { size: 1 } }
     ]);
 
@@ -75,7 +75,7 @@ exports.cancelWinner = async (req, res) => {
     const prize = await Prize.findById(prizeId);
     if (!prize) return res.status(404).json({ error: 'ไม่พบของรางวัล' });
 
-    // 🌟 1. จำจำนวนผู้ชนะก่อนลบไว้
+    // 1. จำจำนวนผู้ชนะก่อนลบไว้
     const originalLength = prize.winners.length;
 
     // 2. กรองชื่อผู้ที่สละสิทธิ์ออก
@@ -83,7 +83,7 @@ exports.cancelWinner = async (req, res) => {
       w => w.participantId.toString() !== winnerId.toString()
     );
 
-    // 🌟 3. ตรวจสอบว่ามีรายชื่อถูกลบออกไป "จริงหรือไม่" 
+    // 3. ตรวจสอบว่ามีรายชื่อถูกลบออกไป "จริงหรือไม่" 
     if (prize.winners.length < originalLength) {
       // คำนวณจำนวนคนที่ลบออก (เผื่อกรณีรายชื่อซ้ำกัน)
       const removedCount = originalLength - prize.winners.length;
@@ -91,12 +91,16 @@ exports.cancelWinner = async (req, res) => {
       // บวกโควต้าคืนตามจำนวนที่ลบออก
       prize.remainingQuantity += removedCount;
 
-      // 🌟 4. ป้องกันจำนวนของรางวัลคงเหลือ เกินจำนวนรางวัลทั้งหมด (Total) ป้องกันการเบิ้ล
+      // 4. ป้องกันจำนวนของรางวัลคงเหลือ เกินจำนวนรางวัลทั้งหมด (Total) ป้องกันการเบิ้ล
       if (prize.remainingQuantity > prize.totalQuantity) {
         prize.remainingQuantity = prize.totalQuantity;
       }
 
       await prize.save();
+
+      // 🌟 5. อัปเดตข้อมูล Participant ว่าคนนี้ "สละสิทธิ์" (Blacklist) ไปแล้ว
+      await Participant.findByIdAndUpdate(winnerId, { isForfeited: true });
+
       return res.json({ message: "ยกเลิกสิทธิ์สำเร็จ โควต้าถูกคืนแล้ว", prize });
       
     } else {

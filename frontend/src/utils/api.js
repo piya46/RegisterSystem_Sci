@@ -97,6 +97,7 @@ export const generateSelfRegisterLink = (data) => api.post('/public/self-registe
 export const requestShortSession = (masterToken) => api.post('/public/request-short-session', { masterToken });
 
 export const getPublicPrizes = () => api.get('/public/prizes');
+export const restorePrizeRight = (id) => api.put(`/participants/restore-prize/${id}`);
 
 
 export default api;
