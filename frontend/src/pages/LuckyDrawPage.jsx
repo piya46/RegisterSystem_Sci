@@ -1,6 +1,6 @@
 // frontend/src/pages/LuckyDrawPage.jsx
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Button, Paper, Stack, FormControl, Select, MenuItem, Fade, Chip } from '@mui/material';
+import { Box, Typography, Button, Paper, Stack, FormControl, Select, MenuItem, Fade, Chip, CircularProgress } from '@mui/material'; // 🌟 เพิ่ม CircularProgress ตรงนี้
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -131,14 +131,20 @@ export default function LuckyDrawPage() {
     }, 1000);
   };
 
-  // 🌟 ฟังก์ชันจัดการเมื่อกดสละสิทธิ์ (รอ API เสร็จก่อนค่อยโหลดข้อมูลใหม่)
+  // 🌟 ฟังก์ชันจัดการเมื่อกดสละสิทธิ์
   const handleForfeit = async () => {
-    if (!window.confirm("ยืนยันการสละสิทธิ์!")) return;
+    if (!window.confirm("ยืนยันการสละสิทธิ์! ระบบจะดึงโควต้ารางวัลคืน")) return;
 
     setIsDrawing(true);
     try {
+      // 🌟 ตรวจสอบให้แน่ใจว่ามีข้อมูลทั้งสองตัวก่อนส่ง
       if (winnerData && activePrizeObj) {
-        await cancelPrizeWinner(activePrizeObj._id, winnerData._id);
+         // ในกรณีที่ api.js กำหนด cancelPrizeWinner(prizeId, participantId)
+         // เราต้องแน่ใจว่าส่ง ID ไม่ใช่ Object ไป
+         const winnerId = winnerData._id || winnerData.id; 
+         await cancelPrizeWinner(activePrizeObj._id, winnerId);
+      } else {
+         throw new Error("ไม่พบข้อมูลผู้ได้รับรางวัล");
       }
 
       setShowWinner(false);
@@ -148,7 +154,7 @@ export default function LuckyDrawPage() {
 
       await fetchPrizes();
     } catch (err) {
-      alert("เกิดข้อผิดพลาดในการยกเลิกสิทธิ์");
+      alert(err.response?.data?.error || err.message || "เกิดข้อผิดพลาดในการยกเลิกสิทธิ์");
     } finally {
       setIsDrawing(false);
     }

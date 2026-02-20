@@ -6,7 +6,7 @@ import {
   Typography, MenuItem, Select, InputLabel, FormControl, Stack, Chip, 
   Snackbar, Alert, Grid, Card, CardContent, InputAdornment, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
-  Autocomplete, Tabs, Tab
+  Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import { useNavigate } from 'react-router-dom'; 
@@ -37,7 +37,13 @@ import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipa
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
-const StyledCard = styled(Card)(({ theme }) => ({ borderRadius: 16, boxShadow: "0 4px 20px rgba(0,0,0,0.05)", border: "1px solid rgba(0,0,0,0.05)", transition: "transform 0.2s", "&:hover": { transform: "translateY(-4px)", boxShadow: "0 8px 24px rgba(255, 193, 7, 0.2)", borderColor: Y.main } }));
+const StyledCard = styled(Card)(({ theme }) => ({ 
+  borderRadius: 16, 
+  boxShadow: "0 4px 20px rgba(0,0,0,0.05)", 
+  border: "1px solid rgba(0,0,0,0.05)", 
+  transition: "transform 0.2s", 
+  "&:hover": { transform: "translateY(-4px)", boxShadow: "0 8px 24px rgba(255, 193, 7, 0.2)", borderColor: Y.main } 
+}));
 
 const StatusChip = styled(Chip)(({ status }) => {
   let bgcolor, color;
@@ -62,8 +68,16 @@ export default function AdminParticipantsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [deptFilter, setDeptFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
+  const [followerFilter, setFollowerFilter] = useState('all'); 
+  const [tagFilter, setTagFilter] = useState('all'); 
+  const [emailFilter, setEmailFilter] = useState('all'); 
+  
   const [loading, setLoading] = useState(false);
   const [resendLoadingId, setResendLoadingId] = useState(null);
+  
+  const [isBulkResending, setIsBulkResending] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
+
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -82,7 +96,6 @@ export default function AdminParticipantsPage() {
   const [openAddPrize, setOpenAddPrize] = useState(false);
   const [newPrize, setNewPrize] = useState({ name: '', totalQuantity: 1 });
 
-  // 🌟 โหลดข้อมูลทั้ง Participants และ Prizes พร้อมกันเมื่อเข้าหน้าเว็บ
   useEffect(() => { 
     fetchParticipants(); 
     fetchPrizes();
@@ -109,13 +122,24 @@ export default function AdminParticipantsPage() {
 
   const uniqueDepts = Array.from(new Set(participants.map(p => p.fields.dept).filter(Boolean))).sort();
   const uniqueYears = Array.from(new Set(participants.map(p => p.fields.date_year).filter(Boolean))).sort();
+  const uniqueTags = Array.from(new Set(participants.flatMap(p => p.tags || []).filter(Boolean))).sort();
 
   const filteredParticipants = participants.filter(p => {
     const matchSearch = (p.fields.name || '').toLowerCase().includes(search.toLowerCase()) || (p.fields.phone || '').includes(search);
     const matchStatus = statusFilter === 'all' || p.status === statusFilter;
     const matchDept = deptFilter === 'all' || p.fields.dept === deptFilter;
     const matchYear = yearFilter === 'all' || p.fields.date_year === yearFilter;
-    return matchSearch && matchStatus && matchDept && matchYear;
+    const matchTag = tagFilter === 'all' || (p.tags && p.tags.includes(tagFilter));
+    
+    let matchFollower = true;
+    if (followerFilter === 'has') matchFollower = p.followers > 0;
+    if (followerFilter === 'none') matchFollower = !p.followers || p.followers === 0;
+
+    let matchEmail = true;
+    if (emailFilter === 'has') matchEmail = !!p.fields?.email;
+    if (emailFilter === 'none') matchEmail = !p.fields?.email;
+
+    return matchSearch && matchStatus && matchDept && matchYear && matchFollower && matchTag && matchEmail;
   });
 
   const stats = {
@@ -164,7 +188,6 @@ export default function AdminParticipantsPage() {
 
   const exportExcel = () => {
     const dataToExport = filteredParticipants.map(p => {
-      // ค้นหาของรางวัลที่คนนี้ได้
       const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id)).map(pz => pz.name).join(', ');
 
       return {
@@ -191,6 +214,50 @@ export default function AdminParticipantsPage() {
       else setSnackbar({ open: true, message: res.data?.message || 'ส่งไม่สำเร็จ', severity: 'warning' });
     } catch (err) { setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการส่ง', severity: 'error' }); }
     setResendLoadingId(null);
+  };
+
+  const handleBulkResend = async () => {
+    const validParticipants = filteredParticipants.filter(p => p.fields.email && p.fields.phone);
+    
+    if (validParticipants.length === 0) {
+      setSnackbar({ open: true, message: 'ไม่พบผู้เข้าร่วมที่มีอีเมลและเบอร์โทรศัพท์ในรายการปัจจุบัน', severity: 'warning' });
+      return;
+    }
+
+    if (!window.confirm(`ยืนยันการส่ง E-Ticket ให้ผู้เข้าร่วมจำนวน ${validParticipants.length} คน?\n\n(ระบบจะใช้เวลาสักครู่เพื่อทยอยส่งทีละคน ป้องกันข้อผิดพลาดจากเซิร์ฟเวอร์)`)) return;
+
+    setIsBulkResending(true);
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < validParticipants.length; i++) {
+      setBulkProgress({ current: i + 1, total: validParticipants.length });
+      const p = validParticipants[i];
+      
+      setResendLoadingId(p._id);
+      
+      try {
+        const res = await resendTicket({ phone: p.fields.phone });
+        if (res.data?.sent) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } catch (err) {
+        failCount++;
+      }
+      
+      setResendLoadingId(null);
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    setIsBulkResending(false);
+    setBulkProgress({ current: 0, total: 0 });
+    setSnackbar({ 
+      open: true, 
+      message: `ส่ง E-Ticket เสร็จสิ้น: สำเร็จ ${successCount} รายการ, ไม่สำเร็จ ${failCount} รายการ`, 
+      severity: failCount === 0 ? 'success' : 'warning' 
+    });
   };
 
   const handleDownloadPdf = async () => {
@@ -232,13 +299,12 @@ export default function AdminParticipantsPage() {
     } catch (err) { setSnackbar({ open: true, message: 'ลบรางวัลไม่สำเร็จ', severity: 'error' }); }
   };
 
-  // 🌟 ฟังก์ชันดึงโควต้ารางวัลคืน (Revoke) 
   const handleRevokePrize = async (prizeId, winnerId) => {
     if (!window.confirm("ยืนยันการยกเลิกสิทธิ์ผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัล และผู้ใช้ท่านนี้จะมีสิทธิ์จับรางวัลใหม่อีกครั้ง")) return;
     try {
-      await cancelPrizeWinner(prizeId, winnerId); // ส่ง winnerId ไปตามที่ Backend ต้องการ
+      await cancelPrizeWinner(prizeId, winnerId); 
       setSnackbar({ open: true, message: 'ยกเลิกสิทธิ์และดึงโควต้าคืนสำเร็จ', severity: 'success' });
-      fetchPrizes(); // รีเฟรชของรางวัลเพื่ออัปเดตจำนวนและรายชื่อ
+      fetchPrizes(); 
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.error || 'เกิดข้อผิดพลาดในการยกเลิกสิทธิ์', severity: 'error' });
     }
@@ -250,15 +316,17 @@ export default function AdminParticipantsPage() {
   };
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: 'auto', mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
+    // 🌟 เปลี่ยนเป็น Container maxWidth="xl" หรือถอด Box maxWidth ออกเพื่อให้หน้าต่างยืดหยุ่นขึ้น
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
       
       {/* Header Section */}
-      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" mb={3}>
+      <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} mb={3} gap={2}>
         <Box>
            <Typography variant="h4" fontWeight={800} sx={{ color: Y.text, mb: 0.5 }}>Admin Dashboard</Typography>
            <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
-        <Stack direction="row" spacing={2} sx={{ mt: {xs: 2, md: 0} }}>
+        {/* 🌟 ปรับ Stack ของปุ่มขวาบนให้รองรับจอเล็กแบบ wrap */}
+        <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
         </Stack>
@@ -266,7 +334,7 @@ export default function AdminParticipantsPage() {
 
       {/* Tabs สำหรับสลับหน้าจอ */}
       <Paper elevation={0} sx={{ mb: 4, borderBottom: 1, borderColor: 'divider', bgcolor: 'transparent' }}>
-        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} textColor="primary" indicatorColor="primary">
+        <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)} textColor="primary" indicatorColor="primary" variant="scrollable" scrollButtons="auto">
           <Tab icon={<FormatListBulletedIcon />} iconPosition="start" label={<Typography fontWeight={700}>รายชื่อผู้เข้าร่วม</Typography>} sx={{ textTransform: 'none', fontSize: '1.1rem' }} />
           <Tab icon={<CardGiftcardIcon />} iconPosition="start" label={<Typography fontWeight={700}>จัดการของรางวัล</Typography>} sx={{ textTransform: 'none', fontSize: '1.1rem' }} />
         </Tabs>
@@ -278,26 +346,124 @@ export default function AdminParticipantsPage() {
       {activeTab === 0 && (
         <Fade in>
           <Box>
+            {/* Stats Cards */}
             <Grid container spacing={2} mb={4}>
               <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">ผู้ลงทะเบียนทั้งหมด</Typography><Typography variant="h4" fontWeight={800} color={Y.text}>{stats.total}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E3F2FD', color: '#1565C0' }}><PeopleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
               <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">เช็คอินแล้ว</Typography><Typography variant="h4" fontWeight={800} color={Y.success}>{stats.checkedIn}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: '#E8F5E9', color: '#2E7D32' }}><CheckCircleIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
               <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">รอเช็คอิน</Typography><Typography variant="h4" fontWeight={800} color={Y.dark}>{stats.registered}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: Y.light, color: Y.dark }}><AccessTimeIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
             </Grid>
 
-            <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff" }}>
-              <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} lg={4}>
-                  <TextField fullWidth placeholder="ค้นหาชื่อ หรือ เบอร์โทร..." value={search} onChange={e => setSearch(e.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>, sx: { borderRadius: 3, bgcolor: "#fafafa" } }} size="small" />
+            {/* Filter Section */}
+            <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff" }}>
+              <Grid container spacing={2}>
+                
+                {/* Search Bar - เต็มความกว้างเสมอ */}
+                <Grid item xs={12}>
+                  <TextField 
+                    fullWidth 
+                    placeholder="ค้นหาชื่อ หรือ เบอร์โทร..." 
+                    value={search} 
+                    onChange={e => setSearch(e.target.value)} 
+                    InputProps={{ 
+                      startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>, 
+                      sx: { borderRadius: 3, bgcolor: "#fafafa" } 
+                    }} 
+                    size="small" 
+                  />
                 </Grid>
-                <Grid item xs={12} lg={8}>
-                  <Grid container spacing={2} alignItems="center" justifyContent={{ xs: 'flex-start', lg: 'flex-end' }}>
-                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>สถานะ</InputLabel><Select value={statusFilter} label="สถานะ" onChange={e => setStatusFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem><MenuItem value="registered">รอเช็คอิน</MenuItem><MenuItem value="checkedIn">เช็คอินแล้ว</MenuItem><MenuItem value="cancelled">ยกเลิก</MenuItem></Select></FormControl></Grid>
-                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ภาควิชา</InputLabel><Select value={deptFilter} label="ภาควิชา" onChange={e => setDeptFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueDepts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}</Select></FormControl></Grid>
-                    <Grid item xs={6} sm={3} md={3}><FormControl fullWidth size="small"><InputLabel>ปีการศึกษา</InputLabel><Select value={yearFilter} label="ปีการศึกษา" onChange={e => setYearFilter(e.target.value)} sx={{borderRadius: 3}}><MenuItem value="all">ทั้งหมด</MenuItem>{uniqueYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}</Select></FormControl></Grid>
-                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="contained" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 3, fontWeight: 700, height: 40, background: `linear-gradient(45deg, ${Y.main}, ${Y.dark})`, color: '#fff', boxShadow: '0 4px 12px rgba(245, 127, 23, 0.3)' }}>EXPORT</Button></Grid>
-                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="contained" color="error" startIcon={<PictureAsPdfIcon />} onClick={handleDownloadPdf} sx={{ borderRadius: 3, height: 40 }}>PDF Report</Button></Grid>
-                    <Grid item xs={6} sm={3} md={3}><Button fullWidth variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublicReport} sx={{ borderRadius: 3, height: 40, borderColor: Y.main, color: Y.dark, "&:hover": { bgcolor: Y.light } }}>Public Link</Button></Grid>
-                  </Grid>
+                
+                {/* 🌟 6 ตัวกรอง (Filters) - ปรับสัดส่วน Grid ให้กระจายเท่าๆ กัน ไม่เบียด */}
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>สถานะ</InputLabel>
+                    <Select value={statusFilter} label="สถานะ" onChange={e => setStatusFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      <MenuItem value="registered">รอเช็คอิน</MenuItem>
+                      <MenuItem value="checkedIn">เช็คอินแล้ว</MenuItem>
+                      <MenuItem value="cancelled">ยกเลิก</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>ภาควิชา</InputLabel>
+                    <Select value={deptFilter} label="ภาควิชา" onChange={e => setDeptFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      {uniqueDepts.map(d => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>ปีการศึกษา</InputLabel>
+                    <Select value={yearFilter} label="ปีการศึกษา" onChange={e => setYearFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      {uniqueYears.map(y => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>ผู้ติดตาม</InputLabel>
+                    <Select value={followerFilter} label="ผู้ติดตาม" onChange={e => setFollowerFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      <MenuItem value="has">มีผู้ติดตาม</MenuItem>
+                      <MenuItem value="none">ไม่มีผู้ติดตาม</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Tags</InputLabel>
+                    <Select value={tagFilter} label="Tags" onChange={e => setTagFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      {uniqueTags.map(t => <MenuItem key={t} value={t}>{t}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid item xs={6} sm={4} md={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>อีเมล</InputLabel>
+                    <Select value={emailFilter} label="อีเมล" onChange={e => setEmailFilter(e.target.value)} sx={{borderRadius: 3}}>
+                      <MenuItem value="all">ทั้งหมด</MenuItem>
+                      <MenuItem value="has">มีอีเมล</MenuItem>
+                      <MenuItem value="none">ไม่มีอีเมล</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+
+                {/* 🌟 กลุ่มปุ่ม Actions ด้านล่างตัวกรอง - จัดชิดขวาและเรียงตัวสวยงาม */}
+                <Grid item xs={12}>
+                  <Divider sx={{ my: 1, borderStyle: 'dashed' }} />
+                  <Stack 
+                    direction={{ xs: 'column', sm: 'row' }} 
+                    spacing={1.5} 
+                    justifyContent="flex-end" 
+                    alignItems="center"
+                    flexWrap="wrap"
+                    useFlexGap
+                    mt={1}
+                  >
+                    <Button variant="outlined" onClick={handleSharePublicReport} startIcon={<IosShareIcon />} sx={{ borderRadius: 3, height: 40, borderColor: Y.main, color: Y.dark, "&:hover": { bgcolor: Y.light } }}>
+                      Public Link
+                    </Button>
+                    <Button variant="contained" color="error" onClick={handleDownloadPdf} startIcon={<PictureAsPdfIcon />} sx={{ borderRadius: 3, height: 40, minWidth: 'auto' }}>
+                      PDF Report
+                    </Button>
+                    <Button variant="contained" onClick={exportExcel} startIcon={<DownloadIcon />} sx={{ borderRadius: 3, fontWeight: 700, height: 40, background: `linear-gradient(45deg, ${Y.main}, ${Y.dark})`, color: '#fff', boxShadow: '0 4px 12px rgba(245, 127, 23, 0.3)' }}>
+                      Export Excel
+                    </Button>
+                    <Button 
+                      variant="contained" 
+                      color="info" 
+                      onClick={handleBulkResend} 
+                      disabled={isBulkResending} 
+                      startIcon={isBulkResending ? <CircularProgress size={20} color="inherit" /> : <EmailIcon />} 
+                      sx={{ borderRadius: 3, height: 40, fontWeight: 700 }}
+                    >
+                      {isBulkResending ? `กำลังทยอยส่ง (${bulkProgress.current}/${bulkProgress.total})` : "ส่ง E-Ticket ตามตาราง"}
+                    </Button>
+                  </Stack>
                 </Grid>
               </Grid>
             </Paper>
@@ -307,18 +473,16 @@ export default function AdminParticipantsPage() {
                 <Table stickyHeader>
                   <TableHead>
                     <TableRow>
-                      {/* 🌟 อัปเดตคอลัมน์ใหม่ เพิ่ม 'ของรางวัล' */}
-                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'Tags', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
+                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'ผู้ติดตาม', 'Tags', 'อีเมล', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
                         <TableCell key={head} align="center" sx={{ bgcolor: Y.light, color: Y.text, fontWeight: 800, whiteSpace: 'nowrap' }}>{head}</TableCell>
                       ))}
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {filteredParticipants.length === 0 ? (
-                      <TableRow><TableCell colSpan={8} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={10} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
                     ) : (
                       filteredParticipants.map(p => {
-                        // 🌟 หาว่าคนๆ นี้ ได้รางวัลอะไรไปบ้าง
                         const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id));
 
                         return (
@@ -326,17 +490,33 @@ export default function AdminParticipantsPage() {
                             <TableCell align="left"><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
                             <TableCell align="center"><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
                             <TableCell align="center"><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
+                            
+                            <TableCell align="center">
+                              <Typography fontWeight={600} color={p.followers > 0 ? "primary" : "text.secondary"}>
+                                {p.followers || 0}
+                              </Typography>
+                            </TableCell>
+
                             <TableCell align="center">
                               {p.tags && p.tags.length > 0 ? (
                                 <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
                                   {p.tags.map((tag, idx) => (
-                                    <Chip key={idx} label={tag} size="small" sx={{ bgcolor: Y.main, color: '#fff', fontWeight: 600, fontSize: '0.75rem', height: 20 }} />
+                                    <Chip key={idx} label={tag} size="small" sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 600, fontSize: '0.75rem', height: 20 }} />
                                   ))}
                                 </Stack>
                               ) : '-'}
                             </TableCell>
 
-                            {/* 🌟 แสดงของรางวัลที่ได้รับ */}
+                            <TableCell align="center">
+                              {p.fields.email ? (
+                                <Tooltip title={p.fields.email}>
+                                  <CheckCircleIcon sx={{ color: 'success.main', fontSize: 20 }} />
+                                </Tooltip>
+                              ) : (
+                                <Typography color="text.disabled" variant="body2">-</Typography>
+                              )}
+                            </TableCell>
+
                             <TableCell align="center">
                               {wonPrizes.length > 0 ? (
                                 <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
@@ -347,7 +527,7 @@ export default function AdminParticipantsPage() {
                                         label={pz.name} 
                                         size="small" 
                                         sx={{ bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700, border: '1px solid #FFE0B2' }}
-                                        onDelete={() => handleRevokePrize(pz._id, p._id)} // 🌟 กดยกเลิกสิทธิ์จากหน้านี้ได้เลย
+                                        onDelete={() => handleRevokePrize(pz._id, p._id)} 
                                       />
                                     </Tooltip>
                                   ))}
@@ -461,7 +641,6 @@ export default function AdminParticipantsPage() {
         </DialogActions>
       </Dialog>
 
-
       {/* ======================================================== */}
       {/* Dialogs ที่ใช้ร่วมกัน */}
       {/* ======================================================== */}
@@ -521,6 +700,6 @@ export default function AdminParticipantsPage() {
       <Snackbar open={snackbar.open} autoHideDuration={3000} anchorOrigin={{ vertical: "bottom", horizontal: "center" }} onClose={() => setSnackbar({ ...snackbar, open: false })}>
         <Alert severity={snackbar.severity} variant="filled" onClose={() => setSnackbar({ ...snackbar, open: false })} sx={{ fontWeight: 600, width: '100%', borderRadius: 2 }}>{snackbar.message}</Alert>
       </Snackbar>
-    </Box>
+    </Container>
   );
 }

@@ -52,9 +52,13 @@ exports.drawPrize = async (req, res) => {
     prize.winners.push({ participantId: winnerId });
     await prize.save();
 
-    res.json({
+   res.json({
         message: 'Draw success',
-        winner: { name: randomWinner[0].fields.name, department: randomWinner[0].fields.department || '' },
+        winner: { 
+            _id: randomWinner[0]._id, // 🌟 เพิ่ม _id ส่งกลับไปให้ Frontend เอาไว้อ้างอิงตอนสละสิทธิ์
+            name: randomWinner[0].fields.name, 
+            department: randomWinner[0].fields.department || '' 
+        },
         prize
     });
   } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }

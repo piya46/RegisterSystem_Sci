@@ -237,13 +237,13 @@ export default function CheckinStaffPage() {
   const handleCheckin = async (id, qrCode, auto = false, followers = 0) => {
     setCheckingIn(id);
     try {
-      await checkinByQr({ participantId: id, qrCode, registrationPoint, followers });
+      const res = await checkinByQr({ participantId: id, qrCode, registrationPoint, followers });
       setSnackbar({ open: true, msg: "เช็คอินเข้างานสำเร็จ!", success: true });
       
       setParticipants(prev =>
         prev.map(p =>
           p._id === id
-            ? { ...p, status: "checkedIn", checkedInAt: new Date().toISOString(), followers }
+            ? { ...p, status: "checkedIn", checkedInAt: new Date().toISOString(), followers, tags: res.data?.participant?.tags || p.tags }
             : p
         )
       );
@@ -532,18 +532,36 @@ export default function CheckinStaffPage() {
                   {/* Decorative Header Bar */}
                   <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, bgcolor: isCheckedIn ? Y.success : Y.main }} />
 
-                  {/* Header: Avatar + Name */}
+                  {/* Header: Avatar + Name + Tags */}
                   <Stack direction="row" spacing={2} alignItems="center" mb={2} mt={1}>
                     <Avatar src={getAvatarUrl(p)} sx={{ width: { xs: 56, sm: 64 }, height: { xs: 56, sm: 64 }, border: `3px solid ${isCheckedIn ? Y.success : Y.main}` }} />
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                        <Typography variant="h6" fontWeight={800} noWrap sx={{ color: Y.text, fontSize: { xs: '1.1rem', sm: '1.25rem' } }}>
                          {p.fields?.name || "ไม่ระบุชื่อ"}
                        </Typography>
-                       <Chip
-                          size="small"
-                          label={isCheckedIn ? "เช็คอินเข้างานแล้ว" : "รอยืนยันการเช็คอิน"}
-                          sx={{ bgcolor: isCheckedIn ? '#E8F5E9' : '#FFF8E1', color: isCheckedIn ? Y.success : Y.dark, fontWeight: 800, mt: 0.5 }}
-                       />
+                       
+                       {/* จัดกลุ่ม Chip สถานะ และ Tags ให้อยู่ในบรรทัดเดียวกันแบบ Wrap */}
+                       <Stack direction="row" spacing={1} mt={0.5} flexWrap="wrap" useFlexGap>
+                           <Chip
+                              size="small"
+                              label={isCheckedIn ? "เช็คอินเข้างานแล้ว" : "รอยืนยันการเช็คอิน"}
+                              sx={{ bgcolor: isCheckedIn ? '#E8F5E9' : '#FFF8E1', color: isCheckedIn ? Y.success : Y.dark, fontWeight: 800 }}
+                           />
+                           
+                           {/* ✅ ลูปแสดง Tags ทั้งหมดที่มี */}
+                           {p.tags && p.tags.length > 0 && p.tags.map((tag, index) => (
+                              <Chip
+                                 key={index}
+                                 size="small"
+                                 label={tag}
+                                 sx={{ 
+                                    bgcolor: '#E3F2FD', // สีฟ้าอ่อนสบายตา
+                                    color: '#1565C0',   // สีตัวอักษรฟ้าเข้ม
+                                    fontWeight: 700 
+                                 }}
+                              />
+                           ))}
+                       </Stack>
                     </Box>
                   </Stack>
 

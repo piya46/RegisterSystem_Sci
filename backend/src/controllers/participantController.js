@@ -289,8 +289,19 @@ exports.checkinByQr = async (req, res) => {
     if (followers !== undefined) participant.followers = followers;
     participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = registrationPoint;
     await participant.save();
-    res.json({ message: 'Check-in successful', participant: { _id: participant._id, fields: participant.fields, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registeredBy: req.user.username, registrationType: participant.registrationType, followers: participant.followers } });
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+res.json({ 
+        message: 'Check-in successful', 
+        participant: { 
+            _id: participant._id, 
+            fields: participant.fields, // ข้อมูล fields จะถูกถอดรหัส (Decrypt) อัตโนมัติก่อนส่งกลับ
+            checkedInAt: participant.checkedInAt, 
+            registeredPoint: participant.registeredPoint, 
+            registeredBy: req.user.username, 
+            registrationType: participant.registrationType, 
+            followers: participant.followers,
+            tags: participant.tags // ✅ เพิ่มตรงนี้เพื่อให้ส่งคืน Tag กลับไปด้วย
+        } 
+    });  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 
 exports.resendTicket = async (req, res) => {
