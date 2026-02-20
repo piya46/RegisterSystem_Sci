@@ -113,13 +113,26 @@ exports.createParticipantByStaff = async (req, res) => {
 
     const { registrationPoint } = req.body;
     
-    // [แก้ไข] อนุญาตถ้าเป็น Kiosk Shared Token หรือถ้าเป็นคนให้เช็คสิทธิ์ปกติ
+    // // [แก้ไข] อนุญาตถ้าเป็น Kiosk Shared Token หรือถ้าเป็นคนให้เช็คสิทธิ์ปกติ
+    // const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
+    // if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
+    //   return res.status(403).json({ error: 'You do not have permission to register at this point.' });
+    // }
+    // // ถ้าเป็น Token ของ Kiosk ให้บังคับเช็คว่า Point ตรงกันไหม (ป้องกันเอา Link ไปใช้ผิดจุด)
+    // if (isKioskDevice && req.kioskPoint !== registrationPoint) {
+    //   return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
+    // }
     const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
+    
+    // 🌟 1. ดึงค่า Point จาก Token รองรับทั้ง req.kioskPoint และ req.user.kioskPoint
+    const tokenPoint = req.kioskPoint || req.user?.kioskPoint;
+
     if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to register at this point.' });
     }
-    // ถ้าเป็น Token ของ Kiosk ให้บังคับเช็คว่า Point ตรงกันไหม (ป้องกันเอา Link ไปใช้ผิดจุด)
-    if (isKioskDevice && req.kioskPoint !== registrationPoint) {
+    
+    // 🌟 2. แปลงให้เป็น String ก่อนเปรียบเทียบ เพื่อป้องกันปัญหาเรื่องประเภทตัวแปร (ObjectId vs String)
+    if (isKioskDevice && tokenPoint && String(tokenPoint) !== String(registrationPoint)) {
       return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     }
 
