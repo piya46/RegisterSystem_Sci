@@ -29,12 +29,11 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard'; 
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'; 
 import ReplayIcon from '@mui/icons-material/Replay'; 
-import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore'; // 🌟 ไอคอนคืนสิทธิ์
+import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore';
 
 import { QRCodeSVG } from 'qrcode.react';
 import * as XLSX from 'xlsx';
 
-// 🌟 นำเข้าฟังก์ชัน restorePrizeRight
 import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
@@ -312,7 +311,6 @@ export default function AdminParticipantsPage() {
     }
   };
 
-  // 🌟 ฟังก์ชันจัดการเมื่อแอดมินกดปุ่มคืนสิทธิ์
   const handleRestoreRight = async (id) => {
     if (!window.confirm("ยืนยันการคืนสิทธิ์ให้ผู้เข้าร่วมท่านนี้?\nระบบจะปลดล็อกให้เขากลับไปมีชื่อในการสุ่มรางวัลอีกครั้ง")) return;
     try {
@@ -365,11 +363,11 @@ export default function AdminParticipantsPage() {
               <Grid item xs={12} sm={4}><StyledCard><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}><Box><Typography variant="subtitle2" color="text.secondary">รอเช็คอิน</Typography><Typography variant="h4" fontWeight={800} color={Y.dark}>{stats.registered}</Typography></Box><Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: Y.light, color: Y.dark }}><AccessTimeIcon fontSize="large" /></Box></CardContent></StyledCard></Grid>
             </Grid>
 
-            {/* Filter Section */}
-            <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff" }}>
+            {/* Filter Section - เพิ่มกล่องแรเงาให้ดูมีมิติ */}
+            <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
               <Grid container spacing={2}>
                 
-                {/* Search Bar - เต็มความกว้างเสมอ */}
+                {/* Search Bar */}
                 <Grid item xs={12}>
                   <TextField 
                     fullWidth 
@@ -384,7 +382,7 @@ export default function AdminParticipantsPage() {
                   />
                 </Grid>
                 
-                {/* 6 ตัวกรอง (Filters) */}
+                {/* ตัวกรอง (Filters) */}
                 <Grid item xs={6} sm={4} md={2}>
                   <FormControl fullWidth size="small">
                     <InputLabel>สถานะ</InputLabel>
@@ -480,32 +478,32 @@ export default function AdminParticipantsPage() {
               </Grid>
             </Paper>
 
+            {/* 🌟 ตารางข้อมูล - ปรับให้ overflowX: 'auto' ป้องกันกรอบล้น */}
             {loading ? ( <Box sx={{ display: 'flex', justifyContent: 'center', p: 8 }}><CircularProgress sx={{ color: Y.main }} /></Box> ) : (
-              <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 4, border: "1px solid #eee", overflow: 'hidden' }}>
+              <TableContainer component={Paper} elevation={0} sx={{ borderRadius: 4, border: "1px solid #eee", boxShadow: "0 4px 20px rgba(0,0,0,0.03)", overflowX: 'auto' }}>
                 <Table stickyHeader>
                   <TableHead>
                     <TableRow>
-                      {/* 🌟 เพิ่มหัวตาราง "สละสิทธิ์" */}
-                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'สละสิทธิ์', 'ผู้ติดตาม', 'Tags', 'อีเมล', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'จัดการ'].map((head) => (
+                      {/* 🌟 เพิ่ม 'ปีการศึกษา' เข้าไปใน Header */}
+                      {['ชื่อ-นามสกุล', 'เบอร์โทร', 'สถานะ', 'สละสิทธิ์', 'ผู้ติดตาม', 'Tags', 'อีเมล', 'ของรางวัล', 'เวลาเช็คอิน', 'ภาควิชา', 'ปีการศึกษา', 'จัดการ'].map((head) => (
                         <TableCell key={head} align="center" sx={{ bgcolor: Y.light, color: Y.text, fontWeight: 800, whiteSpace: 'nowrap' }}>{head}</TableCell>
                       ))}
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {filteredParticipants.length === 0 ? (
-                      <TableRow><TableCell colSpan={11} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={12} align="center" sx={{ py: 6, color: 'text.secondary' }}><SearchIcon sx={{ fontSize: 40, mb: 1, opacity: 0.5 }} /><br/>ไม่พบข้อมูล</TableCell></TableRow>
                     ) : (
                       filteredParticipants.map(p => {
                         const wonPrizes = prizes.filter(pz => pz.winners.some(w => w.participantId?._id === p._id || w.participantId === p._id));
 
                         return (
                           <TableRow key={p._id} hover sx={{ "&:hover": { bgcolor: "#fffcf2" } }}>
-                            <TableCell align="left"><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
-                            <TableCell align="center"><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
-                            <TableCell align="center"><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
+                            <TableCell align="left" sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
                             
-                            {/* 🌟 คอลัมน์สละสิทธิ์ */}
-                            <TableCell align="center">
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                               {p.isForfeited ? (
                                 <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
                                   <Chip label="หมดสิทธิ์สุ่ม" size="small" sx={{ bgcolor: '#ffebee', color: '#c62828', fontWeight: 700 }} />
@@ -555,7 +553,7 @@ export default function AdminParticipantsPage() {
                                         icon={<CardGiftcardIcon style={{ color: '#E65100' }} />} 
                                         label={pz.name} 
                                         size="small" 
-                                        sx={{ bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700, border: '1px solid #FFE0B2' }}
+                                        sx={{ bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700, border: '1px solid #FFE0B2', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}
                                         onDelete={() => handleRevokePrize(pz._id, p._id)} 
                                       />
                                     </Tooltip>
@@ -564,9 +562,13 @@ export default function AdminParticipantsPage() {
                               ) : <Typography variant="caption" color="text.disabled">-</Typography>}
                             </TableCell>
 
-                            <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>{formatCheckinDate(p.checkedInAt)}</TableCell>
-                            <TableCell align="center">{p.fields.dept || '-'}</TableCell>
-                            <TableCell align="center">
+                            <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{formatCheckinDate(p.checkedInAt)}</TableCell>
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>{p.fields.dept || '-'}</TableCell>
+                            
+                            {/* 🌟 แสดงข้อมูล "ปีการศึกษา" ตรงนี้ */}
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>{p.fields.date_year || '-'}</TableCell>
+
+                            <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                               <Stack direction="row" justifyContent="center" spacing={1}>
                                 <Tooltip title="ดู QR Code"><IconButton onClick={() => { setSelectedParticipantForQr(p); setQrDialogOpen(true); }} size="small" sx={{ color: '#00bcd4', "&:hover": { bgcolor: '#e0f7fa' } }}><QrCode2Icon fontSize="small" /></IconButton></Tooltip>
                                 <Tooltip title="แก้ไข"><IconButton onClick={() => handleEditClick(p)} size="small" sx={{ color: 'primary.main', "&:hover": { bgcolor: '#e3f2fd' } }}><EditIcon fontSize="small" /></IconButton></Tooltip>
