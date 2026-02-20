@@ -74,7 +74,7 @@ export default function PublicDashboardPage() {
             <Avatar src="/logo.svg" sx={{ width: 100, height: 100, bgcolor: '#fff', border: `4px solid ${THEME.accent}`, p: 1, boxShadow: '0 4px 15px rgba(230, 81, 0, 0.3)' }} />
             <Box>
               <Typography variant="h3" fontWeight={900} color={THEME.accent} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)', letterSpacing: 1 }}>
-                LIVE DASHBOARD
+                DASHBOARD
               </Typography>
               <Typography variant="h6" color={THEME.text} sx={{ letterSpacing: 2, fontWeight: 700 }}>
                 งานคืนเหย้า เสือเหลืองคืนถิ่น

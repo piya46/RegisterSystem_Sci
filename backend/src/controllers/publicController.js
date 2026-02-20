@@ -2,32 +2,41 @@
 const jwt = require('jsonwebtoken');
 const Participant = require('../models/participant');
 
-// [ส่วนเดิม]
 exports.generateKioskToken = async (req, res) => {
   try {
     const { pointId } = req.body;
     if (!pointId) return res.status(400).json({ error: 'ต้องระบุ Registration Point' });
-    const token = jwt.sign( { role: 'kiosk_device', pointId, createdBy: req.user._id }, process.env.JWT_SECRET, { expiresIn: '12h' } );
+
+    const token = jwt.sign(
+      { role: 'kiosk_device', pointId, createdBy: req.user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: '12h' }
+    );
     res.json({ token });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 };
 
-// [ส่วนเดิม]
 exports.getPublicReport = async (req, res) => {
   try {
     const participants = await Participant.find({ isDeleted: false, status: 'checkedIn' }, 'fields.name fields.department registeredPoint checkedInAt tags').lean();
+    
     const maskedData = participants.map(p => {
       let maskedName = p.fields?.name ? p.fields.name.substring(0, 3) + '***' : 'Unknown';
-      return { name: maskedName, department: p.fields?.department || '', point: p.registeredPoint, checkedInAt: p.checkedInAt, tags: p.tags || [] };
+      return {
+        name: maskedName,
+        department: p.fields?.department || '',
+        point: p.registeredPoint,
+        checkedInAt: p.checkedInAt,
+        tags: p.tags || []
+      };
     });
+
     res.json({ totalCheckedIn: maskedData.length, data: maskedData });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 };
 
-// 🌟 [เพิ่มใหม่] ดึงข้อมูลสถิติสำหรับหน้า Live Dashboard
 exports.getPublicDashboardStats = async (req, res) => {
   try {
-    // ดึงเฉพาะคนที่ Check-in แล้ว
     const participants = await Participant.find(
       { isDeleted: false, status: 'checkedIn' }, 
       'fields.dept fields.date_year followers'
@@ -39,14 +48,9 @@ exports.getPublicDashboardStats = async (req, res) => {
     let yearCount = {};
 
     participants.forEach(p => {
-      // นับรวมผู้ติดตาม
       totalFollowers += (p.followers || 0);
-      
-      // นับแยกภาควิชา
       const dept = p.fields?.dept || 'ไม่ระบุภาควิชา';
       deptCount[dept] = (deptCount[dept] || 0) + 1;
-
-      // นับแยกปีการศึกษา
       const year = p.fields?.date_year || 'ไม่ระบุปีการศึกษา';
       yearCount[year] = (yearCount[year] || 0) + 1;
     });
@@ -55,12 +59,66 @@ exports.getPublicDashboardStats = async (req, res) => {
       totalCheckedIn,
       totalFollowers,
       totalAttendees: totalCheckedIn + totalFollowers,
-      // แปลง Object ให้เป็น Array และเรียงลำดับจากมากไปน้อย
       deptStats: Object.keys(deptCount).map(k => ({ name: k, count: deptCount[k] })).sort((a,b) => b.count - a.count),
       yearStats: Object.keys(yearCount).map(k => ({ name: k, count: yearCount[k] })).sort((a,b) => b.count - a.count),
-      updatedAt: new Date() // ส่งเวลาที่ Query ข้อมูลกลับไปด้วย
+      updatedAt: new Date() 
     });
   } catch (err) {
     res.status(500).json({ error: 'Server error' });
+  }
+};
+
+// 🌟 [เพิ่มใหม่] สร้าง Master Token (กำหนดเวลาได้) สำหรับ Staff เอาไปให้คนอื่นสแกน
+exports.generateSelfRegisterLink = async (req, res) => {
+  try {
+    const { pointId, validFrom, validUntil } = req.body;
+    if (!pointId || !validFrom || !validUntil) {
+      return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน และเวลาเริ่มต้น-สิ้นสุด ให้ครบถ้วน' });
+    }
+
+    const payload = {
+      role: 'self_register_master',
+      pointId,
+      staffId: req.user._id,
+      nbf: Math.floor(new Date(validFrom).getTime() / 1000), // Not Before (เวลาเริ่ม)
+      exp: Math.floor(new Date(validUntil).getTime() / 1000) // Expiration (เวลาหมดอายุ)
+    };
+
+    const masterToken = jwt.sign(payload, process.env.JWT_SECRET);
+    res.json({ token: masterToken });
+  } catch (err) {
+    res.status(500).json({ error: 'ไม่สามารถสร้างลิงก์ได้', detail: err.message });
+  }
+};
+
+// 🌟 [เพิ่มใหม่] ผู้เข้าร่วมใช้ Master Token แลกเป็น Session 15 นาที
+exports.requestShortSession = async (req, res) => {
+  try {
+    const { masterToken } = req.body;
+    if (!masterToken) return res.status(400).json({ error: 'ไม่พบ Token ยืนยันตัวตน' });
+
+    // ตรวจสอบความถูกต้องและเวลาของ Master Token
+    const decoded = jwt.verify(masterToken, process.env.JWT_SECRET);
+
+    if (decoded.role !== 'self_register_master') {
+      return res.status(403).json({ error: 'Token ไม่ถูกต้องสำหรับโหมดนี้' });
+    }
+
+    // ออก Session ใหม่ให้อายุแค่ 15 นาที สำหรับกรอกข้อมูล 1 คน
+    const shortToken = jwt.sign(
+      { role: 'self_register_session', pointId: decoded.pointId, staffId: decoded.staffId },
+      process.env.JWT_SECRET,
+      { expiresIn: '15m' } 
+    );
+
+    res.json({ shortToken, pointId: decoded.pointId });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(403).json({ error: 'QR Code นี้หมดเวลาการใช้งานแล้ว' });
+    }
+    if (err.name === 'NotBeforeError') {
+      return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดให้ใช้งาน QR Code นี้' });
+    }
+    res.status(403).json({ error: 'QR Code ไม่ถูกต้อง หรือถูกยกเลิกแล้ว' });
   }
 };

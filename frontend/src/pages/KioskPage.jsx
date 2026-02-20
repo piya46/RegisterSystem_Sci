@@ -4,7 +4,7 @@ import {
   Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider, TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup, FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment, Switch, Backdrop, LinearProgress
 } from "@mui/material";
 
-// Icons
+// Icons 
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import LockIcon from "@mui/icons-material/Lock";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -25,11 +25,8 @@ import WarningIcon from "@mui/icons-material/Warning";
 import InfoIcon from "@mui/icons-material/Info";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 
-// Libraries
 import { motion } from 'framer-motion';
 import Confetti from 'react-confetti';
-
-// API & Utils
 import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listRegistrationPoints } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Turnstile from "../components/Turnstile";
@@ -43,7 +40,8 @@ const MourningRibbon = () => (
   </Box> 
 );
 
-export default function KioskPage() {
+// 🌟 เพิ่ม Props
+export default function KioskPage({ isSelfRegisterMode = false, forcePointId = null }) {
   const { user } = useAuth(); 
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
@@ -51,10 +49,8 @@ export default function KioskPage() {
   const [loading, setLoading] = useState(false);
   const [fetchingFields, setFetchingFields] = useState(true);
 
-  // System Status
   const [systemStatus, setSystemStatus] = useState({ isOpen: true, message: "" });
   const [pointName, setPointName] = useState(""); 
-
   const [membershipOption, setMembershipOption] = useState(null);
   const [followersCount, setFollowersCount] = useState(""); 
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -68,15 +64,15 @@ export default function KioskPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [kioskMode, setKioskMode] = useState(false);
-  const selectedPoint = searchParams.get("point");
+  
+  // 🌟 บังคับใช้ forcePointId ถ้ามี
+  const selectedPoint = forcePointId || searchParams.get("point");
 
   const [exitOpen, setExitOpen] = useState(false);
   const [exitUsername, setExitUsername] = useState("");
   const [exitPassword, setExitPassword] = useState("");
   const [exitError, setExitError] = useState("");
   const [verifyingExit, setVerifyingExit] = useState(false);
-  
-  // 🌟 เพิ่ม State สำหรับนับถอยหลังหน้า Success
   const [countdownProgress, setCountdownProgress] = useState(100);
   
   const lastActivityRef = useRef(Date.now());
@@ -84,7 +80,6 @@ export default function KioskPage() {
   const handleVerify = useCallback((token) => { setCfToken(token); }, []);
   const handleError = useCallback(() => { setCfToken(""); }, []);
 
-  // 1. โหลดข้อมูลเริ่มต้น 
   useEffect(() => {
     if (!selectedPoint) { navigate("/select-point"); return; }
     
@@ -126,8 +121,10 @@ export default function KioskPage() {
     loadInitData();
   }, [selectedPoint, navigate]);
 
-  // 2. ระบบ Auto-Reset Kiosk Idle
   useEffect(() => {
+    // 🌟 ถ่าเป็นมือถือไม่ต้องจับเวลา Idle
+    if (isSelfRegisterMode) return; 
+
     const handleActivity = () => { lastActivityRef.current = Date.now(); };
     window.addEventListener("mousemove", handleActivity);
     window.addEventListener("keydown", handleActivity);
@@ -147,25 +144,25 @@ export default function KioskPage() {
         window.removeEventListener("touchstart", handleActivity); 
         clearInterval(timer); 
     };
-  }, [form, membershipOption, reviewOpen, result, followersCount]);
+  }, [form, membershipOption, reviewOpen, result, followersCount, isSelfRegisterMode]);
 
-  // 3. ระบบนับถอยหลังหน้า Success (5 วินาที)
   useEffect(() => {
-      if (result) {
+      // 🌟 ถ้าเป็นมือถือ ไม่ต้องนับถอยหลัง ให้ค้างไว้ให้เขาแคปจอ
+      if (result && !isSelfRegisterMode) {
           setCountdownProgress(100);
           const interval = setInterval(() => {
               setCountdownProgress(prev => {
                   if (prev <= 0) {
                       clearInterval(interval);
-                      handleReset(); // หมดเวลา เคลียร์หน้าจอ
+                      handleReset(); 
                       return 0;
                   }
-                  return prev - 2; // ลดลงทีละ 2% (ใช้เวลา 5 วินาที)
+                  return prev - 2; 
               });
           }, 100); 
           return () => clearInterval(interval);
       }
-  }, [result]);
+  }, [result, isSelfRegisterMode]);
 
   const fieldGroups = useMemo(() => {
     const all = (fields || []).filter(f => f?.enabled !== false).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
@@ -181,7 +178,8 @@ export default function KioskPage() {
 
   function openFullscreen() { const elem = document.documentElement; if (elem.requestFullscreen) elem.requestFullscreen(); }
   function closeFullscreen() { if (document.exitFullscreen) document.exitFullscreen(); }
-  useEffect(() => { if (kioskMode) openFullscreen(); }, [kioskMode]);
+  
+  useEffect(() => { if (kioskMode && !isSelfRegisterMode) openFullscreen(); }, [kioskMode, isSelfRegisterMode]);
 
   const handleReset = () => { 
       setForm({}); setMembershipOption(null); setFollowersCount(""); 
@@ -257,6 +255,10 @@ export default function KioskPage() {
         });
         
         setResult(res.data?.participant || res.data || res);
+
+        // 🌟 ถ้าเป็นมือถือ ให้ลบ Session ทิ้งเลย (ใช้ได้ครั้งเดียว)
+        if (isSelfRegisterMode) sessionStorage.removeItem('kioskToken');
+
       } catch (err) {
         const errorMsg = err?.response?.data?.error || "เกิดข้อผิดพลาด";
         const isSecurity = errorMsg.includes("Security") || errorMsg.includes("Turnstile");
@@ -265,22 +267,20 @@ export default function KioskPage() {
       } finally { setLoading(false); setPendingSubmit(false); setCfToken(""); }
     };
     go();
-  }, [cfToken, pendingSubmit, selectedPoint]);
+  }, [cfToken, pendingSubmit, selectedPoint, isSelfRegisterMode]);
 
   const confirmExitKiosk = async () => {
     setVerifyingExit(true); setExitError("");
     try {
         await verifyUser({ username: exitUsername, password: exitPassword });
         setKioskMode(false); closeFullscreen(); setExitOpen(false); setResult(null);
+        localStorage.removeItem('kioskToken');
     } catch (err) { setExitError(err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); } 
     finally { setVerifyingExit(false); }
   };
 
   function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return "-"; }
 
-  // ==========================================
-  // UI - System Closed 
-  // ==========================================
   if (!systemStatus.isOpen && !kioskMode) {
     return (
       <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, position: 'relative' }}>
@@ -292,31 +292,24 @@ export default function KioskPage() {
               </Box>
               <Typography variant="h5" fontWeight="900" color="#4E342E" gutterBottom sx={{ lineHeight: 1.3 }}>{systemStatus.message}</Typography>
               <Divider sx={{ my: 2.5, borderColor: 'rgba(255, 193, 7, 0.2)', borderStyle: 'dashed' }} />
-              <Button variant="outlined" onClick={() => navigate('/dashboard')} sx={{ mt: 1, borderRadius: '12px', fontWeight: 700 }}>กลับหน้าหลัก</Button>
+              {!isSelfRegisterMode && <Button variant="outlined" onClick={() => navigate('/dashboard')} sx={{ mt: 1, borderRadius: '12px', fontWeight: 700 }}>กลับหน้าหลัก</Button>}
            </Paper>
          </motion.div>
       </Box>
     );
   }
 
-  // ==========================================
-  // UI - Success View (Kiosk 5-Second Auto Clear)
-  // ==========================================
   if (result) {
      return (
       <Box sx={{ minHeight: "100vh", bgcolor: "#f8f9fa", position: 'relative', overflowX: 'hidden' }}>
         <MourningRibbon />
         <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={300} gravity={0.2} />
         
-        {/* แถบ Progress Bar ด้านบน แจ้งให้รู้ว่ากำลังนับเวลาถอยหลัง */}
-        <LinearProgress 
-            variant="determinate" 
-            value={countdownProgress} 
-            color="success" 
-            sx={{ height: 8, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999 }} 
-        />
+        {!isSelfRegisterMode && (
+          <LinearProgress variant="determinate" value={countdownProgress} color="success" sx={{ height: 8, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999 }} />
+        )}
 
-        <Container maxWidth="sm" sx={{ mt: 12, position: 'relative', zIndex: 10 }}>
+        <Container maxWidth="sm" sx={{ mt: { xs: 6, md: 12 }, position: 'relative', zIndex: 10 }}>
           <Box textAlign="center" mb={4}>
              <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
                <CheckCircleIcon color="success" sx={{ fontSize: 80, mb: 1, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
@@ -351,41 +344,39 @@ export default function KioskPage() {
           </motion.div>
           
           <Box sx={{ textAlign: 'center', mt: 6 }}>
-            <Button variant="contained" color="primary" size="large" onClick={handleReset} sx={{ borderRadius: '16px', px: 6, py: 2, fontWeight: '900', fontSize: '1.2rem', boxShadow: '0 8px 24px rgba(25, 118, 210, 0.4)' }}>
-                เสร็จสิ้น / ลงทะเบียนท่านต่อไป
-            </Button>
-            <Typography variant="body1" color="text.disabled" sx={{ mt: 3, fontWeight: 600 }}>
-             หน้าจอจะเริ่มใหม่โดยอัตโนมัติ...
-            </Typography>
+            {isSelfRegisterMode ? (
+              <Box>
+                <Typography variant="h6" color="success.main" sx={{ fontWeight: 800 }}>กรุณาโชว์หน้าจอนี้ให้เจ้าหน้าที่ดู หรือแคปหน้าจอไว้</Typography>
+                <Typography variant="body2" color="text.disabled" sx={{ mt: 1 }}>ท่านสามารถปิดหน้าต่างเบราว์เซอร์นี้ได้เลย</Typography>
+              </Box>
+            ) : (
+              <Box>
+                <Button variant="contained" color="primary" size="large" onClick={handleReset} sx={{ borderRadius: '16px', px: 6, py: 2, fontWeight: '900', fontSize: '1.2rem', boxShadow: '0 8px 24px rgba(25, 118, 210, 0.4)' }}>
+                    เสร็จสิ้น / ลงทะเบียนท่านต่อไป
+                </Button>
+                <Typography variant="body1" color="text.disabled" sx={{ mt: 3, fontWeight: 600 }}>หน้าจอจะเริ่มใหม่โดยอัตโนมัติ...</Typography>
+              </Box>
+            )}
           </Box>
 
-          {!kioskMode ? 
+          {!isSelfRegisterMode && (!kioskMode ? 
             <Tooltip title="เปิดโหมด Kiosk (Fullscreen)"><Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab></Tooltip> 
             : <Tooltip title="ปลดล็อคเครื่อง"><Fab color="secondary" onClick={() => { setExitUsername(""); setExitPassword(""); setExitError(""); setExitOpen(true); }} sx={{ position: "fixed", right: 24, bottom: 24, opacity: 0.3, '&:hover':{opacity: 1} }}><LockIcon /></Fab></Tooltip>
-          }
+          )}
         </Container>
       </Box>
     );
   }
 
-  // ==========================================
-  // UI - Main Form Section
-  // ==========================================
   return (
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: 'relative' }}>
       <MourningRibbon />
       <Container maxWidth="sm">
         
-        {/* 🌟 Header Kiosk Information */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)", position: 'relative' }}>
-            {user && (
-              <Chip 
-                icon={<BadgeIcon />} 
-                label={`ผู้ดูแล: ${user?.fullName || user?.username}`} 
-                size="small" 
-                sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.75rem' }} 
-              />
+            {user && !isSelfRegisterMode && (
+              <Chip icon={<BadgeIcon />} label={user.role?.includes('kiosk_device') ? `โหมดใช้งานสาธารณะ (Kiosk)` : `ผู้ดูแล: ${user?.fullName || user?.username}`} size="small" sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.75rem' }} />
             )}
             <Stack direction="row" spacing={2} alignItems="center" justifyContent="center" mt={1}>
               <Avatar src="/logo.svg" alt="Logo" sx={{ width: 90, height: 90, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
@@ -394,12 +385,7 @@ export default function KioskPage() {
                     ลงทะเบียนหน้างาน <br /> 
                     "เสือเหลืองคืนถิ่น"
                 </Typography>
-                <Chip 
-                  icon={<LocationOnIcon sx={{ color: '#fff !important' }} />} 
-                  label={`จุดลงทะเบียน: ${pointName || "ไม่ระบุ"}`} 
-                  size="small" 
-                  sx={{ bgcolor: '#F57F17', color: '#fff', fontWeight: '800', mt: 1, px: 0.5, boxShadow: '0 2px 8px rgba(245, 127, 23, 0.4)' }} 
-                />
+                <Chip icon={<LocationOnIcon sx={{ color: '#fff !important' }} />} label={`จุดลงทะเบียน: ${pointName || "ไม่ระบุ"}`} size="small" sx={{ bgcolor: '#F57F17', color: '#fff', fontWeight: '800', mt: 1, px: 0.5, boxShadow: '0 2px 8px rgba(245, 127, 23, 0.4)' }} />
               </Box>
             </Stack>
           </Paper>
@@ -411,38 +397,24 @@ export default function KioskPage() {
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
             <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                 
-                {/* Section: Personal Info */}
                 <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
                   {fieldGroups.personal.map(f => <FieldInput key={f.name} field={f} value={form[f.name] ?? ""} onChange={handleInput} errorText={errors[f.name]} />)}
                   {fieldGroups.others.map(f => <FieldInput key={f.name} field={f} value={form[f.name] ?? ""} onChange={handleInput} errorText={errors[f.name]} />)}
                 </FormSection>
 
-                {/* Section: Contact Info */}
                 <FormSection title="ช่องทางติดต่อ" icon={<ContactPhoneIcon />}>
                   {fieldGroups.contact.map(f => <FieldInput key={f.name} field={f} value={form[f.name] ?? ""} onChange={handleInput} errorText={errors[f.name]} />)}
                 </FormSection>
 
-                {/* Section: Followers */}
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fffdf7", border: "1px solid #ffe082" }}>
                   <Stack direction="row" alignItems="center" spacing={1} mb={1.5}>
                     <GroupAddIcon color="warning" />
                     <Typography fontWeight={800} fontSize="1.1rem">ผู้ติดตาม</Typography>
                     <Chip label="ไม่บังคับ" size="small" sx={{ ml: "auto", bgcolor: "#fff3e0", color: "#e65100", fontWeight: 600 }} />
                   </Stack>
-                  
-                  <TextField 
-                      type="number" 
-                      label="จำนวนผู้ติดตาม (หากมี)" 
-                      placeholder="ไม่ต้องกรอกหากไม่มีผู้ติดตาม"
-                      value={String(followersCount ?? "")} 
-                      onChange={(e) => setFollowersCount(e.target.value.replace(/[^\d]/g, ""))} 
-                      fullWidth 
-                      InputProps={{ startAdornment: <InputAdornment position="start">คน</InputAdornment> }}
-                      sx={{ bgcolor: '#fff', '& .MuiOutlinedInput-root': { borderRadius: 3 } }} 
-                  />
+                  <TextField type="number" label="จำนวนผู้ติดตาม (หากมี)" placeholder="ไม่ต้องกรอกหากไม่มีผู้ติดตาม" value={String(followersCount ?? "")} onChange={(e) => setFollowersCount(e.target.value.replace(/[^\d]/g, ""))} fullWidth InputProps={{ startAdornment: <InputAdornment position="start">คน</InputAdornment> }} sx={{ bgcolor: '#fff', '& .MuiOutlinedInput-root': { borderRadius: 3 } }} />
                 </Paper>
 
-                {/* Section: Membership */}
                 <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9", mb: 1 }}>
                     <Stack direction="row" alignItems="center" spacing={1} mb={2}>
                       <SecurityIcon color="primary"/>
@@ -478,7 +450,6 @@ export default function KioskPage() {
         )}
       </Container>
 
-      {/* 🌟 Review Dialog */}
       <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: '24px' } }}>
         <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
           <Stack direction="row" alignItems="center" spacing={1}><FactCheckIcon color="warning" /><Typography variant="h6" fontWeight={800}>ตรวจสอบข้อมูลลงทะเบียน</Typography></Stack>
@@ -511,7 +482,6 @@ export default function KioskPage() {
         </DialogActions>
       </Dialog>
 
-      {/* 🌟 Error Dialog */}
       <Dialog open={errorDialog.open} onClose={() => setErrorDialog({ ...errorDialog, open: false })} PaperProps={{ sx: { borderRadius: 4, p: 1, maxWidth: 360, textAlign: 'center', borderTop: errorDialog.type === 'security' ? '6px solid #FF3B30' : '6px solid #FF9800' } }}>
         <DialogContent>
           <Stack alignItems="center" spacing={2}>
@@ -525,7 +495,7 @@ export default function KioskPage() {
         </DialogContent>
       </Dialog>
 
-      {!kioskMode ? 
+      {!isSelfRegisterMode && (!kioskMode ? 
         <Tooltip title="เปิดโหมด Kiosk (ป้องกันผู้ใช้ออกจากหน้าจอ)">
            <Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}>
              <LockOpenIcon />
@@ -537,7 +507,7 @@ export default function KioskPage() {
              <LockIcon />
            </Fab>
         </Tooltip>
-      }
+      )}
       
       <Dialog open={exitOpen} onClose={() => setExitOpen(false)} PaperProps={{ sx: { borderRadius: 4 } }}>
           <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#FFEBEE', color: '#C62828', fontWeight: 800}}>
@@ -553,7 +523,6 @@ export default function KioskPage() {
           </DialogActions>
       </Dialog>
 
-      {/* 🌟 Loading Backdrop */}
       <Backdrop sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 9999, flexDirection: 'column', gap: 2 }} open={loading || pendingSubmit}>
         <CircularProgress color="inherit" size={60} thickness={4} />
         <Typography variant="h6" fontWeight="bold" sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>กำลังบันทึกข้อมูล...</Typography>
@@ -564,7 +533,6 @@ export default function KioskPage() {
   );
 }
 
-// --- Helper Components ---
 function FormSection({ title, icon, children }) {
     return (
         <Card variant="outlined" sx={{ borderRadius: 4, border: '1px solid #e0e0e0', overflow: 'hidden' }}>

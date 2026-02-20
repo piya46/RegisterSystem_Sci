@@ -1,3 +1,4 @@
+// backend/src/middleware/auth.js
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/admin');
 const Session = require('../models/session');
@@ -15,13 +16,15 @@ module.exports = async function (req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    // [เพิ่ม] ดักจับ Token ของ Kiosk Mode (ไม่ต้องเช็ค Session ลงลึก)
-    if (payload.role === 'kiosk_device') {
+    // 🌟 ปรับปรุงการรองรับ Token ของ Self Register Session
+    if (payload.role === 'kiosk_device' || payload.role === 'self_register_session') {
       req.user = { 
-        _id: payload.createdBy, 
-        role: ['kiosk_device'], 
-        username: 'Kiosk_Shared' 
+        _id: payload.createdBy || payload.staffId, // อ้างอิง ID ของ Staff ผู้สร้าง QR
+        role: ['kiosk'], // 🌟 เปลี่ยนเป็น 'kiosk' เพื่อให้ผ่าน requireKioskOrStaff middleware
+        username: payload.role === 'self_register_session' ? 'Self_Service_Mobile' : 'Kiosk_Tablet' 
       };
+      // 🌟 บันทึก Method ไว้ใช้ใน Controller
+      req.registrationMethod = payload.role === 'self_register_session' ? 'Self-Service (QR)' : 'Kiosk';
       req.kioskPoint = payload.pointId;
       return next();
     }
@@ -52,6 +55,7 @@ module.exports = async function (req, res, next) {
     }
 
     req.user = user;
+    req.registrationMethod = 'Staff On-site'; // ระบุวิธีลงทะเบียนปกติ
     req.session = session; 
     next();
   } catch (err) {

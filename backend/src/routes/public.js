@@ -4,13 +4,12 @@ const router = express.Router();
 const publicController = require('../controllers/publicController');
 const auth = require('../middleware/auth');
 
-// Public Link Report (No Auth)
 router.get('/report', publicController.getPublicReport);
-
-// 🌟 [เพิ่มใหม่] สถิติสำหรับหน้า Live Dashboard (No Auth)
 router.get('/dashboard', publicController.getPublicDashboardStats);
-
-// Kiosk Token Generation (Require Auth)
 router.post('/kiosk-token', auth, publicController.generateKioskToken);
+
+// 🌟 Routes สำหรับ Self-Registration (Mobile)
+router.post('/self-register-link', auth, publicController.generateSelfRegisterLink);
+router.post('/request-short-session', publicController.requestShortSession); 
 
 module.exports = router;

@@ -161,6 +161,67 @@ exports.createParticipantByStaff = async (req, res) => {
   }
 };
 
+exports.registerOnsite = async (req, res) => {
+  try {
+    const { cfToken, consent, followers, registrationPoint, ...fields } = req.body;
+    
+    // ตรวจสอบ Turnstile (หากอยู่ใน Production)
+    const isValid = await verifyTurnstile(cfToken);
+    if (!isValid && process.env.NODE_ENV === 'production') {
+      return res.status(400).json({ error: 'Security check failed. Please try again.' });
+    }
+
+    if (!fields.name || !fields.phone || !fields.email) {
+      return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
+    }
+
+    // ตรวจสอบข้อมูลซ้ำ
+    const existing = await Participant.findOne({
+      $or: [{ 'fields.email': fields.email }, { 'fields.phone': fields.phone }],
+      isDeleted: false
+    });
+    if (existing) return res.status(400).json({ error: 'อีเมลหรือเบอร์โทรนี้ลงทะเบียนในระบบแล้ว' });
+
+    const actualPoint = req.kioskPoint || registrationPoint;
+    if (!actualPoint) return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน' });
+
+    // ตรวจสอบสิทธิ์และสถานะของจุดลงทะเบียน
+    const canReg = await canRegisterAtPoint(actualPoint);
+    if (!canReg) return res.status(400).json({ error: 'จุดลงทะเบียนนี้ปิดใช้งานหรือไม่พบในระบบ' });
+
+    const participant = await Participant.create({
+      fields: fields,
+      status: 'checkedIn',
+      checkedInAt: new Date(),
+      registeredPoint: actualPoint,
+      registrationType: 'onsite',
+      followers: parseInt(followers, 10) || 0,
+      consent: consent === 'agreed' ? 'agreed' : 'disagreed',
+      qrCode: `ON-${uuidv4()}`,
+      
+      // 🌟 บันทึกสตาฟผู้ดูแล (ดึงจาก Token ที่ใช้ลงทะเบียน)
+      registeredBy: req.user ? req.user._id : null,
+      
+      // 🌟 ใส่ Tag เพื่อให้แอดมินเช็คได้ว่าเป็นงาน Self Service
+      tags: req.registrationMethod === 'Self-Service (QR)' 
+            ? ['Walk-in', 'Self-Service'] 
+            : ['Walk-in', 'Staff-Assisted']
+    });
+
+    // อัปเดตสถิติจุดลงทะเบียน
+    await checkInStatusService.updatePointStats(actualPoint, 1);
+
+    // บันทึก Log การกระทำ
+    if (req.user && req.user._id) {
+       await auditLog(req.user._id, 'CREATE_PARTICIPANT_ONSITE', `Method: ${req.registrationMethod}`, participant._id);
+    }
+
+    res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error', detail: err.message });
+  }
+};
+
 exports.listParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;

@@ -6,17 +6,18 @@ const api = axios.create({
   withCredentials: true 
 });
 
-// [เพิ่ม] Interceptor สำหรับ Kiosk Mode
-// เมื่อใช้ Kiosk Mode จะส่ง Token แนบไปทาง Header แทน Cookie หลัก
+// [แก้ไข] Interceptor สำหรับ Kiosk Mode และ Self-Register Mode
+// ให้อ่านจาก localStorage ก่อน (สำหรับเครื่อง Kiosk หลัก) 
+// ถ้าไม่มีให้อ่านจาก sessionStorage (สำหรับมือถือผู้เข้าร่วม)
 api.interceptors.request.use(config => {
-  const kioskToken = localStorage.getItem('kioskToken');
+  const kioskToken = localStorage.getItem('kioskToken') || sessionStorage.getItem('kioskToken');
   if (kioskToken) {
     config.headers.Authorization = `Bearer ${kioskToken}`;
   }
   return config;
 });
 
-/* (โค้ด Auth, Admin, Session, Participant, Point, Fields, Dashboard เดิมคงไว้ทั้งหมด...) */
+/* (โค้ด Auth, Admin, Session, Participant, Point, Fields, Dashboard) */
 export const login = (data) => api.post('/auth/login', data);
 export const googleLogin = (token) => api.post('/auth/google-login', { token });
 export const getMe = () => api.get('/auth/me');
@@ -81,19 +82,18 @@ export const createPackage = (data) => api.post('/packages', data);
 export const updatePackage = (id, data) => api.put(`/packages/${id}`, data);
 export const deletePackage = (id) => api.delete(`/packages/${id}`);
 
-// ==========================================
-// 🌟 [เพิ่ม] New Features API (Tags, Prizes, Public Share)
-// ==========================================
 export const generateKioskToken = (pointId) => api.post('/public/kiosk-token', { pointId });
 export const getPublicReportData = () => api.get('/public/report');
+export const getPublicDashboardStats = () => api.get('/public/dashboard');
 
 export const listPrizes = () => api.get('/prizes');
 export const createPrize = (data) => api.post('/prizes', data);
 export const deletePrize = (id) => api.delete(`/prizes/${id}`);
 export const drawPrize = (prizeId) => api.post(`/prizes/draw/${prizeId}`);
-// 🌟 [เพิ่มต่อท้ายสุดของไฟล์ api.js]
-export const getPublicDashboardStats = () => api.get('/public/dashboard');
-// 🌟 เพิ่มใน api.js
-// แก้ไขให้ตรงกับ Backend
 export const cancelPrizeWinner = (prizeId, winnerId) => api.post('/prizes/cancel', { prizeId, winnerId });
+
+// 🌟 [เพิ่ม] API สำหรับสร้างลิงก์ QR ให้คนทั่วไปแสกน (Self-Register)
+export const generateSelfRegisterLink = (data) => api.post('/public/self-register-link', data);
+export const requestShortSession = (masterToken) => api.post('/public/request-short-session', { masterToken });
+
 export default api;
