@@ -16,7 +16,7 @@
     "@mui/material": "^7.2.0",
     "@mui/system": "^7.3.6",
     "@react-oauth/google": "^0.13.4",
-    "axios": "^1.10.0",
+    "axios": "^1.13.5",
     "crypto-js": "^4.2.0",
     "dayjs": "^1.11.13",
     "file-saver": "^2.0.5",
