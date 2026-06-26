@@ -9,8 +9,8 @@ export default function KioskJoinPage() {
   useEffect(() => {
     if (token) {
       localStorage.setItem('kioskToken', token);
-      // ไปหน้า Kiosk ทันที
-      navigate('/kiosk', { replace: true });
+      // Reload so AuthProvider re-checks /auth/me with the new scoped token.
+      window.location.replace('/kiosk');
     } else {
       navigate('/login');
     }

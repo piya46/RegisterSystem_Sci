@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 import {
   Box, Card, CardContent, Typography, TextField, Button,
-  CircularProgress, InputAdornment, IconButton, Tooltip, 
+  CircularProgress, InputAdornment, IconButton, Tooltip,
   Dialog, DialogContent, Stack,
   Stepper, Step, StepLabel, Alert, Divider
 } from "@mui/material";
@@ -31,25 +31,25 @@ const fadeIn = keyframes`from { opacity: 0; transform: translateY(10px); } to { 
 export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  
+
   // UI States
   const [showPwd, setShowPwd] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
   const [shakeOnError, setShakeOnError] = useState(false);
   const [error, setError] = useState(null);
-  
+
   const [securityErrorOpen, setSecurityErrorOpen] = useState(false);
   const [forgotPwdOpen, setForgotPwdOpen] = useState(false);
 
   // Login Logic States
   const [pendingLogin, setPendingLogin] = useState(false);
-  const [loginSuccess, setLoginSuccess] = useState(false); 
-  
+  const [loginSuccess, setLoginSuccess] = useState(false);
+
   // ✅ Forgot Password Wizard State
-  const [resetStep, setResetStep] = useState(0); 
+  const [resetStep, setResetStep] = useState(0);
   const [resetUsername, setResetUsername] = useState("");
   const [resetOtp, setResetOtp] = useState("");
-  const [resetRef, setResetRef] = useState(""); 
+  const [resetRef, setResetRef] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
   const [resetMsg, setResetMsg] = useState("");
@@ -76,21 +76,21 @@ export default function LoginPage() {
   }, [user, loading, navigate]);
 
   // --- Login Logic ---
-  const processLogin = async (token) => {
+  const processLogin = useCallback(async (token) => {
     if (isSubmittingRef.current) return;
     isSubmittingRef.current = true;
-    
+
     const { username: currentUser, password: currentPass } = formDataRef.current;
 
     if (!currentUser || !currentPass || !token) {
         isSubmittingRef.current = false;
         return;
     }
-    
+
     setError(null);
     setShakeOnError(false);
     setPendingLogin(true);
-    
+
     try {
         await login(currentUser.trim(), currentPass, token);
         setLoginSuccess(true);
@@ -102,8 +102,8 @@ export default function LoginPage() {
         const rawMsg = err?.response?.data?.message || err?.response?.data?.error || "Login Failed";
         const msg = rawMsg.toLowerCase();
 
-        const isBotMessage = msg.includes("turnstile") || 
-                             msg.includes("cloudflare") || 
+        const isBotMessage = msg.includes("turnstile") ||
+                             msg.includes("cloudflare") ||
                              msg.includes("captcha");
 
         if ((status === 401 || status === 400) && !isBotMessage) {
@@ -113,17 +113,17 @@ export default function LoginPage() {
         } else if (isBotMessage) {
            setSecurityErrorOpen(true);
         } else {
-           setError(rawMsg); 
+           setError(rawMsg);
            setShakeOnError(true);
            setTimeout(() => setShakeOnError(false), 500);
         }
         turnstileRef.current?.reset();
     }
-  };
+  }, [login]);
 
   const handleVerify = useCallback((token) => {
     processLogin(token);
-  }, []); 
+  }, [processLogin]);
 
   const handleError = useCallback(() => {
     setPendingLogin(false);
@@ -148,13 +148,8 @@ export default function LoginPage() {
     setPendingLogin(true);
     setError(null);
     try {
-        const res = await api.googleLogin(credentialResponse.credential);
-        if (res.data.token) {
-            localStorage.setItem("token", res.data.token);
-            // เนื่องจาก useAuth อาจจะไม่ detect การเปลี่ยน token ใน localStorage ทันที
-            // จึงใช้การ refresh หน้าหรือ redirect แบบ hard load เพื่อความชัวร์
-            window.location.href = "/dashboard";
-        }
+        await api.googleLogin(credentialResponse.credential);
+        window.location.href = "/dashboard";
     } catch (err) {
         setPendingLogin(false);
         const msg = err.response?.data?.message || "Google Login Failed";
@@ -180,8 +175,8 @@ export default function LoginPage() {
   const handleOtpChange = (index, value) => {
     if (isNaN(value)) return; // รับเฉพาะตัวเลข
     const newOtp = resetOtp.split('');
-    while (newOtp.length < 8) newOtp.push(''); 
-    
+    while (newOtp.length < 8) newOtp.push('');
+
     newOtp[index] = value;
     const finalStr = newOtp.join('').substring(0, 8);
     setResetOtp(finalStr);
@@ -403,9 +398,9 @@ export default function LoginPage() {
                     }
                 }}>
                     <Typography variant="body2" sx={{ mb: 2, textAlign: 'center' }}>กรุณากรอก Username หรือ Email ที่ลงทะเบียนไว้ <br/>ระบบจะส่ง OTP ไปยังอีเมลของท่าน</Typography>
-                    <TextField 
+                    <TextField
                         fullWidth label="Username / Email" variant="outlined"
-                        value={resetUsername} onChange={e => setResetUsername(e.target.value)} 
+                        value={resetUsername} onChange={e => setResetUsername(e.target.value)}
                         required autoFocus
                         sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
                     />
@@ -487,9 +482,9 @@ export default function LoginPage() {
                     }
                 }}>
                     <Typography variant="body2" sx={{ mb: 2, textAlign: 'center' }}>กรุณาตั้งรหัสผ่านใหม่เพื่อเข้าใช้งาน</Typography>
-                    <TextField 
+                    <TextField
                         fullWidth type="password" label="รหัสผ่านใหม่" variant="outlined"
-                        value={newPassword} onChange={e => setNewPassword(e.target.value)} 
+                        value={newPassword} onChange={e => setNewPassword(e.target.value)}
                         required autoFocus
                         sx={{ "& .MuiOutlinedInput-root": { borderRadius: 2 } }}
                     />

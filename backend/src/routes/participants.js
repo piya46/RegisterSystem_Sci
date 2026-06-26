@@ -3,6 +3,8 @@ const router = express.Router();
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
 const requireKioskOrStaff = require('../middleware/requireKioskOrStaff');
+const requireStaffOrAdmin = require('../middleware/requireStaffOrAdmin');
+const requireRegistrationActor = require('../middleware/requireRegistrationActor');
 const participantController = require('../controllers/participantController');
 const { getReportData } = require('../services/reportService');
 const { generatePDF } = require('../utils/pdfGenerator');
@@ -11,11 +13,11 @@ const { generatePDF } = require('../utils/pdfGenerator');
 router.post('/public', participantController.createParticipant);
 
 // 2. ลงทะเบียน onsite (staff, kiosk เท่านั้น)
-router.post('/register-onsite', auth, requireKioskOrStaff, participantController.createParticipantByStaff);
+router.post('/register-onsite', auth, requireRegistrationActor, participantController.createParticipantByStaff);
 
 // 3. ตรวจสอบ/ค้นหา/รายงาน (admin เท่านั้น)
 router.get('/', auth, requireAdmin, participantController.listParticipants);
-router.get('/search', auth, requireKioskOrStaff, participantController.searchParticipants);
+router.get('/search', auth, requireStaffOrAdmin, participantController.searchParticipants);
 router.put('/:id', auth, requireAdmin, participantController.updateParticipant);
 router.delete('/:id', auth, requireAdmin, participantController.deleteParticipant);
 
@@ -25,7 +27,7 @@ router.post('/checkin-by-qr', auth, requireKioskOrStaff, participantController.c
 // 5. resend ticket (public ทุกคน)
 router.post('/resend-ticket', participantController.resendTicket);
 
-router.get('/export', auth, participantController.exportParticipants);
+router.get('/export', auth, requireAdmin, participantController.exportParticipants);
 
 router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
   try {

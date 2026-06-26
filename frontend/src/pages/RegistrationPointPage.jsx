@@ -1,5 +1,5 @@
 // frontend/src/pages/RegistrationPointPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Box, Typography, Card, CardContent, Button, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Paper, IconButton,
@@ -58,8 +58,7 @@ export default function RegistrationPointPage() {
       return;
     }
     fetchData();
-    // eslint-disable-next-line
-  }, [user, loading, navigate]); 
+  }, [user, loading, navigate]);
 
   useEffect(() => {
     const q = search.trim().toLowerCase();
@@ -81,14 +80,14 @@ export default function RegistrationPointPage() {
     const t = setInterval(() => forceTick((v) => v + 1), 1000);
     return () => clearInterval(t);
   }, []);
-  const sinceText = useMemo(() => {
+  const sinceText = (() => {
     if (!lastFetch) return "";
     const sec = Math.max(0, Math.floor((Date.now() - lastFetch) / 1000));
     if (sec < 60) return `${sec} วินาทีที่แล้ว`;
     const m = Math.floor(sec / 60);
     const s = sec % 60;
     return `${m} นาที ${s} วินาทีที่แล้ว`;
-  }, [lastFetch, forceTick]); 
+  })();
 
   const handleDelete = async (id) => {
     if (!window.confirm("คุณแน่ใจว่าต้องการลบจุดลงทะเบียนนี้?")) return;
@@ -213,8 +212,8 @@ export default function RegistrationPointPage() {
                   ) : (
                     filtered.map((point, idx) => {
                       // 🌟 เช็คจาก enabled (เผื่อมี isActive ติดมาด้วยจะใช้ได้ทั้งคู่)
-                      const isPointActive = point.enabled ?? point.isActive; 
-                      
+                      const isPointActive = point.enabled ?? point.isActive;
+
                       return (
                         <TableRow key={point._id || idx} hover sx={{ "&:nth-of-type(odd)": { bgcolor: "rgba(255,248,225,.35)" }, opacity: isPointActive ? 1 : 0.6 }}>
                           <TableCell>

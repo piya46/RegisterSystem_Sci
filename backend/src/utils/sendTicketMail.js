@@ -122,12 +122,8 @@ exports.sendResetPasswordMail = async function sendResetPasswordMail(toEmail, ne
           <div style="padding: 40px 30px; text-align: center;">
             <p style="font-size: 16px; color: #333; margin-top: 0;">เรียนคุณ <strong>${username}</strong></p>
             <p style="color: #666; margin-bottom: 30px; line-height: 1.5;">
-              รหัสผ่านของคุณถูกรีเซ็ตเรียบร้อยแล้ว<br>กรุณาใช้รหัสผ่านชั่วคราวด้านล่างนี้เพื่อเข้าสู่ระบบ
+              รหัสผ่านของคุณถูกรีเซ็ตเรียบร้อยแล้ว<br>กรุณาเข้าสู่ระบบด้วยรหัสผ่านใหม่ที่ได้รับจากผู้ดูแลระบบผ่านช่องทางที่ปลอดภัย
             </p>
-
-            <div style="background: #FFEBEE; color: #C62828; font-size: 28px; font-weight: bold; letter-spacing: 3px; padding: 20px; border-radius: 8px; border: 2px dashed #EF9A9A; display: inline-block; margin-bottom: 30px;">
-              ${newPassword}
-            </div>
 
             <p style="font-size: 14px; color: #D32F2F; background: #FFEBEE; padding: 10px; border-radius: 6px; display: inline-block;">
               ⚠️ เพื่อความปลอดภัย กรุณาเปลี่ยนรหัสผ่านทันทีหลังจากเข้าสู่ระบบ
@@ -144,7 +140,7 @@ exports.sendResetPasswordMail = async function sendResetPasswordMail(toEmail, ne
     await sendMail(
       toEmail,
       'แจ้งการรีเซ็ตรหัสผ่าน (Password Reset)',
-      `รหัสผ่านใหม่ของคุณคือ: ${newPassword}`,
+      'รหัสผ่านของคุณถูกรีเซ็ตเรียบร้อยแล้ว กรุณาเข้าสู่ระบบและเปลี่ยนรหัสผ่านทันที',
       html
     );
   } catch (err) {

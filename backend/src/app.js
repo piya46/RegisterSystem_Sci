@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 
 const rateLimit = require('express-rate-limit');
 const requestLogger = require('./middleware/requestLogger');
@@ -25,27 +26,69 @@ const publicRoutes = require('./routes/public');
 const app = express();
 app.set('trust proxy', 1);
 
-app.use(express.json());
-app.use(cookieParser()); 
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+app.use(express.json({ limit: '1mb' }));
+app.use(cookieParser());
 
 const rawOrigin = process.env.CORS_ORIGIN;
-let originOption = rawOrigin === '*' ? true : rawOrigin.split(',').map(o => o.trim());
+const defaultOrigins = ['http://localhost:5173'];
+const allowedOrigins = rawOrigin
+  ? rawOrigin.split(',').map(o => o.trim()).filter(Boolean)
+  : defaultOrigins;
+const allowAnyOrigin = rawOrigin === '*' && process.env.NODE_ENV !== 'production';
 
 app.use(cors({
-  origin: originOption, 
+  origin(origin, cb) {
+    if (!origin) return cb(null, true);
+    if (allowAnyOrigin || allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true 
+  credentials: true
 }));
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'พยายามเข้าสู่ระบบถี่เกินไป กรุณารอสักครู่' }
+});
+
+const resetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'ขอรหัสยืนยันถี่เกินไป กรุณารอสักครู่' }
+});
+
+const publicWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'ส่งข้อมูลถี่เกินไป กรุณารอสักครู่' }
+});
+
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, 
-  max: 3000, 
-  standardHeaders: true, 
-  legacyHeaders: false, 
+  windowMs: 15 * 60 * 1000,
+  max: 1000,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { error: "ยิง Request ถี่เกินไป กรุณารอสักครู่" }
 });
 app.use('/api', apiLimiter);
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/google-login', authLimiter);
+app.use('/api/auth/verify', authLimiter);
+app.use('/api/auth/forgot-password', resetLimiter);
+app.use('/api/auth/reset-password-otp', resetLimiter);
+app.use('/api/participants/resend-ticket', publicWriteLimiter);
+app.use('/api/donations', publicWriteLimiter);
 app.use(requestLogger);
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -64,7 +107,7 @@ app.use('/api/prizes', prizeRoutes);
 app.use('/api/public', publicRoutes);
 
 app.use((err, req, res, next) => {
-  auditLog({ req, action: 'ERROR', detail: '', status: err.statusCode || 500, error: err.stack || String(err) }).catch(console.error); 
+  auditLog({ req, action: 'ERROR', detail: '', status: err.statusCode || 500, error: err.stack || String(err) });
   errorHandler(err, req, res, next);
 });
 

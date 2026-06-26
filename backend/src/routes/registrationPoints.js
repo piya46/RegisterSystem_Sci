@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const requireAdmin = require('../middleware/requireAdmin');
+const requireStaffOrAdmin = require('../middleware/requireStaffOrAdmin');
 const ctrl = require('../controllers/registrationPointController');
 
-// ดึงทั้งหมด (Admin เท่านั้น)
-router.get('/', auth, ctrl.listAll);
+// ดึงทั้งหมด (Staff/Admin เท่านั้น)
+router.get('/', auth, requireStaffOrAdmin, ctrl.listAll);
 
 // ดึงเฉพาะ enabled (Public หรือ kiosk)
 router.get('/enabled', ctrl.listEnabled);

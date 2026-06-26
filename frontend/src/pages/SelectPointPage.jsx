@@ -1,6 +1,6 @@
 // frontend/src/pages/RegistrationPointSelector.jsx
 import React, { useEffect, useState } from "react";
-import { listRegistrationPoints, generateKioskToken, generateSelfRegisterLink } from "../utils/api"; 
+import { listEnabledRegistrationPoints, generateKioskToken, generateSelfRegisterLink } from "../utils/api";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button,
@@ -45,13 +45,13 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
 
   const fetchPoints = () => {
     setLoading(true); setError("");
-    listRegistrationPoints().then((res) => {
+    listEnabledRegistrationPoints().then((res) => {
          const allPoints = res.data || res || [];
          const activePoints = allPoints.filter(p => p.enabled === true || p.isActive === true);
          setPoints(activePoints);
          const lastUsed = localStorage.getItem("lastPoint");
          if (lastUsed && !activePoints.find(p => p._id === lastUsed || p.id === lastUsed)) setSelectedPoint("");
-      }).catch((err) => setError("ไม่สามารถโหลดข้อมูลจุดลงทะเบียนได้")).finally(() => setLoading(false));
+      }).catch(() => setError("ไม่สามารถโหลดข้อมูลจุดลงทะเบียนได้")).finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchPoints(); }, []);
@@ -70,7 +70,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
       const link = `${window.location.origin}/kiosk/join/${res.data.token}`;
       navigator.clipboard.writeText(link);
       alert('คัดลอกลิงก์เครื่อง Kiosk (เปิดทิ้งไว้บน iPad) สำเร็จแล้ว!');
-    } catch (err) { setError("ไม่สามารถสร้างลิงก์ได้"); }
+    } catch { setError("ไม่สามารถสร้างลิงก์ได้"); }
   };
 
   const handleOpenQrDialog = () => {
@@ -78,9 +78,9 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     const now = new Date();
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
-    
+
     const toLocalISO = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    
+
     setValidFrom(toLocalISO(now));
     setValidUntil(toLocalISO(endOfDay));
     setGeneratedLink("");
@@ -133,11 +133,11 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
 
                   <Stack spacing={1.5} sx={{ mt: 1 }}>
                     <Button type="submit" variant="contained" size="large" fullWidth disabled={!selectedPoint} endIcon={<ArrowForwardIcon />} sx={{ borderRadius: 3, fontWeight: 800, py: 1.5, bgcolor: THEME.primary, color: "#4e342e", "&:hover": { bgcolor: THEME.dark } }}>ดำเนินการต่อ (เครื่องหลัก)</Button>
-                    
+
                     <Button type="button" variant="outlined" size="large" fullWidth disabled={!selectedPoint} onClick={handleOpenQrDialog} startIcon={<QrCodeScannerIcon />} sx={{ borderRadius: 3, fontWeight: 700, py: 1.2, borderColor: THEME.dark, color: THEME.dark, "&:hover": { bgcolor: "#FFF8E1" } }}>
                       สร้าง QR Code ให้ผู้เข้าร่วม
                     </Button>
-                    
+
                     <Typography variant="caption" color="text.secondary" onClick={handleShareKiosk} sx={{ cursor: 'pointer', textDecoration: 'underline' }}>คัดลอกลิงก์เครื่อง Kiosk (ไม่มีวันหมดอายุ)</Typography>
                   </Stack>
                 </Stack>

@@ -7,11 +7,11 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import useAuth from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 import getAvatarUrl from "../utils/getAvatarUrl";
+import { uploadAvatar } from "../utils/api";
 
 export default function ProfilePage() {
-  const { user, token, updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -33,23 +33,9 @@ export default function ProfilePage() {
   const handleUpload = async () => {
     if (!selectedFile) return;
     setUploading(true);
-    
-    const formData = new FormData();
-    formData.append("avatar", selectedFile);
 
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
-      
-      const res = await axios.post(
-        `${apiBase}/admins/upload-avatar`,
-        formData,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "multipart/form-data"
-          }
-        }
-      );
+      const res = await uploadAvatar(selectedFile);
 
       // [แก้ไข] ใช้ filename จาก response และอัปเดต state
       const newAvatarFilename = res.data.filename;

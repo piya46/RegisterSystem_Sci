@@ -40,8 +40,8 @@ export default function PublicLuckyDrawPage() {
     const recentWinners = prizes
         .flatMap(p => p.winners.map(w => ({
             prizeName: p.name,
-            winnerName: w.participantId?.fields?.name || 'ไม่ทราบชื่อ',
-            department: w.participantId?.fields?.department || '',
+            winnerName: w.participantName || w.participantId?.fields?.name || 'ไม่ทราบชื่อ',
+            department: w.department || w.participantId?.fields?.department || w.participantId?.fields?.dept || '',
             wonAt: new Date(w.wonAt)
         })))
         .sort((a, b) => b.wonAt - a.wonAt)

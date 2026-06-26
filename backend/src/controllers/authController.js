@@ -5,11 +5,15 @@ const Session = require('../models/session');
 const auditLog = require('../helpers/auditLog');
 const ms = require('ms');
 const verifyTurnstile = require('../utils/verifyTurnstile');
-const { generateOTP, generateRef } = require('../utils/otp'); // ✅ OTP 8 หลัก
+const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp'); // ✅ OTP 8 หลัก
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
 const { OAuth2Client } = require('google-auth-library');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
+
+function isStrongPassword(password) {
+    return typeof password === 'string' && password.length >= 8;
+}
 
 // --- Login ---
 exports.login = async (req, res) => {
@@ -79,6 +83,15 @@ exports.login = async (req, res) => {
 // --- Get Me ---
 exports.getMe = async (req, res) => {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.auth?.type === 'scoped_token') {
+    return res.json({
+      id: req.user._id,
+      username: req.user.username,
+      role: req.user.role,
+      authScope: req.auth.scope,
+      registrationPoint: req.kioskPoint,
+    });
+  }
   const admin = await Admin.findById(req.user.id);
   if (!admin) return res.status(404).json({ error: 'User not found' });
   res.json({
@@ -187,14 +200,16 @@ exports.requestPasswordReset = async (req, res) => {
         const { username } = req.body;
         const admin = await Admin.findOne({ $or: [{ username }, { email: username }] });
 
-        if (!admin) return res.status(404).json({ error: 'ไม่พบข้อมูลผู้ใช้งาน' });
-        if (!admin.email) return res.status(400).json({ error: 'บัญชีนี้ยังไม่ได้ลงทะเบียนอีเมล' });
+        if (!admin || !admin.email) {
+            auditLog({ req, action: 'REQUEST_RESET_PWD_UNKNOWN', detail: 'Reset requested for unknown/no-email account' });
+            return res.json({ success: true, message: 'หากพบบัญชีในระบบ ระบบจะส่ง OTP ไปยังอีเมลที่ลงทะเบียนไว้' });
+        }
 
         const otp = generateOTP(); 
         const ref = generateRef(); 
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-        admin.resetPasswordOtp = otp;
+        admin.resetPasswordOtp = hashOTP(otp);
         admin.resetPasswordRef = ref;
         admin.resetPasswordExpires = expiresAt;
         await admin.save();
@@ -209,7 +224,7 @@ exports.requestPasswordReset = async (req, res) => {
         );
 
         auditLog({ req, action: 'REQUEST_RESET_PWD', detail: `User: ${admin.username}` });
-        res.json({ success: true, message: 'ส่ง OTP ไปยังอีเมลแล้ว', ref });
+        res.json({ success: true, message: 'หากพบบัญชีในระบบ ระบบจะส่ง OTP ไปยังอีเมลที่ลงทะเบียนไว้', ref });
 
     } catch (err) {
         console.error(err);
@@ -222,12 +237,13 @@ exports.resetPasswordWithOtp = async (req, res) => {
         const { username, otp, newPassword } = req.body;
         const admin = await Admin.findOne({ $or: [{ username }, { email: username }] });
 
-        if (!admin) return res.status(404).json({ error: 'ไม่พบผู้ใช้งาน' });
+        if (!admin) return res.status(400).json({ error: 'ข้อมูลยืนยันไม่ถูกต้อง' });
+        if (!isStrongPassword(newPassword)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
 
-        if (!admin.resetPasswordOtp || admin.resetPasswordOtp !== otp) {
+        if (!verifyOTP(otp, admin.resetPasswordOtp)) {
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
-        if (admin.resetPasswordExpires < new Date()) {
+        if (!admin.resetPasswordExpires || admin.resetPasswordExpires < new Date()) {
             return res.status(400).json({ error: 'รหัส OTP หมดอายุ' });
         }
 

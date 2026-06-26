@@ -1,10 +1,10 @@
 // frontend/src/pages/PreRegistrationPage.jsx
 import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import {
-  Box, Container, Paper, Stack, Typography, TextField, MenuItem, Button, Avatar, Divider, 
-  Collapse, FormControlLabel, Switch, Alert, CircularProgress, Tooltip, Chip, Card, CardContent, 
-  Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl, 
-  InputAdornment, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar, 
+  Box, Container, Paper, Stack, Typography, TextField, MenuItem, Button, Avatar, Divider,
+  Collapse, FormControlLabel, Switch, Alert, CircularProgress, Tooltip, Chip, Card, CardContent,
+  Dialog, DialogContent, DialogTitle, DialogActions, Grid, Radio, RadioGroup, FormControl,
+  InputAdornment, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Snackbar,
   IconButton, Backdrop
 } from "@mui/material";
 
@@ -15,7 +15,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import InfoIcon from "@mui/icons-material/Info";
 import SecurityIcon from "@mui/icons-material/Security";
 import WarningIcon from "@mui/icons-material/Warning";
-import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism'; 
+import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import ContactPhoneIcon from '@mui/icons-material/ContactPhone';
 import HomeIcon from '@mui/icons-material/Home';
@@ -28,7 +28,7 @@ import AccessibleIcon from '@mui/icons-material/Accessible';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
-import FavoriteIcon from '@mui/icons-material/Favorite'; 
+import FavoriteIcon from '@mui/icons-material/Favorite';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StorefrontIcon from '@mui/icons-material/Storefront';
 import PersonIcon from '@mui/icons-material/Person';
@@ -45,7 +45,7 @@ import { listParticipantFields, createParticipant, createDonation, getSystemSett
 import dayjs from "dayjs";
 import Turnstile from "../components/Turnstile";
 import Confetti from 'react-confetti';
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 
 // --- Configuration Constants ---
 const ASSISTANCE_TAGS = [
@@ -57,22 +57,22 @@ const ASSISTANCE_TAGS = [
     { label: "แพ้ถั่ว", icon: <WarningIcon fontSize="small"/> }
 ];
 
-const SIZE_CHART_DATA = [ 
-  { size: "SS", chest: 34, length: 23 }, { size: "S",  chest: 36, length: 24 }, 
-  { size: "M",  chest: 38, length: 25 }, { size: "L",  chest: 40, length: 26 }, 
-  { size: "XL", chest: 42, length: 27 }, { size: "2XL", chest: 44, length: 28 }, 
-  { size: "3XL", chest: 46, length: 29 }, { size: "4XL", chest: 48, length: 30 }, 
-  { size: "5XL", chest: 50, length: 31 }, { size: "6XL", chest: 52, length: 32 }, 
-  { size: "7XL", chest: 54, length: 33 } 
+const SIZE_CHART_DATA = [
+  { size: "SS", chest: 34, length: 23 }, { size: "S",  chest: 36, length: 24 },
+  { size: "M",  chest: 38, length: 25 }, { size: "L",  chest: 40, length: 26 },
+  { size: "XL", chest: 42, length: 27 }, { size: "2XL", chest: 44, length: 28 },
+  { size: "3XL", chest: 46, length: 29 }, { size: "4XL", chest: 48, length: 30 },
+  { size: "5XL", chest: 50, length: 31 }, { size: "6XL", chest: 52, length: 32 },
+  { size: "7XL", chest: 54, length: 33 }
 ];
 
-const MourningRibbon = () => ( 
+const MourningRibbon = () => (
   <Box sx={{ position: "absolute", top: 0, left: 0, zIndex: 9999, pointerEvents: "none", width: { xs: 80, md: 120 }, height: { xs: 80, md: 120 } }}>
     <img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(2px 2px 3px rgba(0,0,0,0.5))" }} />
-  </Box> 
+  </Box>
 );
 
-const SizeChart = () => ( 
+const SizeChart = () => (
   <TableContainer component={Paper} variant="outlined" sx={{ mt: 2, bgcolor: "#fff", maxWidth: 400 }}>
     <Table size="small" sx={{ "& .MuiTableCell-root": { px: 1, py: 0.5, fontSize: "0.9rem" } }}>
       <TableHead>
@@ -95,7 +95,7 @@ const SizeChart = () => (
     <Typography variant="caption" display="block" sx={{ p: 1, textAlign: "center", bgcolor: "#fff8e1", color: "#f57f17" }}>
       * ขนาดอาจมีความคลาดเคลื่อน +/- 1 นิ้ว
     </Typography>
-  </TableContainer> 
+  </TableContainer>
 );
 
 export default function PreRegistrationPage() {
@@ -103,21 +103,20 @@ export default function PreRegistrationPage() {
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(false);
   const [fetchingFields, setFetchingFields] = useState(true);
-  const [result, setResult] = useState(null);
   const [registeredParticipant, setRegisteredParticipant] = useState(null);
 
   // System Status & Packages
   const [systemStatus, setSystemStatus] = useState({ isOpen: true, message: "" });
   const [availablePackages, setAvailablePackages] = useState([]);
   const [availableSizes, setAvailableSizes] = useState([]);
-  
+
   // 🌟 เพิ่ม State รับค่า เปิด-ปิด การรับสินค้า
   const [pickupOptions, setPickupOptions] = useState({ pickup: true, delivery: true });
 
   // Form States
   const [bringFollowers, setBringFollowers] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
-  const [membershipOption, setMembershipOption] = useState(null); 
+  const [membershipOption, setMembershipOption] = useState(null);
   const [cfToken, setCfToken] = useState("");
   const [pendingSubmit, setPendingSubmit] = useState(false);
   const [errors, setErrors] = useState({});
@@ -131,9 +130,9 @@ export default function PreRegistrationPage() {
   const [donationDate, setDonationDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [donationTime, setDonationTime] = useState("");
   const [wantPackage, setWantPackage] = useState(false);
-  const [packageType, setPackageType] = useState(""); 
+  const [packageType, setPackageType] = useState("");
   const [packageSize, setPackageSize] = useState("");
-  const [pickupMethod, setPickupMethod] = useState(""); 
+  const [pickupMethod, setPickupMethod] = useState("");
 
   // Special Assistance
   const [specialAssistance, setSpecialAssistance] = useState("");
@@ -155,7 +154,7 @@ export default function PreRegistrationPage() {
           const now = new Date();
           const start = set.preRegStartDate ? new Date(set.preRegStartDate) : null;
           const end = set.preRegEndDate ? new Date(set.preRegEndDate) : null;
-          
+
           if (set.maintenanceMode) {
             setSystemStatus({ isOpen: false, message: "ระบบกำลังปิดปรับปรุงชั่วคราว ขออภัยในความไม่สะดวก" });
           }
@@ -203,7 +202,7 @@ export default function PreRegistrationPage() {
   const handleInput = useCallback((e) => {
     const { name, value } = e.target;
     if (name === 'date_year') {
-      const nums = value.replace(/[^\d]/g, '').slice(0, 4); 
+      const nums = value.replace(/[^\d]/g, '').slice(0, 4);
       setErrors(prev => {
           if (nums.length === 4) {
               const yearInt = parseInt(nums, 10);
@@ -216,7 +215,7 @@ export default function PreRegistrationPage() {
           if (prev[name]) { const next = { ...prev }; delete next[name]; return next; }
           return prev;
       });
-      setForm((f) => ({ ...f, [name]: nums })); 
+      setForm((f) => ({ ...f, [name]: nums }));
       return;
     }
     setErrors(prev => { if (prev[name]) { const next = { ...prev }; delete next[name]; return next; } return prev; });
@@ -232,7 +231,7 @@ export default function PreRegistrationPage() {
 
   const handleDonationModeChange = (e) => {
     const mode = e.target.value;
-    if (mode === 'general') { setWantPackage(false); setPackageType('general'); setPickupMethod(""); } 
+    if (mode === 'general') { setWantPackage(false); setPackageType('general'); setPickupMethod(""); }
     else { setWantPackage(true); setPackageType(''); setPackageSize(''); setDonationAmount(""); }
   };
 
@@ -257,7 +256,7 @@ export default function PreRegistrationPage() {
   const handleCheckInfo = (e) => {
     e.preventDefault();
     if (Object.keys(errors).length > 0) return;
-    
+
     if (form['date_year']) {
         const yearInt = parseInt(form['date_year'], 10);
         if (yearInt >= 2565) {
@@ -272,9 +271,9 @@ export default function PreRegistrationPage() {
         setErrors(prev => ({ ...prev, ...newErrors }));
         setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: `กรุณากรอกข้อมูลส่วนตัวให้ครบถ้วน` }); return;
     }
-    
+
     if (!membershipOption) { setErrorDialog({ open: true, type: "warning", title: "กรุณาระบุข้อมูล", msg: "กรุณาเลือกสถานะสมาชิกสมาคมฯ ของท่าน" }); return; }
-    
+
     if (requireAddress) {
         if (!form['usr_add'] || !form['usr_add_post']) {
              setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณากรอกที่อยู่และรหัสไปรษณีย์ให้ครบถ้วน (ใช้สำหรับจัดส่งของ หรือ ข้อมูลสมาชิก)" }); return;
@@ -287,15 +286,15 @@ export default function PreRegistrationPage() {
       if (wantPackage) {
         if (!packageType) { setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาเลือก Package ที่ต้องการ" }); return; }
         if (!packageSize) { setErrorDialog({ open: true, type: "warning", title: "ข้อมูลแพ็กเกจไม่ครบ", msg: "กรุณาเลือกขนาดเสื้อ" }); return; }
-        
+
         // 🌟 ตรวจสอบถ้ามีเปิดให้เลือกรับสินค้าอย่างน้อย 1 ทาง
         if (pickupOptions.pickup || pickupOptions.delivery) {
           if (!pickupMethod) { setErrorDialog({ open: true, type: "warning", title: "ข้อมูลไม่ครบถ้วน", msg: "กรุณาเลือกวิธีการรับสินค้า (รับหน้างาน หรือ จัดส่ง)" }); return; }
         }
-        
+
         const selectedPkg = availablePackages.find(p => p.name === packageType);
-        if (selectedPkg && parseFloat(donationAmount) < selectedPkg.price) { 
-          setErrorDialog({ open: true, type: "warning", title: "ยอดเงินไม่เพียงพอ", msg: `แพ็กเกจที่ท่านเลือกมียอดสนับสนุนขั้นต่ำ ${selectedPkg.price.toLocaleString()} บาท` }); return; 
+        if (selectedPkg && parseFloat(donationAmount) < selectedPkg.price) {
+          setErrorDialog({ open: true, type: "warning", title: "ยอดเงินไม่เพียงพอ", msg: `แพ็กเกจที่ท่านเลือกมียอดสนับสนุนขั้นต่ำ ${selectedPkg.price.toLocaleString()} บาท` }); return;
         }
       }
     }
@@ -307,17 +306,16 @@ export default function PreRegistrationPage() {
   useEffect(() => {
     const go = async () => {
       if (!pendingSubmit || !cfToken) return;
-      setLoading(true); setResult(null); setRegisteredParticipant(null);
+      setLoading(true); setRegisteredParticipant(null);
       try {
         const count = bringFollowers ? Math.max(0, parseInt(followersCount || 0, 10)) : 0;
         const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
         const finalForm = { ...form };
         if (!requireAddress) { finalForm['usr_add'] = "-"; finalForm['usr_add_post'] = "-"; }
         const combinedAssistance = [...selectedAssistTags, specialAssistance.trim()].filter(Boolean).join(", ");
-        
+
         const payload = { ...finalForm, followers: count, cfToken, consent: finalConsent, specialAssistance: combinedAssistance, isPackage: wantPackage };
         const participant = await createParticipant(payload);
-        let successMessage = "ลงทะเบียนล่วงหน้าสำเร็จ!";
 
         if (wantToDonate && donationAmount && parseFloat(donationAmount) > 0) {
             try {
@@ -327,21 +325,21 @@ export default function PreRegistrationPage() {
                 const lastName = nameParts.slice(1).join(" ") || "-";
                 const transferDateTime = new Date(`${donationDate}T${donationTime || '00:00'}`);
                 const addressText = `${form.usr_add || ''} ${form.usr_add_post || ''}`.trim();
-                
-                await createDonation({ 
-                  userId: null, firstName, lastName, amount: parseFloat(donationAmount), transferDateTime, 
-                  source: "PRE_REGISTER", isPackage: wantPackage, packageType: packageType, 
-                  size: wantPackage ? packageSize : "", pickupMethod: pickupMethod, address: addressText 
+
+                await createDonation({
+                  userId: null, firstName, lastName, amount: parseFloat(donationAmount), transferDateTime,
+                  source: "PRE_REGISTER", isPackage: wantPackage, packageType: packageType,
+                  size: wantPackage ? packageSize : "", pickupMethod: pickupMethod, address: addressText
                 });
-                successMessage += " และบันทึกข้อมูลการสนับสนุนเรียบร้อยแล้ว";
-              } catch (donateErr) { successMessage += " (แต่บันทึกข้อมูลการสนับสนุนไม่สำเร็จ กรุณาติดต่อเจ้าหน้าที่)"; }
+              } catch {
+                // Registration succeeded; donation can be followed up separately by staff.
+              }
         }
 
-        setResult({ success: true, message: successMessage });
         setRegisteredParticipant(participant.data || participant);
-        
-        setForm({}); setBringFollowers(false); setFollowersCount(0); setWantToDonate(false); setWantPackage(false); 
-        setPackageType(""); setPackageSize(""); setPickupMethod(""); setDonationAmount(""); setDonationTime(""); 
+
+        setForm({}); setBringFollowers(false); setFollowersCount(0); setWantToDonate(false); setWantPackage(false);
+        setPackageType(""); setPackageSize(""); setPickupMethod(""); setDonationAmount(""); setDonationTime("");
         setSpecialAssistance(""); setSelectedAssistTags([]); setMembershipOption(null); setErrors({});
       } catch (err) {
         const errorMsg = err?.response?.data?.error || "เกิดข้อผิดพลาด";
@@ -351,15 +349,33 @@ export default function PreRegistrationPage() {
       } finally { setLoading(false); setPendingSubmit(false); setCfToken(""); }
     };
     go();
-  }, [cfToken, pendingSubmit]);
+  }, [
+    bringFollowers,
+    cfToken,
+    donationAmount,
+    donationDate,
+    donationTime,
+    followersCount,
+    form,
+    membershipOption,
+    packageSize,
+    packageType,
+    pendingSubmit,
+    pickupMethod,
+    requireAddress,
+    selectedAssistTags,
+    specialAssistance,
+    wantPackage,
+    wantToDonate,
+  ]);
 
   const savePng = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const link = document.createElement("a"); link.href = canvas.toDataURL("image/png"); link.download = "E-Ticket.png"; link.click(); }};
-  
-  const handleReset = () => { 
-    setForm({}); setResult(null); setRegisteredParticipant(null); setBringFollowers(false); setFollowersCount(0); 
-    setWantToDonate(false); setWantPackage(false); setPackageType(""); setPackageSize(""); setPickupMethod(""); 
-    setDonationAmount(""); setDonationTime(""); setSpecialAssistance(""); setSelectedAssistTags([]); 
-    setMembershipOption(null); setErrors({}); window.scrollTo({ top: 0, behavior: "smooth" }); 
+
+  const handleReset = () => {
+    setForm({}); setRegisteredParticipant(null); setBringFollowers(false); setFollowersCount(0);
+    setWantToDonate(false); setWantPackage(false); setPackageType(""); setPackageSize(""); setPickupMethod("");
+    setDonationAmount(""); setDonationTime(""); setSpecialAssistance(""); setSelectedAssistTags([]);
+    setMembershipOption(null); setErrors({}); window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return "-"; }
@@ -371,7 +387,7 @@ export default function PreRegistrationPage() {
     return (
       <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, position: 'relative' }}>
          <MourningRibbon />
-         <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.5 }}>
+         <Motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.5 }}>
            <Paper elevation={8} sx={{ maxWidth: 480, width: '100%', borderRadius: '28px', textAlign: 'center', p: { xs: 4, sm: 5 }, background: "rgba(255, 255, 255, 0.9)", backdropFilter: "blur(16px)", border: "1px solid rgba(255, 193, 7, 0.3)", boxShadow: "0 16px 40px rgba(255, 193, 7, 0.15)" }}>
               <Box sx={{ width: 88, height: 88, bgcolor: '#FFF8E1', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 3, boxShadow: '0 8px 24px rgba(255, 193, 7, 0.25)', border: '2px solid #FFECB3' }}>
                 <EventIcon sx={{ fontSize: 44, color: '#F57F17' }} />
@@ -380,7 +396,7 @@ export default function PreRegistrationPage() {
               <Divider sx={{ my: 2.5, borderColor: 'rgba(255, 193, 7, 0.2)', borderStyle: 'dashed' }} />
               <Typography variant="body1" color="text.secondary" sx={{ lineHeight: 1.6, fontWeight: 500 }}>ขอบคุณที่ให้ความสนใจเข้าร่วมงาน <br /> หากมีข้อสงสัย หรือต้องการสอบถามข้อมูลเพิ่มเติม <br /> กรุณาติดต่อ <Typography component="span" fontWeight="800" color="#F57F17">สมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาฯ</Typography></Typography>
            </Paper>
-         </motion.div>
+         </Motion.div>
       </Box>
     );
   }
@@ -395,13 +411,13 @@ export default function PreRegistrationPage() {
         <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={350} gravity={0.15} />
         <Container maxWidth="sm" sx={{ mt: 6, mb: 8, position: 'relative', zIndex: 10 }}>
           <Box textAlign="center" mb={4}>
-             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
+             <Motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
                <CheckCircleIcon color="success" sx={{ fontSize: 72, mb: 1, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
-             </motion.div>
+             </Motion.div>
             <Typography variant="h4" gutterBottom fontWeight="900" color="primary.main" sx={{ letterSpacing: 0.5 }}>ลงทะเบียนสำเร็จ!</Typography>
             <Typography variant="body1" color="text.secondary">ยินดีต้อนรับเข้าสู่งาน กรุณาบันทึกบัตรเข้าร่วมงานด้านล่างเพื่อใช้เข้างาน</Typography>
           </Box>
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }} whileHover={{ y: -8, transition: { duration: 0.2 } }} style={{ perspective: 1000 }}>
+          <Motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }} whileHover={{ y: -8, transition: { duration: 0.2 } }} style={{ perspective: 1000 }}>
             <Card ref={ticketRef} elevation={8} sx={{ borderRadius: 4, overflow: 'hidden', background: '#fff', position: 'relative', backgroundImage: 'radial-gradient(circle at 10% 20%, rgba(239, 246, 255, 0.8) 0%, rgba(255, 255, 255, 0.8) 90%)' }}>
               <Box sx={{ background: 'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)', color: 'white', p: 2.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '4px solid #FFD700' }}>
                  <Box display="flex" alignItems="center" gap={1.5}><ConfirmationNumberIcon sx={{ color: '#FFD700', fontSize: 32 }} /><Typography variant="h6" fontWeight="bold" sx={{ letterSpacing: 1.5, textTransform: 'uppercase' }}>บัตรเข้าร่วมงาน</Typography></Box>
@@ -430,7 +446,7 @@ export default function PreRegistrationPage() {
               </CardContent>
               <Box sx={{ height: 12, background: 'linear-gradient(90deg, #FFD700 0%, #FF8C00 100%)' }} />
             </Card>
-          </motion.div>
+          </Motion.div>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mt={5}>
             <Button variant="contained" color="primary" size="large" startIcon={<DownloadIcon />} onClick={savePng} sx={{ borderRadius: 3, px: 4, py: 1.2, fontWeight: 'bold', boxShadow: '0 8px 20px rgba(30, 60, 114, 0.25)', fontSize: '1rem' }}>บันทึกเป็นรูปภาพ</Button>
             <Button variant="outlined" color="inherit" size="large" startIcon={<RestartAltIcon />} onClick={handleReset} sx={{ borderRadius: 3, px: 3, borderColor: '#999', color: '#555', "&:hover": { borderColor: '#333', bgcolor: '#f0f0f0' } }}>ลงทะเบียนท่านอื่นต่อ</Button>
@@ -450,14 +466,14 @@ export default function PreRegistrationPage() {
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: "relative" }}>
       <MourningRibbon />
       <Container maxWidth="sm">
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <Motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
             <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
                 <Avatar src="/logo.svg" alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
                 <Box>
                 <Typography variant="h6" fontWeight={900} color="primary" sx={{ letterSpacing: .5, lineHeight: 1.3 }}>
-                    ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า <br /> 
-                    "เสือเหลืองคืนถิ่น" <br /> 
+                    ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า <br />
+                    "เสือเหลืองคืนถิ่น" <br />
                     Atoms In Ground Stage 109
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1, lineHeight: 1.5 }}>
@@ -468,14 +484,14 @@ export default function PreRegistrationPage() {
                 </Box>
             </Stack>
             </Paper>
-        </motion.div>
+        </Motion.div>
 
         {fetchingFields ? (
           <Box sx={{ mt: 2, textAlign: 'center' }}><CircularProgress color="warning" /></Box>
         ) : (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
           <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            
+
             <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
               {fieldGroups.personal.map((field) => (
                 <FieldInput key={field.name} field={field} value={form[field.name] ?? ""} onChange={handleInput} errorText={errors[field.name]} />
@@ -497,18 +513,18 @@ export default function PreRegistrationPage() {
                 <Typography fontWeight={800} fontSize="1.1rem">ผู้ติดตาม</Typography>
                 <Chip label="ไม่บังคับ" size="small" sx={{ ml: "auto", bgcolor: "#fff3e0", color: "#e65100", fontWeight: 600 }} />
               </Stack>
-              <FormControlLabel 
-                sx={{ ml: 0 }} 
-                control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />} 
-                label={<Typography fontWeight={500}>{bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"}</Typography>} 
+              <FormControlLabel
+                sx={{ ml: 0 }}
+                control={<Switch checked={bringFollowers} onChange={(e) => setBringFollowers(e.target.checked)} color="warning" />}
+                label={<Typography fontWeight={500}>{bringFollowers ? "มีผู้ติดตาม" : "ไม่มีผู้ติดตาม"}</Typography>}
               />
               <Collapse in={bringFollowers}>
                 <Box mt={1.5}>
-                  <TextField 
-                    type="number" label="จำนวนผู้ติดตาม (คน)" 
-                    value={String(followersCount ?? "")} 
-                    onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setFollowersCount(raw === "" ? 0 : parseInt(raw, 10)); }} 
-                    fullWidth 
+                  <TextField
+                    type="number" label="จำนวนผู้ติดตาม (คน)"
+                    value={String(followersCount ?? "")}
+                    onChange={(e) => { const raw = e.target.value.replace(/[^\d]/g, ""); setFollowersCount(raw === "" ? 0 : parseInt(raw, 10)); }}
+                    fullWidth
                     inputProps={{ style: { fontSize: '1.2rem', textAlign: 'center', fontWeight: 'bold' } }}
                     sx={{ bgcolor: '#fff' }}
                   />
@@ -536,7 +552,7 @@ export default function PreRegistrationPage() {
                   <Typography variant="subtitle2" gutterBottom fontWeight="bold" sx={{ mb: 1.5, color: '#37474f' }}>
                       ท่านต้องการสนับสนุนรูปแบบใด <span style={{color:'red'}}>*</span>
                   </Typography>
-                  
+
                   <FormControl component="fieldset" fullWidth sx={{ mb: 3 }}>
                         <RadioGroup row value={wantPackage ? 'package' : 'general'} onChange={handleDonationModeChange}>
                             <Grid container spacing={2}>
@@ -564,7 +580,7 @@ export default function PreRegistrationPage() {
                             <CardGiftcardIcon color="secondary" />
                             <Typography variant="subtitle1" fontWeight="bold" color="secondary.main">กรุณาเลือกรูปแบบสนับสนุนที่ต้องการ</Typography>
                         </Box>
-                        
+
                         <TextField select label="เลือกรูปแบบสนับสนุน" fullWidth value={packageType} onChange={handleSpecificPackageChange} size="medium" sx={{ bgcolor: '#fff' }}>
                           {availablePackages.length > 0 ? availablePackages.map((opt) => (
                             <MenuItem key={opt.name} value={opt.name} sx={{ whiteSpace: 'normal', py: 1.5 }}>
@@ -683,7 +699,7 @@ export default function PreRegistrationPage() {
             </Alert>
 
             <Turnstile ref={turnstileRef} size="invisible" execution="execute" action="pre_register" onVerify={handleVerify} onError={handleError} />
-            
+
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
               <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
                 {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
@@ -692,9 +708,9 @@ export default function PreRegistrationPage() {
             </Stack>
 
           </Box>
-          </motion.div>
+          </Motion.div>
         )}
-        
+
         <Dialog open={reviewOpen} onClose={() => setReviewOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
             <DialogTitle sx={{ bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}><Stack direction="row" alignItems="center" spacing={1}><FactCheckIcon color="warning" /><Typography variant="h7" fontWeight={500}>ตรวจสอบข้อมูลลงทะเบียน</Typography></Stack></DialogTitle>
             <DialogContent dividers>
@@ -705,7 +721,7 @@ export default function PreRegistrationPage() {
                     <InfoRow label="ภาควิชา" value={form.dept} />
                     <InfoRow label="ปีที่เข้าศึกษา (พ.ศ.)" value={form.date_year} />
                     <InfoRow label="เบอร์โทรศัพท์" value={form.phone} />
-                    
+
                     {requireAddress && (
                         <Box sx={{ p: 1.5, bgcolor: "#f5f5f5", borderRadius: 2 }}>
                             <Typography variant="caption" fontWeight={700} color="primary">ที่อยู่:</Typography>
@@ -765,7 +781,7 @@ export default function PreRegistrationPage() {
             </Stack>
           </DialogContent>
         </Dialog>
-        
+
         <Snackbar open={snackbarOpen} autoHideDuration={2000} onClose={() => setSnackbarOpen(false)} message="คัดลอกเลขบัญชีแล้ว" anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }} />
 
         <Backdrop sx={{ color: '#fff', zIndex: (theme) => theme.zIndex.drawer + 9999, flexDirection: 'column', gap: 2 }} open={loading || pendingSubmit}>

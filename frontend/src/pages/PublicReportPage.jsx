@@ -16,7 +16,7 @@ export default function PublicReportPage() {
         const res = await getPublicReportData();
         setData(res.data.data || []);
         setTotal(res.data.totalCheckedIn || 0);
-      } catch (err) {
+      } catch {
         setError('ไม่สามารถโหลดข้อมูลรายงานได้');
       } finally {
         setLoading(false);

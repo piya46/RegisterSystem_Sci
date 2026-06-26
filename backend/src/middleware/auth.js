@@ -3,6 +3,8 @@ const jwt = require('jsonwebtoken');
 const Admin = require('../models/admin');
 const Session = require('../models/session');
 
+const TOKEN_ISSUER = 'psevent';
+
 module.exports = async function (req, res, next) {
   let token = req.cookies?.token;
   if (!token && req.headers.authorization) {
@@ -16,15 +18,32 @@ module.exports = async function (req, res, next) {
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    // 🌟 ปรับปรุงการรองรับ Token ของ Self Register Session
-    if (payload.role === 'kiosk_device' || payload.role === 'self_register_session') {
+    if (payload.role === 'kiosk_device') {
+      if (payload.aud !== 'kiosk-device' || payload.iss !== TOKEN_ISSUER || !payload.pointId) {
+        return res.status(401).json({ error: 'Token scope ไม่ถูกต้อง' });
+      }
       req.user = { 
-        _id: payload.createdBy || payload.staffId, // อ้างอิง ID ของ Staff ผู้สร้าง QR
-        role: ['kiosk'], // 🌟 เปลี่ยนเป็น 'kiosk' เพื่อให้ผ่าน requireKioskOrStaff middleware
-        username: payload.role === 'self_register_session' ? 'Self_Service_Mobile' : 'Kiosk_Tablet' 
+        _id: payload.createdBy,
+        role: ['kiosk'],
+        username: 'Kiosk_Tablet'
       };
-      // 🌟 บันทึก Method ไว้ใช้ใน Controller
-      req.registrationMethod = payload.role === 'self_register_session' ? 'Self-Service (QR)' : 'Kiosk';
+      req.auth = { type: 'scoped_token', scope: 'kiosk_device' };
+      req.registrationMethod = 'Kiosk';
+      req.kioskPoint = payload.pointId;
+      return next();
+    }
+
+    if (payload.role === 'self_register_session') {
+      if (payload.aud !== 'self-register-session' || payload.iss !== TOKEN_ISSUER || !payload.pointId || !payload.staffId) {
+        return res.status(401).json({ error: 'Token scope ไม่ถูกต้อง' });
+      }
+      req.user = {
+        _id: payload.staffId,
+        role: ['self_register'],
+        username: 'Self_Service_Mobile'
+      };
+      req.auth = { type: 'scoped_token', scope: 'self_register_session' };
+      req.registrationMethod = 'Self-Service (QR)';
       req.kioskPoint = payload.pointId;
       return next();
     }
@@ -55,6 +74,7 @@ module.exports = async function (req, res, next) {
     }
 
     req.user = user;
+    req.auth = { type: 'admin_session', scope: 'user' };
     req.registrationMethod = 'Staff On-site'; // ระบุวิธีลงทะเบียนปกติ
     req.session = session; 
     next();

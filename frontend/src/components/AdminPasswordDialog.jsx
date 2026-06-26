@@ -69,8 +69,8 @@ export default function AdminPasswordDialog({
       setError("กรุณากรอกข้อมูลให้ครบถ้วน");
       return;
     }
-    if (password.length < 6) {
-      setError("รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+    if (password.length < 8) {
+      setError("รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร");
       return;
     }
     if (password !== confirm) {

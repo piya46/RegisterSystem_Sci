@@ -25,9 +25,9 @@ import WarningIcon from "@mui/icons-material/Warning";
 import InfoIcon from "@mui/icons-material/Info";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 
-import { motion } from 'framer-motion';
+import { motion as Motion } from 'framer-motion';
 import Confetti from 'react-confetti';
-import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listRegistrationPoints } from "../utils/api";
+import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listEnabledRegistrationPoints } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Turnstile from "../components/Turnstile";
 import useAuth from "../hooks/useAuth"; 
@@ -64,7 +64,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const navigate = useNavigate();
   const [kioskMode, setKioskMode] = useState(false);
   
-  const selectedPoint = forcePointId || searchParams.get("point");
+  const selectedPoint = forcePointId || searchParams.get("point") || (user?.authScope === 'kiosk_device' ? user?.registrationPoint : null);
 
   const [exitOpen, setExitOpen] = useState(false);
   const [exitUsername, setExitUsername] = useState("");
@@ -86,7 +86,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         const [resSet, resFields, resPoints] = await Promise.all([
             getSystemSettings(),
             listParticipantFields(),
-            listRegistrationPoints()
+            listEnabledRegistrationPoints()
         ]);
 
         const set = resSet.data?.data;
@@ -262,7 +262,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
       } finally { setLoading(false); setPendingSubmit(false); setCfToken(""); }
     };
     go();
-  }, [cfToken, pendingSubmit, selectedPoint, isSelfRegisterMode]);
+  }, [cfToken, pendingSubmit, selectedPoint, isSelfRegisterMode, followersCount, form, membershipOption]);
 
   const confirmExitKiosk = async () => {
     setVerifyingExit(true); setExitError("");
@@ -281,7 +281,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
     return (
       <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", display: 'flex', alignItems: 'center', justifyContent: 'center', p: 3, position: 'relative' }}>
          <MourningRibbon />
-         <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.5 }}>
+         <Motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: 0.5 }}>
            <Paper elevation={8} sx={{ maxWidth: 480, width: '100%', borderRadius: '28px', textAlign: 'center', p: { xs: 4, sm: 5 }, background: "rgba(255, 255, 255, 0.9)", backdropFilter: "blur(16px)", border: "1px solid rgba(255, 193, 7, 0.3)", boxShadow: "0 16px 40px rgba(255, 193, 7, 0.15)" }}>
               <Box sx={{ width: 88, height: 88, bgcolor: '#FFF8E1', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 3, boxShadow: '0 8px 24px rgba(255, 193, 7, 0.25)', border: '2px solid #FFECB3' }}>
                 <LockIcon sx={{ fontSize: 44, color: '#F57F17' }} />
@@ -290,7 +290,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
               <Divider sx={{ my: 2.5, borderColor: 'rgba(255, 193, 7, 0.2)', borderStyle: 'dashed' }} />
               {!isSelfRegisterMode && <Button variant="outlined" onClick={() => navigate('/dashboard')} sx={{ mt: 1, borderRadius: '12px', fontWeight: 700 }}>กลับหน้าหลัก</Button>}
            </Paper>
-         </motion.div>
+         </Motion.div>
       </Box>
     );
   }
@@ -307,14 +307,14 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
 
         <Container maxWidth="sm" sx={{ mt: { xs: 6, md: 12 }, position: 'relative', zIndex: 10 }}>
           <Box textAlign="center" mb={4}>
-             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
+             <Motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 260, damping: 20 }}>
                <CheckCircleIcon color="success" sx={{ fontSize: 80, mb: 1, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,0.1))' }} />
-             </motion.div>
+             </Motion.div>
             <Typography variant="h3" gutterBottom fontWeight="900" color="success.main" sx={{ letterSpacing: 0.5 }}>ลงทะเบียนสำเร็จ!</Typography>
             <Typography variant="h6" color="text.secondary">ยินดีต้อนรับเข้าสู่งาน "เสือเหลืองคืนถิ่น"</Typography>
           </Box>
           
-          <motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
+          <Motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
             <Card elevation={8} sx={{ borderRadius: 4, overflow: 'hidden', background: '#fff', border: '1px solid #4caf50' }}>
               <Box sx={{ background: '#4caf50', color: 'white', p: 3, textAlign: 'center' }}>
                  <Typography variant="h5" fontWeight="bold" sx={{ letterSpacing: 1.5 }}>
@@ -346,7 +346,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
                 </Stack>
               </CardContent>
             </Card>
-          </motion.div>
+          </Motion.div>
           
           <Box sx={{ textAlign: 'center', mt: 6 }}>
             {isSelfRegisterMode ? (
@@ -378,7 +378,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
       <MourningRibbon />
       <Container maxWidth="sm">
         
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+        <Motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)", position: 'relative' }}>
             {user && !isSelfRegisterMode && (
               <Chip icon={<BadgeIcon />} label={user.role?.includes('kiosk_device') ? `โหมดใช้งานสาธารณะ (Kiosk)` : `ผู้ดูแล: ${user?.fullName || user?.username}`} size="small" sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(255,255,255,0.7)', fontWeight: 600, fontSize: '0.75rem' }} />
@@ -394,12 +394,12 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
               </Box>
             </Stack>
           </Paper>
-        </motion.div>
+        </Motion.div>
 
         {fetchingFields ? (
           <Box sx={{ mt: 4, textAlign: 'center' }}><CircularProgress color="warning" /></Box>
         ) : (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
+          <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
             <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                 
                 <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
@@ -451,7 +451,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
                   <Button type="button" variant="text" color="inherit" fullWidth onClick={handleReset} startIcon={<RestartAltIcon />} sx={{ fontWeight: 700 }}>เริ่มใหม่</Button>
                 </Stack>
             </Box>
-          </motion.div>
+          </Motion.div>
         )}
       </Container>
 

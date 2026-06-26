@@ -15,9 +15,8 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
-import * as XLSX from 'xlsx';
 import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
-import useAuth from '../hooks/useAuth';
+import { downloadCsv } from '../utils/exportCsv';
 import { useNavigate } from 'react-router-dom';
 
 export default function DonationListPage() {
@@ -29,10 +28,9 @@ export default function DonationListPage() {
   const [formData, setFormData] = useState({});
   const [isEditing, setIsEditing] = useState(false);
 
-  const { token } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => { fetchDonations(); }, [token]);
+  useEffect(() => { fetchDonations(); }, []);
 
   const fetchDonations = async () => {
     setLoading(true);
@@ -83,7 +81,7 @@ export default function DonationListPage() {
       }
       setOpenDialog(false);
       fetchDonations();
-    } catch (error) {
+    } catch {
       alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
     }
   };
@@ -93,7 +91,7 @@ export default function DonationListPage() {
     try {
       await deleteDonation(id);
       fetchDonations();
-    } catch (error) {
+    } catch {
       alert("เกิดข้อผิดพลาดในการลบข้อมูล");
     }
   };
@@ -114,10 +112,7 @@ export default function DonationListPage() {
         'ลิงก์สลิป': d.slipUrl || '-',
         'ช่องทาง': d.source
     }));
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Donations");
-    XLSX.writeFile(workbook, `Donations_${new Date().toISOString().slice(0,10)}.xlsx`);
+    downloadCsv(`Donations_${new Date().toISOString().slice(0,10)}.csv`, dataToExport);
   };
 
   return (
@@ -132,7 +127,7 @@ export default function DonationListPage() {
             <Typography variant="body2" color="text.secondary">เพิ่ม ลบ อัปเดต และตรวจสอบสลิป</Typography>
           </Box>
           <Button variant="contained" color="primary" startIcon={<AddBoxIcon />} onClick={() => handleOpenDialog()} sx={{ borderRadius: 2 }}>เพิ่มรายการใหม่</Button>
-          <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export Excel</Button>
+          <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export CSV</Button>
         </Stack>
 
         <Grid container spacing={2} sx={{ mb: 3 }}>

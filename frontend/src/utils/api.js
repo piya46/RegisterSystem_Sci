@@ -6,12 +6,19 @@ const api = axios.create({
   withCredentials: true 
 });
 
-// [แก้ไข] Interceptor สำหรับ Kiosk Mode และ Self-Register Mode
-// ให้อ่านจาก localStorage ก่อน (สำหรับเครื่อง Kiosk หลัก) 
-// ถ้าไม่มีให้อ่านจาก sessionStorage (สำหรับมือถือผู้เข้าร่วม)
+const SCOPED_TOKEN_ENDPOINTS = [
+  '/auth/me',
+  '/participants/register-onsite',
+  '/participants/checkin-by-qr',
+];
+
+// Interceptor สำหรับ Kiosk Mode และ Self-Register Mode
+// แนบ scoped token เฉพาะ endpoint ที่ต้องใช้จริง เพื่อไม่ให้ token ติดไปกับทุก API
 api.interceptors.request.use(config => {
   const kioskToken = localStorage.getItem('kioskToken') || sessionStorage.getItem('kioskToken');
-  if (kioskToken) {
+  const url = config.url || '';
+  const shouldAttachScopedToken = SCOPED_TOKEN_ENDPOINTS.some((endpoint) => url.startsWith(endpoint));
+  if (kioskToken && shouldAttachScopedToken) {
     config.headers.Authorization = `Bearer ${kioskToken}`;
   }
   return config;
@@ -58,6 +65,7 @@ export const registerOnsiteByKiosk = (data) => api.post('/participants/register-
 export const downloadPdfReport = () => api.get('/participants/download-report-pdf', { responseType: 'blob' });
 
 export const listRegistrationPoints = () => api.get('/registration-points');
+export const listEnabledRegistrationPoints = () => api.get('/registration-points/enabled');
 export const createRegistrationPoint = (data) => api.post('/registration-points', data);
 export const updateRegistrationPoint = (id, data) => api.put(`/registration-points/${id}`, data);
 export const deleteRegistrationPoint = (id) => api.delete(`/registration-points/${id}`);

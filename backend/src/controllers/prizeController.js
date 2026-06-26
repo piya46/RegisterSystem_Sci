@@ -8,6 +8,37 @@ exports.listPrizes = async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
 };
 
+exports.listPublicPrizes = async (req, res) => {
+  try {
+    const prizes = await Prize.find()
+      .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const maskName = (name = '') => {
+      const cleanName = String(name).trim();
+      if (!cleanName) return 'ไม่ทราบชื่อ';
+      return cleanName.length <= 3 ? `${cleanName[0]}***` : `${cleanName.slice(0, 3)}***`;
+    };
+
+    const safePrizes = prizes.map((prize) => ({
+      _id: prize._id,
+      name: prize.name,
+      totalQuantity: prize.totalQuantity,
+      remainingQuantity: prize.remainingQuantity,
+      winners: (prize.winners || []).map((winner) => ({
+        wonAt: winner.wonAt,
+        participantName: maskName(winner.participantId?.fields?.name),
+        department: winner.participantId?.fields?.department || winner.participantId?.fields?.dept || ''
+      }))
+    }));
+
+    res.json(safePrizes);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 exports.createPrize = async (req, res) => {
   try {
     const prize = await Prize.create(req.body);

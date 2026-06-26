@@ -53,7 +53,7 @@ const spin = keyframes`
   to { transform: rotate(360deg); }
 `;
 
-const StyledCard = styled(Card)(({ theme }) => ({
+const StyledCard = styled(Card)(() => ({
   borderRadius: 24,
   background: Y.glass,
   backdropFilter: "blur(20px)",
@@ -166,19 +166,6 @@ export default function AdminPage() {
   const openPasswordDialog = (admin) => {
     setPasswordTarget(admin);
     setPasswordDialogOpen(true);
-  };
-
-  const handlePasswordSave = async (newPassword) => {
-    if (!passwordTarget) return;
-    const isSelf = (passwordTarget._id === user?._id) || (passwordTarget.id === user?.id);
-    if (isSelf) {
-      await api.changePassword({ password: newPassword });
-      alert("เปลี่ยนรหัสผ่านของคุณสำเร็จ");
-    } else {
-      await api.resetPassword({ userId: passwordTarget._id, newPassword });
-      alert("รีเซ็ตรหัสผ่านสำเร็จ และส่งอีเมลแจ้งผู้ใช้แล้ว");
-    }
-    setPasswordDialogOpen(false);
   };
 
   // 🌟 ฟังก์ชันจัดการ Checkbox
@@ -522,7 +509,7 @@ export default function AdminPage() {
       <AdminPasswordDialog
         open={passwordDialogOpen}
         onClose={() => setPasswordDialogOpen(false)}
-        onSave={handlePasswordSave}
+        onSuccess={fetchAdmins}
         isSelf={passwordTarget?._id === user?._id || passwordTarget?.id === user?.id}
         user={passwordTarget}
       />

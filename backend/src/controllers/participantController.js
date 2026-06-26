@@ -122,17 +122,19 @@ exports.createParticipantByStaff = async (req, res) => {
     // if (isKioskDevice && req.kioskPoint !== registrationPoint) {
     //   return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     // }
-    const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
+    const isKioskDevice = req.auth?.scope === 'kiosk_device' || req.user.role?.includes('kiosk');
+    const isSelfRegisterSession = req.auth?.scope === 'self_register_session';
+    const isScopedRegistration = isKioskDevice || isSelfRegisterSession;
     
     // 🌟 1. ดึงค่า Point จาก Token รองรับทั้ง req.kioskPoint และ req.user.kioskPoint
     const tokenPoint = req.kioskPoint || req.user?.kioskPoint;
 
-    if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
+    if (!isScopedRegistration && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to register at this point.' });
     }
     
     // 🌟 2. แปลงให้เป็น String ก่อนเปรียบเทียบ เพื่อป้องกันปัญหาเรื่องประเภทตัวแปร (ObjectId vs String)
-    if (isKioskDevice && tokenPoint && String(tokenPoint) !== String(registrationPoint)) {
+    if (isScopedRegistration && (!tokenPoint || String(tokenPoint) !== String(registrationPoint))) {
       return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     }
 
@@ -321,15 +323,21 @@ exports.resendTicket = async (req, res) => {
   // โค้ดเดิม
   const { phone } = req.body;
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
+  const phoneRegex = /^0[689]\d{8}$/;
+  if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
   const participant = await Participant.findOne({ 'fields.phone': phone, isDeleted: false });
-  if (!participant) return res.status(404).json({ found: false, message: 'ไม่พบข้อมูลในระบบ' });
+  const genericResponse = { success: true, message: 'หากพบข้อมูลในระบบ ระบบจะส่ง E-Ticket ไปยังอีเมลที่ลงทะเบียนไว้' };
+  if (!participant) return res.json(genericResponse);
   const email = participant.fields.email;
   if (email) {
     try {
       await sendTicketMail(email, participant);
-      return res.json({ found: true, sent: true, message: 'ส่งอีเมลแล้ว' });
-    } catch (err) { return res.status(500).json({ found: true, sent: false, message: 'พบข้อมูลแต่ส่งอีเมลไม่ได้', error: err.message }); }
-  } else { return res.json({ found: true, sent: false, message: 'พบข้อมูลในระบบแต่ไม่ได้กรอกอีเมล' }); }
+      return res.json(genericResponse);
+    } catch (err) {
+      auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `phone=${phone} error=${err.message}`, status: 500 });
+      return res.json(genericResponse);
+    }
+  } else { return res.json(genericResponse); }
 };
 
 exports.searchParticipants = async (req, res) => {
@@ -348,7 +356,6 @@ exports.searchParticipants = async (req, res) => {
 };
 
 exports.exportParticipants = async (req, res) => {
-  // โค้ดเดิม เพิ่ม Export Tag ถ้าต้องการ
   try {
     if (!checkAdmin(req, res)) return;
     const { status } = req.query;
@@ -356,29 +363,55 @@ exports.exportParticipants = async (req, res) => {
     if (status) find.status = status;
 
     const participants = await Participant.find(find).populate('registeredBy', 'username fullName email').lean();
-    const ExcelJS = require('exceljs');
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet('Participants');
-
-    ws.columns = [
-      { header: 'No.', key: 'no', width: 6 }, { header: 'Name', key: 'name', width: 28 }, { header: 'Phone', key: 'phone', width: 16 }, { header: 'Email', key: 'email', width: 28 }, { header: 'Department', key: 'department', width: 24 }, { header: 'Address', key: 'address', width: 40 }, { header: 'ZipCode', key: 'zipcode', width: 15 }, { header: 'Status', key: 'status', width: 14 }, { header: 'RegisteredAt', key: 'registeredAt', width: 20 }, { header: 'CheckedInAt', key: 'checkedInAt', width: 20 }, { header: 'RegistrationPoint', key: 'registeredPoint', width: 26 }, { header: 'RegistrationType', key: 'registrationType', width: 14 }, { header: 'Followers', key: 'followers', width: 12 }, { header: 'Consent', key: 'consent', width: 12 }, { header: 'SpecialAssistance', key: 'specialAssistance', width: 20 }, { header: 'Tags', key: 'tags', width: 20 }, { header: 'QR Code', key: 'qrCode', width: 38 }, { header: 'RegisteredBy', key: 'registeredBy', width: 22 },
+    const headers = [
+      'No.', 'Name', 'Phone', 'Email', 'Department', 'Address', 'ZipCode', 'Status',
+      'RegisteredAt', 'CheckedInAt', 'RegistrationPoint', 'RegistrationType',
+      'Followers', 'Consent', 'SpecialAssistance', 'Tags', 'QR Code', 'RegisteredBy',
     ];
-    ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }]; ws.autoFilter = { from: 'A1', to: 'Q1' };
+    const escapeCsv = (value) => {
+      if (value == null) return '';
+      return `"${String(value).replace(/\r?\n|\r/g, ' ').replace(/"/g, '""')}"`;
+    };
+    const formatDate = (value) => {
+      if (!value) return '';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return '';
+      return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().replace('T', ' ').slice(0, 19);
+    };
 
-    participants.forEach((p, idx) => {
+    const rows = participants.map((p, idx) => {
       const f = p.fields || {};
-      ws.addRow({
-        no: idx + 1, name: f.name || f.fullName || f.fullname || '', phone: f.phone || '', email: f.email || '', department: f.department || f.faculty || '', address: f.usr_add || '-', zipcode: f.usr_add_post || '-', status: p.status || 'registered', registeredAt: p.createdAt ? new Date(p.createdAt) : null, checkedInAt: p.checkedInAt ? new Date(p.checkedInAt) : null, registeredPoint: p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '', registrationType: p.registrationType || '', followers: Number.isFinite(p.followers) ? p.followers : 0, consent: p.consent || '-', specialAssistance: p.specialAssistance || '-', tags: p.tags ? p.tags.join(', ') : '-', qrCode: p.qrCode || '', registeredBy: (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) || (typeof p.registeredBy === 'string' ? p.registeredBy : '') || '',
-      });
+      return [
+        idx + 1,
+        f.name || f.fullName || f.fullname || '',
+        f.phone || '',
+        f.email || '',
+        f.department || f.faculty || '',
+        f.usr_add || '-',
+        f.usr_add_post || '-',
+        p.status || 'registered',
+        formatDate(p.createdAt),
+        formatDate(p.checkedInAt),
+        p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '',
+        p.registrationType || '',
+        Number.isFinite(p.followers) ? p.followers : 0,
+        p.consent || '-',
+        p.specialAssistance || '-',
+        p.tags ? p.tags.join(', ') : '-',
+        p.qrCode || '',
+        (p.registeredBy && (p.registeredBy.fullName || p.registeredBy.username || p.registeredBy.email)) || (typeof p.registeredBy === 'string' ? p.registeredBy : '') || '',
+      ];
     });
 
-    const dateFmt = (c) => { if (!c.value) return; try { const d = new Date(c.value); if (!isNaN(d.getTime())) c.value = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().replace('T', ' ').slice(0, 19); } catch {} };
-    ws.getColumn('registeredAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); }); ws.getColumn('checkedInAt').eachCell((c, i) => { if (i !== 1) dateFmt(c); });
-
-    const now = new Date(); const fileName = `participants-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const csv = [
+      headers.map(escapeCsv).join(','),
+      ...rows.map((row) => row.map(escapeCsv).join(',')),
+    ].join('\r\n');
+    const now = new Date();
+    const fileName = `participants-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    await wb.xlsx.write(res); res.end();
+    res.send(`\uFEFF${csv}`);
   } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
 };
 

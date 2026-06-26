@@ -28,7 +28,7 @@ const Y = {
   error: "#d32f2f",
 };
 
-const StyledCard = styled(Card)(({ theme }) => ({
+const StyledCard = styled(Card)(() => ({
   borderRadius: 24,
   boxShadow: "0 8px 32px rgba(255, 193, 7, 0.15)",
   border: `1px solid rgba(255, 193, 7, 0.3)`,
@@ -36,19 +36,19 @@ const StyledCard = styled(Card)(({ theme }) => ({
 }));
 
 export default function SessionManagerPage() {
-  const { token, user } = useAuth();
+  useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchSessions();
-  }, [token]);
+  }, []);
 
   const fetchSessions = async () => {
     setLoading(true);
     try {
-      const res = await api.listSessions(token);
+      const res = await api.listSessions();
       setSessions(res.data || []);
     } catch (error) {
       console.error("Failed to fetch sessions", error);

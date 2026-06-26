@@ -38,7 +38,7 @@ import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
-import * as XLSX from 'xlsx';
+import { downloadCsv } from "../utils/exportCsv";
 
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip } from "recharts";
 
@@ -46,7 +46,9 @@ import { PieChart, Pie, Cell, Legend, ResponsiveContainer, BarChart, Bar, XAxis,
 class ChartErrorBoundary extends React.Component {
   constructor(props) { super(props); this.state = { hasError: false }; }
   static getDerivedStateFromError() { return { hasError: true }; }
-  componentDidCatch(err, info) { }
+  componentDidCatch() {
+    // Fallback UI is rendered from getDerivedStateFromError.
+  }
   render() {
     if (this.state.hasError) {
       return (
@@ -137,10 +139,10 @@ const getTheme = (mode = "light") =>
 function getInitial(name) { if (!name) return "?"; return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
 
 export default function DashboardPage() {
-  const { user, logout, token } = useAuth();
+  const { user, logout } = useAuth();
   const roles = Array.isArray(user?.role) ? user.role : [user?.role];
   const [dialogOpen, setDialogOpen] = React.useState(false);
-  const [darkMode, setDarkMode] = React.useState(false);
+  const [darkMode] = React.useState(false);
   const [profileAnchorEl, setProfileAnchorEl] = React.useState(null);
   const openProfile = Boolean(profileAnchorEl);
 
@@ -203,11 +205,7 @@ export default function DashboardPage() {
         };
       });
 
-      const worksheet = XLSX.utils.json_to_sheet(excelData);
-      worksheet['!cols'] = [{ wch: 6 }, { wch: 25 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 25 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 15 }];
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "รายชื่อผู้ลงทะเบียน");
-      XLSX.writeFile(workbook, `Report_Participants_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      downloadCsv(`Report_Participants_${new Date().toISOString().slice(0, 10)}.csv`, excelData);
 
     } catch (e) {
       console.error(e);
@@ -264,8 +262,8 @@ export default function DashboardPage() {
   const supportDonation = donationStatsData.breakdown?.supportSystem?.amount || 0;
   const recentDonations = donationStats?.transactions?.slice(0, 5) || [];
 
-  const checkedInByStaff = Array.isArray(summary?.checkedInUsers) ? summary.checkedInUsers : [];
-  const registeredByStaff = Array.isArray(summary?.registeredByUsers) ? summary.registeredByUsers : [];
+  const checkedInByStaff = useMemo(() => Array.isArray(summary?.checkedInUsers) ? summary.checkedInUsers : [], [summary?.checkedInUsers]);
+  const registeredByStaff = useMemo(() => Array.isArray(summary?.registeredByUsers) ? summary.registeredByUsers : [], [summary?.registeredByUsers]);
 
   const enrichWithPercent = (rows, total) => {
     const sum = typeof total === "number" ? total : rows.reduce((s, r) => s + (r.count || 0), 0);
@@ -668,7 +666,7 @@ export default function DashboardPage() {
                 startIcon={<ReceiptLongIcon />}
                 sx={{ borderRadius: 3, px: 4, py: 1.2, fontSize: 16, borderWidth: 2, '&:hover': { borderWidth: 2, bgcolor: '#E8F5E9' } }}
               >
-                ดาวน์โหลดรายชื่อฉบับเต็ม (.xlsx)
+                ดาวน์โหลดรายชื่อฉบับเต็ม (.csv)
               </Button>
             </Box>
 

@@ -6,7 +6,7 @@ import {
   Dialog, DialogContent,
   Avatar, Chip, IconButton, Fade, Tooltip, Zoom, Grow, Slide
 } from "@mui/material";
-import { keyframes, styled, useTheme } from "@mui/material/styles";
+import { keyframes, styled } from "@mui/material/styles";
 
 // Icons
 import QrCodeScannerIcon from "@mui/icons-material/QrCodeScanner";
@@ -20,7 +20,7 @@ import BadgeIcon from "@mui/icons-material/Badge";
 
 // Utils & Hooks
 import getAvatarUrl from "../utils/getAvatarUrl";
-import { searchParticipants, checkinByQr, listRegistrationPoints } from "../utils/api";
+import { searchParticipants, checkinByQr, listEnabledRegistrationPoints } from "../utils/api";
 import useAuth from "../hooks/useAuth";
 import QrScanner from "../components/QrScanner";
 import FollowersDialog from "../components/FollowersDialog";
@@ -62,7 +62,7 @@ const scanLineAnimation = keyframes`
   100% { top: 100%; opacity: 0; }
 `;
 
-const PulseButton = styled(Button)(({ theme }) => ({
+const PulseButton = styled(Button)(() => ({
   transition: "transform 0.1s ease-in-out, box-shadow 0.2s",
   "&:active": { transform: "scale(0.96)" },
   borderRadius: "14px",
@@ -70,7 +70,7 @@ const PulseButton = styled(Button)(({ theme }) => ({
   fontFamily: "inherit",
 }));
 
-const GlassPaper = styled(Paper)(({ theme }) => ({
+const GlassPaper = styled(Paper)(() => ({
   background: Y.glass,
   backdropFilter: "blur(20px)",
   WebkitBackdropFilter: "blur(20px)",
@@ -82,7 +82,6 @@ const GlassPaper = styled(Paper)(({ theme }) => ({
 /* ===================== Main Component ===================== */
 
 export default function CheckinStaffPage() {
-  const theme = useTheme();
   // ✅ ใช้แค่ user ไม่ต้องดึง token แล้ว (เพราะใช้ Cookie)
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -116,7 +115,7 @@ export default function CheckinStaffPage() {
   const [showFollowersDialog, setShowFollowersDialog] = useState(false);
 
   useEffect(() => {
-    listRegistrationPoints()
+    listEnabledRegistrationPoints()
       .then(res => setPointList(res.data || res))
       .catch(() => {});
   }, []);
@@ -234,7 +233,7 @@ export default function CheckinStaffPage() {
     setLoading(false);
   };
 
-  const handleCheckin = async (id, qrCode, auto = false, followers = 0) => {
+  const handleCheckin = async (id, qrCode, followers = 0) => {
     setCheckingIn(id);
     try {
       const res = await checkinByQr({ participantId: id, qrCode, registrationPoint, followers });
@@ -265,7 +264,7 @@ export default function CheckinStaffPage() {
   const confirmWithFollowers = (followers) => {
     setShowFollowersDialog(false);
     if (!askFollowersFor) return;
-    handleCheckin(askFollowersFor.id, askFollowersFor.qrCode, false, followers);
+    handleCheckin(askFollowersFor.id, askFollowersFor.qrCode, followers);
     setAskFollowersFor(null);
   };
 

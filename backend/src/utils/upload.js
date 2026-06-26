@@ -16,20 +16,29 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     // [แก้ไข] เพิ่ม timestamp (Date.now()) ต่อท้าย ID 
     // เพื่อให้ชื่อไฟล์ไม่ซ้ำเดิม Browser จะได้โหลดรูปใหม่ทันที
-    const ext = path.extname(file.originalname);
+    const extByMime = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif'
+    };
+    const ext = extByMime[file.mimetype];
     cb(null, `${req.user._id}-${Date.now()}${ext}`);
   }
 });
 
 // Optional: filter type
 const fileFilter = (req, file, cb) => {
-  if (/image\/(jpeg|jpg|png|gif)/.test(file.mimetype)) {
+  if (['image/jpeg', 'image/png', 'image/gif'].includes(file.mimetype)) {
     cb(null, true);
   } else {
     cb(new Error("Only image files are allowed!"), false);
   }
 };
 
-const uploadAvatar = multer({ storage, fileFilter });
+const uploadAvatar = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 }
+});
 
 module.exports = uploadAvatar;

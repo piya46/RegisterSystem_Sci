@@ -1,5 +1,5 @@
 // frontend/src/pages/PublicDashboardPage.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Grid, Card, CardContent, Typography, Stack, CircularProgress, Divider, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Tooltip, Avatar, Container } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
@@ -12,12 +12,12 @@ import { getPublicDashboardStats } from '../utils/api';
 
 // 🌟 ธีมเสือเหลืองคืนถิ่น (Bright Yellow & Dark Brown)
 const THEME = {
-  bg: "radial-gradient(circle at 50% 50%, #FFFDE7 0%, #FFD54F 100%)", 
+  bg: "radial-gradient(circle at 50% 50%, #FFFDE7 0%, #FFD54F 100%)",
   gold: "#FFB300",
   yellow: "#FFC107",
-  text: "#3E2723", 
-  accent: "#E65100", 
-  cardBg: "rgba(255, 255, 255, 0.9)" 
+  text: "#3E2723",
+  accent: "#E65100",
+  cardBg: "rgba(255, 255, 255, 0.9)"
 };
 
 export default function PublicDashboardPage() {
@@ -25,22 +25,22 @@ export default function PublicDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     try {
       const res = await getPublicDashboardStats();
       setStats(res.data);
     } catch (err) {
       console.error(err);
     } finally {
-      if (loading) setLoading(false); 
+      setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); 
+    const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchStats]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -64,10 +64,10 @@ export default function PublicDashboardPage() {
   return (
     // 🌟 ใช้ Flexbox จัดกึ่งกลางทั้งแนวตั้งและแนวนอน
     <Box sx={{ minHeight: '100vh', background: THEME.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', p: { xs: 2, md: 5 }, fontFamily: 'Prompt, sans-serif', overflowX: 'hidden' }}>
-      
+
       {/* 🌟 จำกัดความกว้างไม่ให้เนื้อหายืดเกินไปเมื่อเปิดจอใหญ่ */}
       <Container maxWidth="xl">
-        
+
         {/* Header Section */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={5}>
           <Stack direction="row" spacing={3} alignItems="center">
@@ -81,7 +81,7 @@ export default function PublicDashboardPage() {
               </Typography>
             </Box>
           </Stack>
-          
+
           <Paper elevation={12} sx={{ p: 2, px: 4, borderRadius: 4, bgcolor: THEME.cardBg, border: `2px solid ${THEME.gold}`, textAlign: 'center', backdropFilter: 'blur(10px)', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }}>
             <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} mb={0.5}>
               <AccessTimeIcon sx={{ color: THEME.accent }} />
@@ -132,7 +132,7 @@ export default function PublicDashboardPage() {
 
         {/* Tables Section */}
         <Grid container spacing={5}>
-          
+
           {/* ตารางแยกตามภาควิชา */}
           <Grid item xs={12} md={6}>
             <Paper elevation={10} sx={{ p: 4, borderRadius: 6, border: `2px solid #FFF`, height: '100%', bgcolor: THEME.cardBg, backdropFilter: 'blur(10px)' }}>
@@ -141,7 +141,7 @@ export default function PublicDashboardPage() {
                 <Typography variant="h4" fontWeight={800} color={THEME.text}>สถิติแยกตามภาควิชา</Typography>
               </Stack>
               <Divider sx={{ mb: 2, borderColor: THEME.gold }} />
-              
+
               <TableContainer sx={{ maxHeight: 450, overflow: 'auto', '&::-webkit-scrollbar': { width: '8px' }, '&::-webkit-scrollbar-thumb': { backgroundColor: THEME.gold, borderRadius: '4px' } }}>
                 <Table stickyHeader size="medium">
                   <TableHead>
@@ -177,7 +177,7 @@ export default function PublicDashboardPage() {
                 <Typography variant="h4" fontWeight={800} color={THEME.text}>สถิติแยกตามปีการศึกษา</Typography>
               </Stack>
               <Divider sx={{ mb: 2, borderColor: THEME.gold }} />
-              
+
               <TableContainer sx={{ maxHeight: 450, overflow: 'auto', '&::-webkit-scrollbar': { width: '8px' }, '&::-webkit-scrollbar-thumb': { backgroundColor: THEME.gold, borderRadius: '4px' } }}>
                 <Table stickyHeader size="medium">
                   <TableHead>

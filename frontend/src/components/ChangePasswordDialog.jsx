@@ -8,12 +8,9 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import LockResetIcon from '@mui/icons-material/LockReset';
 import SaveIcon from '@mui/icons-material/Save';
-import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
 
 export default function ChangePasswordDialog({ open, onClose }) {
-  const { token } = useAuth();
-  
   // Form States
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -55,17 +52,14 @@ export default function ChangePasswordDialog({ open, onClose }) {
       setError("รหัสผ่านใหม่กับยืนยันรหัสไม่ตรงกัน");
       return;
     }
-    if (newPassword.length < 6) {
-      setError("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 6 ตัวอักษร");
+    if (newPassword.length < 8) {
+      setError("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 8 ตัวอักษร");
       return;
     }
 
     setLoading(true);
     try {
-      await api.changePassword(
-        { oldPassword, newPassword },
-        token
-      );
+      await api.changePassword({ oldPassword, newPassword });
       setSuccess("เปลี่ยนรหัสผ่านสำเร็จแล้ว");
       setTimeout(() => {
         onClose();

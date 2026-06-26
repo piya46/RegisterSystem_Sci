@@ -8,7 +8,7 @@ module.exports = async function mongoLogger(req, res, next) {
         user: req.user ? req.user.username : 'Anonymous',
         userId: req.user ? String(req.user._id) : null,
         method: req.method,
-        url: req.originalUrl,
+        url: req.path,
         status: res.statusCode,
         ip: req.ip,
         userAgent: req.headers['user-agent'],

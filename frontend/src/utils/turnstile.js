@@ -1,5 +1,5 @@
 // src/utils/turnstile.js
-const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY;
+const SITE_KEY = import.meta.env.VITE_CF_TURNSTILE_SITE_KEY || import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 let scriptReadyPromise = null;
 let widgetId = null;

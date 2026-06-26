@@ -65,7 +65,9 @@ export default function QrScanner({
       g.gain.setValueAtTime(0.04, ctx.currentTime);
       o.connect(g); g.connect(ctx.destination);
       o.start(); o.stop(ctx.currentTime + 0.08);
-    } catch {}
+    } catch {
+      // Audio feedback is optional; ignore browsers that block AudioContext.
+    }
   };
 
   const buildConfig = () => {
@@ -79,7 +81,9 @@ export default function QrScanner({
     try {
       if (qr.current?.isScanning) await qr.current.stop();
       await qr.current?.clear();
-    } catch {}
+    } catch {
+      // Scanner cleanup can fail if the camera was already stopped.
+    }
   };
 
   const startScanner = async (devId = activeCamId) => {
@@ -164,7 +168,9 @@ export default function QrScanner({
         await stopScanner();
         setPaused(true);
       }
-    } catch {}
+    } catch {
+      // Pause/resume races with camera teardown on some mobile browsers.
+    }
   };
 
   const toggleTorch = async () => {
@@ -174,7 +180,7 @@ export default function QrScanner({
       if (!track) return;
       await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
       setTorchOn((v) => !v);
-    } catch (e) {
+    } catch {
       onError && onError("Torch not supported on this device/browser.");
     }
   };
@@ -186,7 +192,9 @@ export default function QrScanner({
           await stopScanner();
           await startScanner(activeCamId);
         } else await stopScanner();
-      } catch {}
+      } catch {
+        // Visibility changes can interrupt camera teardown; safe to ignore.
+      }
     };
     document.addEventListener("visibilitychange", vis);
     return () => document.removeEventListener("visibilitychange", vis);

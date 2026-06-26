@@ -1,7 +1,6 @@
-import React, { createContext, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import * as api from "../utils/api";
-
-export const AuthContext = createContext();
+import { AuthContext } from "./AuthContext";
 
 export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -15,7 +14,7 @@ export default function AuthProvider({ children }) {
         // ยิงไปถาม Backend ตรงๆ ไม่ต้องสนเรื่อง Token เพราะ Cookie จะถูกส่งไปอัตโนมัติ
         const res = await api.getMe();
         if (!ignore) setUser(res.data);
-      } catch (err) {
+      } catch {
         // ถ้าคุกกี้หมดอายุ หรือไม่มีคุกกี้ API จะตีกลับ 401 เราก็แค่เซ็ต user เป็น null
         if (!ignore) setUser(null);
       } finally {

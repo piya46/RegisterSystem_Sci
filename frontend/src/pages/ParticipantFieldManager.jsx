@@ -30,7 +30,7 @@ import * as api from "../utils/api";
 import { useNavigate } from "react-router-dom";
 
 export default function ParticipantFieldManager() {
-  const { user, token, loading } = useAuth();
+  const { user, loading } = useAuth();
   const navigate = useNavigate();
   const theme = useTheme();
 
@@ -51,12 +51,11 @@ export default function ParticipantFieldManager() {
   // busy flags
   const [busyId, setBusyId] = useState(null);
   const [busyReorder, setBusyReorder] = useState(false);
-  const [lastFetch, setLastFetch] = useState(null);
 
   // ===== Permission Guard =====
   useEffect(() => {
     if (loading) return;
-    if (!user || !token) {
+    if (!user) {
       navigate("/login", { replace: true });
       return;
     }
@@ -67,17 +66,16 @@ export default function ParticipantFieldManager() {
     }
     fetchData();
     // eslint-disable-next-line
-  }, [user, token, loading]);
+  }, [user, loading]);
 
   // ===== Fetch =====
   const fetchData = () => {
     setFetching(true);
     api
-      .listParticipantFields(token)
+      .listParticipantFields()
       .then((res) => {
         const rows = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         setFields(rows);
-        setLastFetch(Date.now());
       })
       .catch(() => setFields([]))
       .finally(() => setFetching(false));
@@ -87,10 +85,10 @@ export default function ParticipantFieldManager() {
   const handleSave = async (data) => {
     try {
       if (editData?._id) {
-        await api.updateParticipantField(editData._id, data, token);
+        await api.updateParticipantField(editData._id, data);
         setSnackbar({ open: true, message: "บันทึกสำเร็จ", severity: "success" });
       } else {
-        await api.createParticipantField(data, token);
+        await api.createParticipantField(data);
         setSnackbar({ open: true, message: "เพิ่มสำเร็จ", severity: "success" });
       }
       setDialogOpen(false);
@@ -104,7 +102,7 @@ export default function ParticipantFieldManager() {
     if (!window.confirm("ลบฟิลด์นี้ถาวร? ข้อมูลที่เกี่ยวข้องอาจสูญหาย")) return;
     setBusyId(id);
     try {
-      await api.deleteParticipantField(id, token);
+      await api.deleteParticipantField(id);
       setSnackbar({ open: true, message: "ลบสำเร็จ", severity: "success" });
       fetchData();
     } catch {
@@ -117,7 +115,7 @@ export default function ParticipantFieldManager() {
   const toggleEnabled = async (field) => {
     setBusyId(field._id);
     try {
-      await api.updateParticipantField(field._id, { enabled: !field.enabled }, token);
+      await api.updateParticipantField(field._id, { enabled: !field.enabled });
       fetchData();
     } finally {
       setBusyId(null);
@@ -133,8 +131,8 @@ export default function ParticipantFieldManager() {
 
     setBusyReorder(true);
     try {
-      await api.updateParticipantField(a._id, { order: b.order }, token);
-      await api.updateParticipantField(b._id, { order: a.order }, token);
+      await api.updateParticipantField(a._id, { order: b.order });
+      await api.updateParticipantField(b._id, { order: a.order });
       fetchData();
     } finally {
       setBusyReorder(false);

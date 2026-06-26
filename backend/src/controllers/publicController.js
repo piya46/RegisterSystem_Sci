@@ -1,16 +1,38 @@
 // backend/src/controllers/publicController.js
 const jwt = require('jsonwebtoken');
 const Participant = require('../models/participant');
+const Admin = require('../models/admin');
+const RegistrationPoint = require('../models/registrationPoint');
+const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
+
+const TOKEN_ISSUER = 'psevent';
+const MAX_SELF_REGISTER_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+async function assertPointAccess(user, pointId, res) {
+  const point = await RegistrationPoint.findById(pointId);
+  if (!point || point.enabled !== true) {
+    res.status(400).json({ error: 'ไม่พบจุดลงทะเบียน หรือจุดนี้ถูกปิดใช้งาน' });
+    return false;
+  }
+
+  if (!canRegisterAtPoint(user, pointId)) {
+    res.status(403).json({ error: 'คุณไม่มีสิทธิ์สร้างลิงก์สำหรับจุดลงทะเบียนนี้' });
+    return false;
+  }
+
+  return true;
+}
 
 exports.generateKioskToken = async (req, res) => {
   try {
     const { pointId } = req.body;
     if (!pointId) return res.status(400).json({ error: 'ต้องระบุ Registration Point' });
+    if (!(await assertPointAccess(req.user, pointId, res))) return;
 
     const token = jwt.sign(
       { role: 'kiosk_device', pointId, createdBy: req.user._id },
       process.env.JWT_SECRET,
-      { expiresIn: '12h' }
+      { expiresIn: '12h', audience: 'kiosk-device', issuer: TOKEN_ISSUER }
     );
     res.json({ token });
   } catch (err) { res.status(500).json({ error: 'Server error' }); }
@@ -76,19 +98,48 @@ exports.generateSelfRegisterLink = async (req, res) => {
       return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน และเวลาเริ่มต้น-สิ้นสุด ให้ครบถ้วน' });
     }
 
+    if (!(await assertPointAccess(req.user, pointId, res))) return;
+
+    const fromDate = new Date(validFrom);
+    const untilDate = new Date(validUntil);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(untilDate.getTime())) {
+      return res.status(400).json({ error: 'รูปแบบเวลาไม่ถูกต้อง' });
+    }
+    if (untilDate <= fromDate || untilDate <= new Date()) {
+      return res.status(400).json({ error: 'ช่วงเวลา QR Code ไม่ถูกต้อง' });
+    }
+    if (untilDate.getTime() - fromDate.getTime() > MAX_SELF_REGISTER_WINDOW_MS) {
+      return res.status(400).json({ error: 'QR Code ลงทะเบียนเองมีอายุได้สูงสุด 24 ชั่วโมง' });
+    }
+
     // 🌟 ถ้าเป็น Admin และมีการส่ง forStaffId มา ให้ใช้ forStaffId แทน ID ของคนกดสร้าง
     const isAdmin = req.user.role && (Array.isArray(req.user.role) ? req.user.role.includes('admin') : req.user.role === 'admin');
-    const targetStaffId = (isAdmin && forStaffId) ? forStaffId : req.user._id;
+    let targetStaff = req.user;
+
+    if (isAdmin && forStaffId) {
+      targetStaff = await Admin.findById(forStaffId);
+      if (!targetStaff) return res.status(404).json({ error: 'ไม่พบเจ้าหน้าที่ที่ระบุ' });
+      const roles = Array.isArray(targetStaff.role) ? targetStaff.role : [];
+      if (!roles.includes('admin') && !roles.includes('staff')) {
+        return res.status(400).json({ error: 'บัญชีเป้าหมายไม่มีสิทธิ์เจ้าหน้าที่' });
+      }
+      if (!canRegisterAtPoint(targetStaff, pointId)) {
+        return res.status(403).json({ error: 'เจ้าหน้าที่ที่เลือกไม่มีสิทธิ์ประจำจุดลงทะเบียนนี้' });
+      }
+    }
 
     const payload = {
       role: 'self_register_master',
       pointId,
-      staffId: targetStaffId,
-      nbf: Math.floor(new Date(validFrom).getTime() / 1000), // Not Before (เวลาเริ่ม)
-      exp: Math.floor(new Date(validUntil).getTime() / 1000) // Expiration (เวลาหมดอายุ)
+      staffId: targetStaff._id,
+      nbf: Math.floor(fromDate.getTime() / 1000),
+      exp: Math.floor(untilDate.getTime() / 1000)
     };
 
-    const masterToken = jwt.sign(payload, process.env.JWT_SECRET);
+    const masterToken = jwt.sign(payload, process.env.JWT_SECRET, {
+      audience: 'self-register-master',
+      issuer: TOKEN_ISSUER
+    });
     res.json({ token: masterToken });
   } catch (err) {
     res.status(500).json({ error: 'ไม่สามารถสร้างลิงก์ได้', detail: err.message });
@@ -102,7 +153,10 @@ exports.requestShortSession = async (req, res) => {
     if (!masterToken) return res.status(400).json({ error: 'ไม่พบ Token ยืนยันตัวตน' });
 
     // ตรวจสอบความถูกต้องและเวลาของ Master Token
-    const decoded = jwt.verify(masterToken, process.env.JWT_SECRET);
+    const decoded = jwt.verify(masterToken, process.env.JWT_SECRET, {
+      audience: 'self-register-master',
+      issuer: TOKEN_ISSUER
+    });
 
     if (decoded.role !== 'self_register_master') {
       return res.status(403).json({ error: 'Token ไม่ถูกต้องสำหรับโหมดนี้' });
@@ -112,7 +166,7 @@ exports.requestShortSession = async (req, res) => {
     const shortToken = jwt.sign(
       { role: 'self_register_session', pointId: decoded.pointId, staffId: decoded.staffId },
       process.env.JWT_SECRET,
-      { expiresIn: '15m' }
+      { expiresIn: '15m', audience: 'self-register-session', issuer: TOKEN_ISSUER }
     );
 
     res.json({ shortToken, pointId: decoded.pointId });

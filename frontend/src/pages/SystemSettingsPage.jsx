@@ -35,8 +35,8 @@ import {
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", glass: "rgba(255, 255, 255, 0.85)", glassBorder: "rgba(255, 193, 7, 0.3)", text: "#4E342E", success: "#00C853", error: "#D32F2F" };
 const gradientAnimation = keyframes` 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } `;
-const GlassPaper = styled(Paper)(({ theme }) => ({ background: Y.glass, backdropFilter: "blur(20px)", borderRadius: "24px", border: `1px solid ${Y.glassBorder}`, boxShadow: "0 12px 40px 0 rgba(255, 193, 7, 0.15)", overflow: "hidden", display: "flex", flexDirection: "column" }));
-const PulseButton = styled(Button)(({ theme }) => ({ transition: "transform 0.1s ease-in-out, box-shadow 0.2s", "&:active": { transform: "scale(0.96)" }, borderRadius: "14px", textTransform: "none", fontWeight: 800 }));
+const GlassPaper = styled(Paper)(() => ({ background: Y.glass, backdropFilter: "blur(20px)", borderRadius: "24px", border: `1px solid ${Y.glassBorder}`, boxShadow: "0 12px 40px 0 rgba(255, 193, 7, 0.15)", overflow: "hidden", display: "flex", flexDirection: "column" }));
+const PulseButton = styled(Button)(() => ({ transition: "transform 0.1s ease-in-out, box-shadow 0.2s", "&:active": { transform: "scale(0.96)" }, borderRadius: "14px", textTransform: "none", fontWeight: 800 }));
 const inputStyle = { "& .MuiOutlinedInput-root": { borderRadius: '12px', bgcolor: '#fafafa', "&:hover fieldset": { borderColor: Y.main }, "&.Mui-focused fieldset": { borderColor: Y.dark, borderWidth: '2px' } } };
 
 // 🌟 สร้างฟังก์ชันแปลงเวลา UTC จาก DB ให้กลายเป็นเวลาไทย (Local Time) สำหรับแสดงในช่อง datetime-local

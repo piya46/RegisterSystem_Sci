@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const Package = require('../src/models/Package');
 require('dotenv').config();
 
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/registersystem', {
+mongoose.connect(process.env.MONGODB_URI || process.env.MONGO_URI || 'mongodb://localhost:27017/registersystem', {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(async () => {

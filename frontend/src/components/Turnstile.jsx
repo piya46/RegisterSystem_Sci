@@ -94,7 +94,9 @@ const Turnstile = forwardRef(({
 
         // Cleanup existing widget if any (safety check)
         if (widgetId.current) {
-            try { window.turnstile.remove(widgetId.current); } catch {}
+            try { window.turnstile.remove(widgetId.current); } catch {
+              // Ignore stale widget cleanup failures.
+            }
         }
 
         // Render Widget
@@ -135,12 +137,12 @@ const Turnstile = forwardRef(({
         try {
           window.turnstile.remove(widgetId.current);
           widgetId.current = null;
-        } catch (e) {
+        } catch {
           // ignore cleanup errors
         }
       }
     };
-  }, [siteKey, theme, size, retry, action, cData, appearance, onVerify, onError, onExpire]);
+  }, [siteKey, theme, size, retry, action, cData, appearance, execution, onVerify, onError, onExpire]);
 
   return (
     <div 

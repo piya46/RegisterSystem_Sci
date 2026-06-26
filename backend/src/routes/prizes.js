@@ -2,8 +2,10 @@ const express = require('express');
 const router = express.Router();
 const prizeController = require('../controllers/prizeController');
 const auth = require('../middleware/auth');
+const requireAdmin = require('../middleware/requireAdmin');
 
 router.use(auth); // ต้อง Login ก่อนจัดการของรางวัล
+router.use(requireAdmin);
 router.get('/', prizeController.listPrizes);
 router.post('/', prizeController.createPrize);
 router.delete('/:id', prizeController.deletePrize);

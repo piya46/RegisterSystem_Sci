@@ -21,20 +21,3 @@ module.exports = async function sendMail(to, subject, text, html = null) {
   };
   return transporter.sendMail(mailOptions);
 };
-
-
-// const sgMail = require('@sendgrid/mail');
-// require('dotenv').config();
-
-// sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-
-// module.exports = async function sendMail(to, subject, text, html = null) {
-//   const msg = {
-//     to,
-//     from: process.env.SENDGRID_FROM,
-//     subject,
-//     text,
-//     ...(html ? { html } : {})
-//   };
-//   return sgMail.send(msg);
-// };

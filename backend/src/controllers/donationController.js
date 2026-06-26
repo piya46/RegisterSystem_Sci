@@ -5,12 +5,38 @@ const auditLog = require('../helpers/auditLog');
 
 exports.createDonation = async (req, res) => {
   try {
-    const { userId, firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size, slipUrl, address, pickupMethod, pickupLocation } = req.body;
+    const { firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size, slipUrl, address, pickupMethod, pickupLocation } = req.body;
+    const numericAmount = Number(amount);
+    const transferDate = new Date(transferDateTime);
 
-    if (!amount || amount <= 0) return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
+    if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
+    if (Number.isNaN(transferDate.getTime())) return res.status(400).json({ message: 'รูปแบบวันเวลาโอนไม่ถูกต้อง' });
+    if (source && !['PRE_REGISTER', 'SUPPORT_SYSTEM'].includes(source)) return res.status(400).json({ message: 'ช่องทางการสนับสนุนไม่ถูกต้อง' });
+
+    if (isPackage) {
+      if (!packageType || !size) return res.status(400).json({ message: 'กรุณาระบุแพ็กเกจและขนาด' });
+
+      const selectedPackage = await Package.findOne({ name: packageType, isActive: true });
+      if (!selectedPackage) return res.status(400).json({ message: 'ไม่พบแพ็กเกจที่เลือก หรือแพ็กเกจถูกปิดใช้งานแล้ว' });
+      if (selectedPackage.orderDeadline && selectedPackage.orderDeadline < new Date()) {
+        return res.status(400).json({ message: 'หมดเวลาสั่งแพ็กเกจนี้แล้ว' });
+      }
+
+      const sizeEntry = selectedPackage.items
+        .flatMap(item => item.sizes || [])
+        .find(itemSize => itemSize.size === size);
+      if (!sizeEntry || Number(sizeEntry.sold || 0) >= Number(sizeEntry.stock || 0)) {
+        return res.status(400).json({ message: 'สินค้าขนาดนี้หมดสต๊อกแล้ว' });
+      }
+    }
 
     const newDonation = new Donation({
-      userId, firstName, lastName, amount, transferDateTime, source: source || 'PRE_REGISTER',
+      firstName: String(firstName).trim(),
+      lastName: String(lastName).trim(),
+      amount: numericAmount,
+      transferDateTime: transferDate,
+      source: source || 'PRE_REGISTER',
       isPackage: !!isPackage, packageType: packageType || "", size: size || "",
       slipUrl: slipUrl || "", address: address || "", pickupMethod: pickupMethod || "", pickupLocation: pickupLocation || ""
     });

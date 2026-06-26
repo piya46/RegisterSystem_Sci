@@ -9,18 +9,16 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import { getCronLogs } from "../utils/api";
-import useAuth from "../hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 
 export default function CronStatusPage() {
-  const { token } = useAuth();
   const navigate = useNavigate();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const fetchLogs = () => {
     setLoading(true);
-    getCronLogs(token)
+    getCronLogs()
       .then(res => setLogs(res.data))
       .catch(err => console.error(err))
       .finally(() => setLoading(false));

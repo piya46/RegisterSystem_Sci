@@ -79,11 +79,12 @@ exports.revokeAllSessionByUser = async (req, res) => {
 };
 
 exports.logout = async (req, res) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(400).json({ error: 'No token provided' });
 
   await Session.findOneAndUpdate({ token }, { revoked: true });
-  logger.info(`[Session][${req.user?.username}] LOGOUT - token=${token}`);
-  auditLog({ req, action: 'LOGOUT', detail: `token=${token}` });
+  res.clearCookie('token');
+  logger.info(`[Session][${req.user?.username}] LOGOUT`);
+  auditLog({ req, action: 'LOGOUT', detail: 'User logged out' });
   res.json({ message: 'Logged out' });
 };

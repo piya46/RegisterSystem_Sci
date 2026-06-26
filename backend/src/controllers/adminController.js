@@ -6,19 +6,39 @@ const path = require("path");
 const fs = require("fs");
 const logger = require('../utils/logger');
 const CronLog = require('../models/cronLog');
-const { generateOTP, generateRef } = require('../utils/otp');
+const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp');
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
+
+function isStrongPassword(password) {
+  return typeof password === 'string' && password.length >= 8;
+}
+
+function isValidImageSignature(filePath, mimeType) {
+  const buffer = fs.readFileSync(filePath);
+  if (mimeType === 'image/jpeg') {
+    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimeType === 'image/png') {
+    return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mimeType === 'image/gif') {
+    const signature = buffer.subarray(0, 6).toString('ascii');
+    return signature === 'GIF87a' || signature === 'GIF89a';
+  }
+  return false;
+}
 
 exports.createAdmin = async (req,res) => {
   try {
     const {username, password, role, email, fullName} = req.body;
+    if (!isStrongPassword(password)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
     const exists = await Admin.findOne({ username });
     if (exists) {
       auditLog({ req, action: 'CREATE_ADMIN_FAIL', detail: `username=${username} exists`, status: 400 });
       return res.status(400).json({ error: 'Username exists' });
     }
-    const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS));
+    const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
     const admin = new Admin({ username, passwordHash, role, email, fullName });
     await admin.save();
     
@@ -110,7 +130,7 @@ exports.requestActionOtp = async (req, res) => {
         const ref = generateRef();
         const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-        operator.actionOtp = otp;
+        operator.actionOtp = hashOTP(otp);
         operator.actionRef = ref;
         operator.actionExpires = expiresAt;
         await operator.save();
@@ -141,6 +161,7 @@ exports.resetPassword = async (req, res) => {
     }
 
     const { userId, newPassword, otp } = req.body;
+    if (!isStrongPassword(newPassword)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
     const targetUser = await Admin.findById(userId);
     const operator = await Admin.findById(req.user.id);
 
@@ -159,10 +180,10 @@ exports.resetPassword = async (req, res) => {
         }
 
         // ตรวจสอบ OTP ที่ตัว Operator
-        if (!operator.actionOtp || operator.actionOtp !== otp) {
+        if (!verifyOTP(otp, operator.actionOtp)) {
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
-        if (operator.actionExpires < new Date()) {
+        if (!operator.actionExpires || operator.actionExpires < new Date()) {
             return res.status(400).json({ error: 'รหัส OTP หมดอายุ' });
         }
 
@@ -199,6 +220,7 @@ exports.resetPassword = async (req, res) => {
 exports.changePassword = async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
+    if (!isStrongPassword(newPassword)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
     const admin = await Admin.findById(req.user._id);
 
     if (!admin) {
@@ -259,6 +281,10 @@ exports.updateStaff = async (req, res) => {
 exports.uploadAvatar = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    if (!isValidImageSignature(req.file.path, req.file.mimetype)) {
+      fs.unlinkSync(req.file.path);
+      return res.status(400).json({ error: "Invalid image file" });
+    }
 
     const admin = await Admin.findById(req.user._id);
     if (!admin) return res.status(404).json({ error: "User not found" });

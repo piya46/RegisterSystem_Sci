@@ -1,15 +1,15 @@
 // frontend/src/pages/AdminParticipantsPage.jsx
 import React, { useEffect, useState } from 'react';
 import {
-  Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
-  Paper, TextField, Button, IconButton, Tooltip, CircularProgress, 
-  Typography, MenuItem, Select, InputLabel, FormControl, Stack, Chip, 
+  Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, TextField, Button, IconButton, Tooltip, CircularProgress,
+  Typography, MenuItem, Select, InputLabel, FormControl, Stack, Chip,
   Snackbar, Alert, Grid, Card, CardContent, InputAdornment, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
   Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { useNavigate } from 'react-router-dom'; 
+import { useNavigate } from 'react-router-dom';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -22,28 +22,28 @@ import PeopleIcon from '@mui/icons-material/People';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CloseIcon from '@mui/icons-material/Close';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack'; 
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import QrCode2Icon from '@mui/icons-material/QrCode2';
-import IosShareIcon from '@mui/icons-material/IosShare'; 
-import CardGiftcardIcon from '@mui/icons-material/CardGiftcard'; 
-import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'; 
-import ReplayIcon from '@mui/icons-material/Replay'; 
+import IosShareIcon from '@mui/icons-material/IosShare';
+import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
+import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
+import ReplayIcon from '@mui/icons-material/Replay';
 import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore';
 
 import { QRCodeSVG } from 'qrcode.react';
-import * as XLSX from 'xlsx';
 
 import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
+import { downloadCsv } from '../utils/exportCsv';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
-const StyledCard = styled(Card)(({ theme }) => ({ 
-  borderRadius: 16, 
-  boxShadow: "0 4px 20px rgba(0,0,0,0.05)", 
-  border: "1px solid rgba(0,0,0,0.05)", 
-  transition: "transform 0.2s", 
-  "&:hover": { transform: "translateY(-4px)", boxShadow: "0 8px 24px rgba(255, 193, 7, 0.2)", borderColor: Y.main } 
+const StyledCard = styled(Card)(() => ({
+  borderRadius: 16,
+  boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+  border: "1px solid rgba(0,0,0,0.05)",
+  transition: "transform 0.2s",
+  "&:hover": { transform: "translateY(-4px)", boxShadow: "0 8px 24px rgba(255, 193, 7, 0.2)", borderColor: Y.main }
 }));
 
 const StatusChip = styled(Chip)(({ status }) => {
@@ -59,8 +59,7 @@ const StatusChip = styled(Chip)(({ status }) => {
 
 export default function AdminParticipantsPage() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('token');
-  
+
   const [activeTab, setActiveTab] = useState(0);
 
   // States: Participants
@@ -69,25 +68,25 @@ export default function AdminParticipantsPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [deptFilter, setDeptFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
-  const [followerFilter, setFollowerFilter] = useState('all'); 
-  const [tagFilter, setTagFilter] = useState('all'); 
-  const [emailFilter, setEmailFilter] = useState('all'); 
-  
+  const [followerFilter, setFollowerFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
+  const [emailFilter, setEmailFilter] = useState('all');
+
   const [loading, setLoading] = useState(false);
   const [resendLoadingId, setResendLoadingId] = useState(null);
-  
+
   const [isBulkResending, setIsBulkResending] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ current: 0, total: 0 });
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [editId, setEditId] = useState(null);
-  
-  const [editFields, setEditFields] = useState({ 
-    name: '', phone: '', dept: '', date_year: '', email: '', usr_add: '', usr_add_post: '' 
+
+  const [editFields, setEditFields] = useState({
+    name: '', phone: '', dept: '', date_year: '', email: '', usr_add: '', usr_add_post: ''
   });
-  const [editFollowers, setEditFollowers] = useState(0); 
-  const [editTags, setEditTags] = useState([]); 
+  const [editFollowers, setEditFollowers] = useState(0);
+  const [editTags, setEditTags] = useState([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [selectedParticipantForQr, setSelectedParticipantForQr] = useState(null);
 
@@ -97,18 +96,18 @@ export default function AdminParticipantsPage() {
   const [openAddPrize, setOpenAddPrize] = useState(false);
   const [newPrize, setNewPrize] = useState({ name: '', totalQuantity: 1 });
 
-  useEffect(() => { 
-    fetchParticipants(); 
+  useEffect(() => {
+    fetchParticipants();
     fetchPrizes();
-  }, [token]);
+  }, []);
 
   // Functions: Participants
   const fetchParticipants = async () => {
     setLoading(true);
     try {
-      const res = await listParticipants(token);
+      const res = await listParticipants();
       setParticipants(res.data || res);
-    } catch (err) { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
+    } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
     setLoading(false);
   };
 
@@ -117,7 +116,7 @@ export default function AdminParticipantsPage() {
     try {
       const res = await listPrizes();
       setPrizes(res.data);
-    } catch (err) { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
+    } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
     setPrizeLoading(false);
   };
 
@@ -131,7 +130,7 @@ export default function AdminParticipantsPage() {
     const matchDept = deptFilter === 'all' || p.fields.dept === deptFilter;
     const matchYear = yearFilter === 'all' || p.fields.date_year === yearFilter;
     const matchTag = tagFilter === 'all' || (p.tags && p.tags.includes(tagFilter));
-    
+
     let matchFollower = true;
     if (followerFilter === 'has') matchFollower = p.followers > 0;
     if (followerFilter === 'none') matchFollower = !p.followers || p.followers === 0;
@@ -157,7 +156,7 @@ export default function AdminParticipantsPage() {
   const handleDelete = async (id) => {
     if (!window.confirm('ยืนยันการลบผู้เข้าร่วม?')) return;
     try {
-      await deleteParticipant(id, token);
+      await deleteParticipant(id);
       setSnackbar({ open: true, message: 'ลบข้อมูลสำเร็จ', severity: 'success' });
       fetchParticipants();
     } catch { setSnackbar({ open: true, message: 'ลบไม่สำเร็จ', severity: 'error' }); }
@@ -165,13 +164,13 @@ export default function AdminParticipantsPage() {
 
   const handleEditClick = (participant) => {
     setEditId(participant._id);
-    setEditFields({ 
-      name: participant.fields.name || '', phone: participant.fields.phone || '', 
+    setEditFields({
+      name: participant.fields.name || '', phone: participant.fields.phone || '',
       dept: participant.fields.dept || '', date_year: participant.fields.date_year || '',
       email: participant.fields.email || '', usr_add: participant.fields.usr_add || '', usr_add_post: participant.fields.usr_add_post || ''
     });
-    setEditFollowers(participant.followers || 0); 
-    setEditTags(participant.tags || []); 
+    setEditFollowers(participant.followers || 0);
+    setEditTags(participant.tags || []);
     setOpenEditDialog(true);
   };
 
@@ -180,7 +179,7 @@ export default function AdminParticipantsPage() {
 
   const handleSaveEdit = async () => {
     try {
-      await updateParticipant(editId, { fields: editFields, followers: Number(editFollowers), tags: editTags }, token);
+      await updateParticipant(editId, { fields: editFields, followers: Number(editFollowers), tags: editTags });
       setSnackbar({ open: true, message: 'บันทึกการแก้ไขแล้ว', severity: 'success' });
       handleCloseDialog();
       fetchParticipants();
@@ -200,10 +199,7 @@ export default function AdminParticipantsPage() {
         ของรางวัลที่ได้: wonPrizes || '-'
       };
     });
-    const worksheet = XLSX.utils.json_to_sheet(dataToExport);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Participants");
-    XLSX.writeFile(workbook, "Participants_Report.xlsx");
+    downloadCsv("Participants_Report.csv", dataToExport);
   };
 
   const handleResend = async (participant) => {
@@ -213,13 +209,13 @@ export default function AdminParticipantsPage() {
       const res = await resendTicket({ phone: participant.fields.phone });
       if (res.data?.sent) setSnackbar({ open: true, message: 'ส่ง E-Ticket สำเร็จ', severity: 'success' });
       else setSnackbar({ open: true, message: res.data?.message || 'ส่งไม่สำเร็จ', severity: 'warning' });
-    } catch (err) { setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการส่ง', severity: 'error' }); }
+    } catch { setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการส่ง', severity: 'error' }); }
     setResendLoadingId(null);
   };
 
   const handleBulkResend = async () => {
     const validParticipants = filteredParticipants.filter(p => p.fields.email && p.fields.phone);
-    
+
     if (validParticipants.length === 0) {
       setSnackbar({ open: true, message: 'ไม่พบผู้เข้าร่วมที่มีอีเมลและเบอร์โทรศัพท์ในรายการปัจจุบัน', severity: 'warning' });
       return;
@@ -234,9 +230,9 @@ export default function AdminParticipantsPage() {
     for (let i = 0; i < validParticipants.length; i++) {
       setBulkProgress({ current: i + 1, total: validParticipants.length });
       const p = validParticipants[i];
-      
+
       setResendLoadingId(p._id);
-      
+
       try {
         const res = await resendTicket({ phone: p.fields.phone });
         if (res.data?.sent) {
@@ -244,34 +240,34 @@ export default function AdminParticipantsPage() {
         } else {
           failCount++;
         }
-      } catch (err) {
+      } catch {
         failCount++;
       }
-      
+
       setResendLoadingId(null);
       await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     setIsBulkResending(false);
     setBulkProgress({ current: 0, total: 0 });
-    setSnackbar({ 
-      open: true, 
-      message: `ส่ง E-Ticket เสร็จสิ้น: สำเร็จ ${successCount} รายการ, ไม่สำเร็จ ${failCount} รายการ`, 
-      severity: failCount === 0 ? 'success' : 'warning' 
+    setSnackbar({
+      open: true,
+      message: `ส่ง E-Ticket เสร็จสิ้น: สำเร็จ ${successCount} รายการ, ไม่สำเร็จ ${failCount} รายการ`,
+      severity: failCount === 0 ? 'success' : 'warning'
     });
   };
 
   const handleDownloadPdf = async () => {
     if(!window.confirm("ต้องการดาวน์โหลด PDF รายงานสรุปผลหรือไม่?")) return;
     try {
-        const res = await downloadPdfReport(token);
+        const res = await downloadPdfReport();
         const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
         link.href = url;
         link.setAttribute('download', `Report_${new Date().toISOString().slice(0,10)}.pdf`);
         document.body.appendChild(link);
         link.click(); link.remove();
-    } catch (err) { alert("ดาวน์โหลดล้มเหลว"); }
+    } catch { alert("ดาวน์โหลดล้มเหลว"); }
   };
 
   const handleSharePublicReport = () => {
@@ -288,24 +284,24 @@ export default function AdminParticipantsPage() {
       setOpenAddPrize(false); setNewPrize({ name: '', totalQuantity: 1 });
       setSnackbar({ open: true, message: 'เพิ่มของรางวัลแล้ว', severity: 'success' });
       fetchPrizes();
-    } catch (err) { setSnackbar({ open: true, message: 'เพิ่มรางวัลไม่สำเร็จ', severity: 'error' }); }
+    } catch { setSnackbar({ open: true, message: 'เพิ่มรางวัลไม่สำเร็จ', severity: 'error' }); }
   };
 
   const handleDeletePrize = async (id) => {
     if (!window.confirm("ยืนยันการลบของรางวัลชิ้นนี้ออกจากระบบ?")) return;
-    try { 
-      await deletePrize(id); 
+    try {
+      await deletePrize(id);
       setSnackbar({ open: true, message: 'ลบของรางวัลแล้ว', severity: 'success' });
-      fetchPrizes(); 
-    } catch (err) { setSnackbar({ open: true, message: 'ลบรางวัลไม่สำเร็จ', severity: 'error' }); }
+      fetchPrizes();
+    } catch { setSnackbar({ open: true, message: 'ลบรางวัลไม่สำเร็จ', severity: 'error' }); }
   };
 
   const handleRevokePrize = async (prizeId, winnerId) => {
     if (!window.confirm("ยืนยันการยกเลิกสิทธิ์ผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัล และผู้ใช้ท่านนี้จะมีสิทธิ์จับรางวัลใหม่อีกครั้ง")) return;
     try {
-      await cancelPrizeWinner(prizeId, winnerId); 
+      await cancelPrizeWinner(prizeId, winnerId);
       setSnackbar({ open: true, message: 'ยกเลิกสิทธิ์และดึงโควต้าคืนสำเร็จ', severity: 'success' });
-      fetchPrizes(); 
+      fetchPrizes();
     } catch (err) {
       setSnackbar({ open: true, message: err.response?.data?.error || 'เกิดข้อผิดพลาดในการยกเลิกสิทธิ์', severity: 'error' });
     }
@@ -316,8 +312,8 @@ export default function AdminParticipantsPage() {
     try {
       await restorePrizeRight(id);
       setSnackbar({ open: true, message: 'คืนสิทธิ์สำเร็จ ผู้เข้าร่วมสามารถลุ้นรางวัลได้แล้ว', severity: 'success' });
-      fetchParticipants(); 
-    } catch (err) {
+      fetchParticipants();
+    } catch {
       setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการคืนสิทธิ์', severity: 'error' });
     }
   };
@@ -329,7 +325,7 @@ export default function AdminParticipantsPage() {
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
-      
+
       {/* Header Section */}
       <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', md: 'center' }} mb={3} gap={2}>
         <Box>
@@ -366,22 +362,22 @@ export default function AdminParticipantsPage() {
             {/* Filter Section - เพิ่มกล่องแรเงาให้ดูมีมิติ */}
             <Paper elevation={0} sx={{ p: { xs: 2, md: 3 }, mb: 3, borderRadius: 4, border: "1px solid #eee", bgcolor: "#fff", boxShadow: "0 4px 20px rgba(0,0,0,0.03)" }}>
               <Grid container spacing={2}>
-                
+
                 {/* Search Bar */}
                 <Grid item xs={12}>
-                  <TextField 
-                    fullWidth 
-                    placeholder="ค้นหาชื่อ หรือ เบอร์โทร..." 
-                    value={search} 
-                    onChange={e => setSearch(e.target.value)} 
-                    InputProps={{ 
-                      startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>, 
-                      sx: { borderRadius: 3, bgcolor: "#fafafa" } 
-                    }} 
-                    size="small" 
+                  <TextField
+                    fullWidth
+                    placeholder="ค้นหาชื่อ หรือ เบอร์โทร..."
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start"><SearchIcon color="action" /></InputAdornment>,
+                      sx: { borderRadius: 3, bgcolor: "#fafafa" }
+                    }}
+                    size="small"
                   />
                 </Grid>
-                
+
                 {/* ตัวกรอง (Filters) */}
                 <Grid item xs={6} sm={4} md={2}>
                   <FormControl fullWidth size="small">
@@ -445,10 +441,10 @@ export default function AdminParticipantsPage() {
                 {/* กลุ่มปุ่ม Actions ด้านล่างตัวกรอง */}
                 <Grid item xs={12}>
                   <Divider sx={{ my: 1, borderStyle: 'dashed' }} />
-                  <Stack 
-                    direction={{ xs: 'column', sm: 'row' }} 
-                    spacing={1.5} 
-                    justifyContent="flex-end" 
+                  <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={1.5}
+                    justifyContent="flex-end"
                     alignItems="center"
                     flexWrap="wrap"
                     useFlexGap
@@ -461,14 +457,14 @@ export default function AdminParticipantsPage() {
                       PDF Report
                     </Button>
                     <Button variant="contained" onClick={exportExcel} startIcon={<DownloadIcon />} sx={{ borderRadius: 3, fontWeight: 700, height: 40, background: `linear-gradient(45deg, ${Y.main}, ${Y.dark})`, color: '#fff', boxShadow: '0 4px 12px rgba(245, 127, 23, 0.3)' }}>
-                      Export Excel
+                      Export CSV
                     </Button>
-                    <Button 
-                      variant="contained" 
-                      color="info" 
-                      onClick={handleBulkResend} 
-                      disabled={isBulkResending} 
-                      startIcon={isBulkResending ? <CircularProgress size={20} color="inherit" /> : <EmailIcon />} 
+                    <Button
+                      variant="contained"
+                      color="info"
+                      onClick={handleBulkResend}
+                      disabled={isBulkResending}
+                      startIcon={isBulkResending ? <CircularProgress size={20} color="inherit" /> : <EmailIcon />}
                       sx={{ borderRadius: 3, height: 40, fontWeight: 700 }}
                     >
                       {isBulkResending ? `กำลังทยอยส่ง (${bulkProgress.current}/${bulkProgress.total})` : "ส่ง E-Ticket ตามตาราง"}
@@ -502,7 +498,7 @@ export default function AdminParticipantsPage() {
                             <TableCell align="left" sx={{ whiteSpace: 'nowrap' }}><Typography fontWeight={600} color={Y.text}>{p.fields.name || '-'}</Typography></TableCell>
                             <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}><Typography fontFamily="monospace">{p.fields.phone || '-'}</Typography></TableCell>
                             <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}><StatusChip label={p.status === 'checkedIn' ? 'เช็คอินแล้ว' : p.status === 'registered' ? 'รอเช็คอิน' : p.status} status={p.status} size="small" /></TableCell>
-                            
+
                             <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                               {p.isForfeited ? (
                                 <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
@@ -549,12 +545,12 @@ export default function AdminParticipantsPage() {
                                 <Stack direction="row" spacing={0.5} justifyContent="center" flexWrap="wrap" useFlexGap>
                                   {wonPrizes.map(pz => (
                                     <Tooltip key={pz._id} title="คลิก (x) เพื่อยกเลิกสิทธิ์และดึงโควต้าคืน">
-                                      <Chip 
-                                        icon={<CardGiftcardIcon style={{ color: '#E65100' }} />} 
-                                        label={pz.name} 
-                                        size="small" 
+                                      <Chip
+                                        icon={<CardGiftcardIcon style={{ color: '#E65100' }} />}
+                                        label={pz.name}
+                                        size="small"
                                         sx={{ bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700, border: '1px solid #FFE0B2', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                        onDelete={() => handleRevokePrize(pz._id, p._id)} 
+                                        onDelete={() => handleRevokePrize(pz._id, p._id)}
                                       />
                                     </Tooltip>
                                   ))}
@@ -564,7 +560,7 @@ export default function AdminParticipantsPage() {
 
                             <TableCell align="center" sx={{ color: 'text.secondary', fontSize: '0.9rem', whiteSpace: 'nowrap' }}>{formatCheckinDate(p.checkedInAt)}</TableCell>
                             <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>{p.fields.dept || '-'}</TableCell>
-                            
+
                             {/* 🌟 แสดงข้อมูล "ปีการศึกษา" ตรงนี้ */}
                             <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>{p.fields.date_year || '-'}</TableCell>
 
@@ -612,13 +608,13 @@ export default function AdminParticipantsPage() {
                           จำนวนคงเหลือ: <strong style={{color: prize.remainingQuantity === 0 ? 'red' : 'green'}}>{prize.remainingQuantity}</strong> / {prize.totalQuantity} รางวัล
                         </Typography>
                       </Box>
-                      
+
                       <Divider sx={{ my: 1.5 }} />
 
                       {/* แสดงรายชื่อคนได้รางวัล & ปุ่มลบสิทธิ์ */}
                       <Box sx={{ flexGrow: 1, mb: 2, textAlign: 'left' }}>
                         <Typography variant="caption" fontWeight="bold" color="text.secondary" display="block" mb={1}>รายชื่อผู้ได้รับรางวัล:</Typography>
-                        
+
                         {prize.winners && prize.winners.length === 0 ? (
                           <Typography variant="body2" color="text.disabled" textAlign="center" py={1}>ยังไม่มีผู้ได้รับรางวัล</Typography>
                         ) : (
@@ -633,7 +629,7 @@ export default function AdminParticipantsPage() {
                                     {new Date(w.wonAt).toLocaleTimeString('th-TH')}
                                   </Typography>
                                 </Box>
-                                
+
                                 <Tooltip title="ยกเลิกสิทธิ์และดึงโควต้ารางวัลคืน">
                                   <IconButton size="small" color="error" onClick={() => handleRevokePrize(prize._id, w.participantId?._id || w.participantId)}>
                                     <ReplayIcon fontSize="small" />
