@@ -1,19 +1,18 @@
 // frontend/src/pages/SelfRegisterPage.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import { Box, Typography, CircularProgress, Paper } from "@mui/material";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { requestShortSession } from "../utils/api";
 import KioskPage from "./KioskPage";
 
 export default function SelfRegisterPage() {
-  const { masterToken } = useParams();
-  
   const [status, setStatus] = useState("checking"); 
   const [errorMessage, setErrorMessage] = useState("");
   const [pointId, setPointId] = useState("");
 
   useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const masterToken = hashParams.get('token');
     const fetchSession = async () => {
       try {
         const res = await requestShortSession(masterToken);
@@ -29,7 +28,7 @@ export default function SelfRegisterPage() {
 
     if (masterToken) fetchSession();
     else { setStatus("error"); setErrorMessage("ไม่พบ Token ยืนยันตัวตน"); }
-  }, [masterToken]);
+  }, []);
   
   if (status === "checking") {
     return (

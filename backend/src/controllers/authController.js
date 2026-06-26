@@ -9,7 +9,10 @@ const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp')
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
 const { OAuth2Client } = require('google-auth-library');
+const { hashSessionToken } = require('../utils/sessionToken');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
+const INVALID_LOGIN_MESSAGE = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync('invalid-password-placeholder', Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
 
 function isStrongPassword(password) {
     return typeof password === 'string' && password.length >= 8;
@@ -30,14 +33,10 @@ exports.login = async (req, res) => {
     }
 
     const admin = await Admin.findOne({ username });
-    if (!admin) {
-        auditLog({ req, action: 'LOGIN_FAIL', detail: 'User not found', status: 401 });
-        return res.status(401).json({ error: 'User not found' });
-    }
-    const isMatch = await bcrypt.compare(password, admin.passwordHash);
-    if (!isMatch) {
+    const isMatch = await bcrypt.compare(String(password || ''), admin?.passwordHash || DUMMY_PASSWORD_HASH);
+    if (!admin || !isMatch) {
         auditLog({ req, action: 'LOGIN_FAIL', detail: 'Invalid credentials', status: 401 });
-        return res.status(401).json({ error: 'Invalid credentials' });
+        return res.status(401).json({ error: INVALID_LOGIN_MESSAGE });
     }
 
     // 2. Session Management
@@ -59,7 +58,7 @@ exports.login = async (req, res) => {
     const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
 
     await Session.create({
-        userId: admin._id, token, userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+        userId: admin._id, tokenHash: hashSessionToken(token), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
     });
 
     // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
@@ -166,7 +165,7 @@ exports.googleLogin = async (req, res) => {
         const jwtToken = jwt.sign(jwtPayload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
 
         await Session.create({
-            userId: admin._id, token: jwtToken, userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+            userId: admin._id, tokenHash: hashSessionToken(jwtToken), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
         });
 
         auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });

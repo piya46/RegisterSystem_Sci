@@ -67,10 +67,10 @@ export default function SessionManagerPage() {
     }
   };
 
-  const handleDelete = async (tokenStr) => {
+  const handleDelete = async (id) => {
     if (!window.confirm("ต้องการลบเซสชันนี้ออกจากฐานข้อมูลใช่หรือไม่?")) return;
     try {
-      await api.deleteSessionByToken(tokenStr);
+      await api.deleteSessionById(id);
       fetchSessions();
     } catch (error) {
       alert("เกิดข้อผิดพลาดในการลบ: " + (error.response?.data?.error || error.message));
@@ -189,7 +189,7 @@ export default function SessionManagerPage() {
                                 </Tooltip>
                             )}
                             <Tooltip title="Delete Log">
-                                <IconButton color="error" onClick={() => handleDelete(item.token)}>
+                                <IconButton color="error" onClick={() => handleDelete(item._id)}>
                                     <DeleteIcon />
                                 </IconButton>
                             </Tooltip>

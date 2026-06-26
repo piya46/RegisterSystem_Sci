@@ -69,7 +69,7 @@ export default function AdminGenerateLinkDialog({ open, onClose, targetAdmins = 
                 const res = await generateSelfRegisterLink(payload);
                 results.push({
                     admin,
-                    link: `${window.location.origin}/self-register/${res.data.token}`
+                    link: `${window.location.origin}/self-register#token=${encodeURIComponent(res.data.token)}`
                 });
             } catch (err) {
                 console.error(`สร้างลิงก์ให้ ${admin.username} ล้มเหลว`, err);

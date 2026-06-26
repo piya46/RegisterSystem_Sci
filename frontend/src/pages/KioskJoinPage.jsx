@@ -1,12 +1,13 @@
 import React, { useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Box, Typography, CircularProgress } from '@mui/material';
 
 export default function KioskJoinPage() {
-  const { token } = useParams();
   const navigate = useNavigate();
 
   useEffect(() => {
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const token = hashParams.get('token');
     if (token) {
       localStorage.setItem('kioskToken', token);
       // Reload so AuthProvider re-checks /auth/me with the new scoped token.
@@ -14,7 +15,7 @@ export default function KioskJoinPage() {
     } else {
       navigate('/login');
     }
-  }, [token, navigate]);
+  }, [navigate]);
 
   return (
     <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100vh">

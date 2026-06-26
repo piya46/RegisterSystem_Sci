@@ -41,8 +41,8 @@ export default function App() {
             <Route path="/public/report" element={<PublicReportPage />} />
             <Route path="/public/dashboard" element={<PublicDashboardPage />} />
             <Route path="/public/lucky-draw" element={<PublicLuckyDrawPage />} /> {/* 🌟 [เพิ่ม Route] */}
-            <Route path="/kiosk/join/:token" element={<KioskJoinPage />} />
-            <Route path="/self-register/:masterToken" element={<SelfRegisterPage />} /> {/* 🌟 [เพิ่ม Route] */}
+            <Route path="/kiosk/join" element={<KioskJoinPage />} />
+            <Route path="/self-register" element={<SelfRegisterPage />} />
 
             <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><DashboardPage /></ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><ProfilePage /></ProtectedRoute>} />

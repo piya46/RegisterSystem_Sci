@@ -67,7 +67,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     if (!selectedPoint) return;
     try {
       const res = await generateKioskToken(selectedPoint);
-      const link = `${window.location.origin}/kiosk/join/${res.data.token}`;
+      const link = `${window.location.origin}/kiosk/join#token=${encodeURIComponent(res.data.token)}`;
       navigator.clipboard.writeText(link);
       alert('คัดลอกลิงก์เครื่อง Kiosk (เปิดทิ้งไว้บน iPad) สำเร็จแล้ว!');
     } catch { setError("ไม่สามารถสร้างลิงก์ได้"); }
@@ -94,7 +94,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
         validFrom: new Date(validFrom).toISOString(),
         validUntil: new Date(validUntil).toISOString()
       });
-      setGeneratedLink(`${window.location.origin}/self-register/${res.data.token}`);
+      setGeneratedLink(`${window.location.origin}/self-register#token=${encodeURIComponent(res.data.token)}`);
     } catch (err) {
       alert(err.response?.data?.error || "เกิดข้อผิดพลาดในการสร้างลิงก์");
     }

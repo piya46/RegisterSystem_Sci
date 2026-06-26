@@ -48,7 +48,7 @@ export const uploadAvatar = (file) => {
 export const getCronLogs = () => api.get('/admins/cron-logs');
 
 export const listSessions = () => api.get('/sessions');
-export const deleteSessionByToken = (tokenId) => api.delete(`/sessions/token/${tokenId}`);
+export const deleteSessionById = (id) => api.delete(`/sessions/${id}`);
 export const deleteSessionByUserId = (userId) => api.delete(`/sessions/user/${userId}`);
 export const revokeSession = (id) => api.post(`/sessions/revoke/${id}`);
 export const revokeAllSessionByUser = (userId) => api.post(`/sessions/revoke-all/${userId}`);

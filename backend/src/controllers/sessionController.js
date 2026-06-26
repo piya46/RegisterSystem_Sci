@@ -3,6 +3,7 @@ const Admin = require('../models/admin');
 const logger = require('../utils/logger');
 const isAdmin = require('../helpers/isAdmin');
 const auditLog = require('../helpers/auditLog');
+const { hashSessionToken } = require('../utils/sessionToken');
 
 
 // Helper: เช็ค admin และ log ถ้าโดนบล็อก
@@ -40,11 +41,11 @@ exports.getSessionByUserId = async (req, res) => {
   res.json(session);
 };
 
-exports.deleteSessionByToken = async (req, res) => {
-  if (!ensureAdmin(req, res, 'DELETE_SESSION_BY_TOKEN')) return;
-  const { token } = req.params;
-  const deleted = await Session.findOneAndDelete({ token });
-  logger.info(`[Session][${req.user.username}] DELETE_SESSION_BY_TOKEN - token=${token} success=${!!deleted}`);
+exports.deleteSessionById = async (req, res) => {
+  if (!ensureAdmin(req, res, 'DELETE_SESSION_BY_ID')) return;
+  const { id } = req.params;
+  const deleted = await Session.findByIdAndDelete(id);
+  logger.info(`[Session][${req.user.username}] DELETE_SESSION_BY_ID - sessionId=${id} success=${!!deleted}`);
   if (!deleted) return res.status(404).json({ error: 'Session not found' });
   res.json({ message: 'Session deleted' });
 };
@@ -82,7 +83,14 @@ exports.logout = async (req, res) => {
   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(400).json({ error: 'No token provided' });
 
-  await Session.findOneAndUpdate({ token }, { revoked: true });
+  const tokenHash = hashSessionToken(token);
+  const updated = await Session.findOneAndUpdate({ tokenHash }, { revoked: true });
+  if (!updated) {
+    await Session.findOneAndUpdate(
+      { token },
+      { $set: { revoked: true, tokenHash }, $unset: { token: 1 } }
+    );
+  }
   res.clearCookie('token');
   logger.info(`[Session][${req.user?.username}] LOGOUT`);
   auditLog({ req, action: 'LOGOUT', detail: 'User logged out' });
