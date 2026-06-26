@@ -69,7 +69,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
       const res = await generateKioskToken(selectedPoint);
       const link = `${window.location.origin}/kiosk/join#token=${encodeURIComponent(res.data.token)}`;
       navigator.clipboard.writeText(link);
-      alert('คัดลอกลิงก์เครื่อง Kiosk (เปิดทิ้งไว้บน iPad) สำเร็จแล้ว!');
+      alert('คัดลอกลิงก์เครื่อง Kiosk สำเร็จแล้ว! ลิงก์นี้หมดอายุใน 12 ชั่วโมง');
     } catch { setError("ไม่สามารถสร้างลิงก์ได้"); }
   };
 
@@ -138,7 +138,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
                       สร้าง QR Code ให้ผู้เข้าร่วม
                     </Button>
 
-                    <Typography variant="caption" color="text.secondary" onClick={handleShareKiosk} sx={{ cursor: 'pointer', textDecoration: 'underline' }}>คัดลอกลิงก์เครื่อง Kiosk (ไม่มีวันหมดอายุ)</Typography>
+                    <Typography variant="caption" color="text.secondary" onClick={handleShareKiosk} sx={{ cursor: 'pointer', textDecoration: 'underline' }}>คัดลอกลิงก์เครื่อง Kiosk (หมดอายุใน 12 ชั่วโมง)</Typography>
                   </Stack>
                 </Stack>
               </form>

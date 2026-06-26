@@ -33,17 +33,27 @@ app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
 const rawOrigin = process.env.CORS_ORIGIN;
-const defaultOrigins = ['http://localhost:5173'];
+const devOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://[::1]:5173'
+];
+const defaultOrigins = devOrigins;
 const allowedOrigins = rawOrigin
   ? rawOrigin.split(',').map(o => o.trim()).filter(Boolean)
   : defaultOrigins;
 const allowAnyOrigin = rawOrigin === '*' && process.env.NODE_ENV !== 'production';
+const effectiveAllowedOrigins = process.env.NODE_ENV === 'production'
+  ? allowedOrigins
+  : [...new Set([...allowedOrigins, ...devOrigins])];
 
 app.use(cors({
   origin(origin, cb) {
     if (!origin) return cb(null, true);
-    if (allowAnyOrigin || allowedOrigins.includes(origin)) return cb(null, true);
-    return cb(new Error('Not allowed by CORS'));
+    if (allowAnyOrigin || effectiveAllowedOrigins.includes(origin)) return cb(null, true);
+    const error = new Error('Not allowed by CORS');
+    error.statusCode = 403;
+    return cb(error);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],

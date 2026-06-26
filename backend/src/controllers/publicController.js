@@ -4,6 +4,7 @@ const Participant = require('../models/participant');
 const Admin = require('../models/admin');
 const RegistrationPoint = require('../models/registrationPoint');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
+const { serverError } = require('../utils/httpResponses');
 
 const TOKEN_ISSUER = 'psevent';
 const MAX_SELF_REGISTER_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -142,7 +143,7 @@ exports.generateSelfRegisterLink = async (req, res) => {
     });
     res.json({ token: masterToken });
   } catch (err) {
-    res.status(500).json({ error: 'ไม่สามารถสร้างลิงก์ได้', detail: err.message });
+    serverError(res, 'ไม่สามารถสร้างลิงก์ได้');
   }
 };
 

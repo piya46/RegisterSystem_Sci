@@ -1,11 +1,14 @@
 const Prize = require('../models/prize');
 const Participant = require('../models/participant');
+const { serverError, pickAllowed } = require('../utils/httpResponses');
+
+const PRIZE_FIELDS = ['name', 'totalQuantity', 'image'];
 
 exports.listPrizes = async (req, res) => {
   try {
     const prizes = await Prize.find().populate('winners.participantId', 'fields.name registeredPoint').sort({ createdAt: -1 });
     res.json(prizes);
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.listPublicPrizes = async (req, res) => {
@@ -35,22 +38,32 @@ exports.listPublicPrizes = async (req, res) => {
 
     res.json(safePrizes);
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    serverError(res);
   }
 };
 
 exports.createPrize = async (req, res) => {
   try {
-    const prize = await Prize.create(req.body);
+    const payload = pickAllowed(req.body, PRIZE_FIELDS);
+    const totalQuantity = Number.parseInt(payload.totalQuantity, 10);
+    if (!payload.name || !Number.isFinite(totalQuantity) || totalQuantity < 1) {
+      return res.status(400).json({ error: 'กรุณาระบุชื่อและจำนวนรางวัลให้ถูกต้อง' });
+    }
+    const prize = await Prize.create({
+      name: payload.name,
+      totalQuantity,
+      remainingQuantity: totalQuantity,
+      image: payload.image || null
+    });
     res.json(prize);
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.deletePrize = async (req, res) => {
   try {
     await Prize.findByIdAndDelete(req.params.id);
     res.json({ message: 'Deleted' });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { serverError(res); }
 };
 
 // สุ่มผู้โชคดี (Lucky Draw)
@@ -92,7 +105,7 @@ exports.drawPrize = async (req, res) => {
         },
         prize
     });
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.cancelWinner = async (req, res) => {
@@ -140,6 +153,6 @@ exports.cancelWinner = async (req, res) => {
     }
 
   } catch (err) {
-    res.status(500).json({ error: "ไม่สามารถยกเลิกสิทธิ์ได้", detail: err.message });
+    serverError(res, "ไม่สามารถยกเลิกสิทธิ์ได้");
   }
 };

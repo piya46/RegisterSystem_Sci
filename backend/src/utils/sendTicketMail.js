@@ -1,4 +1,14 @@
 const sendMail = require('./sendMail');
+const QRCode = require('qrcode');
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 /**
  * ส่งอีเมล E-Ticket พร้อม QR Code (ปรับโฉมใหม่สวยงาม Modern Gold Theme)
@@ -6,16 +16,22 @@ const sendMail = require('./sendMail');
 exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
   try {
     const qrText = participant.qrCode || participant._id || 'no-code';
-    const name = participant.fields?.name || "-";
-    const year = participant.fields?.date_year || "-";
-    const dept = participant.fields?.dept || "-";
+    const name = escapeHtml(participant.fields?.name || "-");
+    const year = escapeHtml(participant.fields?.date_year || "-");
+    const dept = escapeHtml(participant.fields?.dept || "-");
+    const safeQrText = escapeHtml(qrText);
 
-    // สร้าง URL รูป QR Code (ใช้ API ที่เชื่อถือได้)
-    // เพิ่ม margin และกำหนดสีพื้นหลังเพื่อให้ดูสะอาดตา
-    const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&bgcolor=ffffff&data=${encodeURIComponent(qrText)}`;
+    const qrImageCid = 'ticket-qr';
+    const qrImageSrc = `cid:${qrImageCid}`;
+    const qrImageBuffer = await QRCode.toBuffer(String(qrText), {
+      type: 'png',
+      width: 300,
+      margin: 2,
+      color: { dark: '#000000', light: '#ffffff' }
+    });
     
     // ลิงก์สำหรับติดต่อแจ้งปัญหา
-    const contactUrl = `mailto:piyaton56@gmail.com?subject=Help%20Ticket%20${qrText}`;
+    const contactUrl = `mailto:piyaton56@gmail.com?subject=${encodeURIComponent(`Help Ticket ${qrText}`)}`;
 
     const html = `
       <!DOCTYPE html>
@@ -49,11 +65,11 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
 
               <div style="margin: 30px 0;">
                 <div style="display: inline-block; padding: 15px; border: 2px dashed #FFB300; border-radius: 16px; background-color: #fff;">
-                  <img src="${qrImageUrl}" alt="QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;" />
+                  <img src="${qrImageSrc}" alt="QR Code" style="width: 220px; height: 220px; display: block; border-radius: 8px;" />
                 </div>
                 <div style="margin-top: 12px;">
                   <span style="background-color: #FFF8E1; color: #FF8F00; padding: 6px 16px; border-radius: 20px; font-family: monospace; font-size: 14px; font-weight: bold; border: 1px solid #FFECB3;">
-                    ${qrText}
+                    ${safeQrText}
                   </span>
                 </div>
               </div>
@@ -75,9 +91,9 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
                 </table>
               </div>
 
-              <a href="${qrImageUrl}" download="E-Ticket.png" style="display: inline-block; background-color: #FFC107; color: #000; text-decoration: none; padding: 15px 35px; border-radius: 50px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 193, 7, 0.4); transition: transform 0.2s;">
-                ⬇️ บันทึก QR Code
-              </a>
+              <p style="display: inline-block; background-color: #FFC107; color: #000; text-decoration: none; padding: 15px 35px; border-radius: 50px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 193, 7, 0.4); margin: 0;">
+                QR Code แนบมากับอีเมลนี้แล้ว
+              </p>
               
               <p style="margin-top: 25px; font-size: 13px; color: #999;">
                 หมายเหตุ: คุณสามารถแคปหน้าจอนี้เก็บไว้ในมือถือเพื่อความสะดวกรวดเร็ว
@@ -98,7 +114,17 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
       toEmail,
       `🎫 E-Ticket ของคุณ: ${name}`,
       `นี่คือ E-Ticket สำหรับเข้างานของคุณ (${qrText}) กรุณาเปิดดูในโหมด HTML`,
-      html
+      html,
+      {
+        attachments: [
+          {
+            filename: 'E-Ticket.png',
+            content: qrImageBuffer,
+            contentType: 'image/png',
+            cid: qrImageCid
+          }
+        ]
+      }
     );
   } catch (error) {
     console.error("Error sending ticket mail:", error);

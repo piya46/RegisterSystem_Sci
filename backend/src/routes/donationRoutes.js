@@ -2,10 +2,11 @@ const express = require('express');
 const router = express.Router();
 const donationController = require('../controllers/donationController');
 const auth = require('../middleware/auth');
+const optionalAuth = require('../middleware/optionalAuth');
 const requireAdmin = require('../middleware/requireAdmin'); 
 
 // บันทึกการบริจาค (Public)
-router.post('/', donationController.createDonation);
+router.post('/', optionalAuth, donationController.createDonation);
 
 // ดูข้อมูลสรุปสำหรับ Admin
 router.get('/summary', auth, requireAdmin, donationController.getDonationSummary);

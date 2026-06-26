@@ -8,6 +8,7 @@ const requireRegistrationActor = require('../middleware/requireRegistrationActor
 const participantController = require('../controllers/participantController');
 const { getReportData } = require('../services/reportService');
 const { generatePDF } = require('../utils/pdfGenerator');
+const { serverError } = require('../utils/httpResponses');
 
 // 1. ลงทะเบียนล่วงหน้า (public ไม่ต้องล็อกอิน)
 router.post('/public', participantController.createParticipant);
@@ -40,7 +41,7 @@ router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
     });
     res.send(pdfBuffer);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 });
 

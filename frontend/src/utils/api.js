@@ -15,7 +15,7 @@ const SCOPED_TOKEN_ENDPOINTS = [
 // Interceptor สำหรับ Kiosk Mode และ Self-Register Mode
 // แนบ scoped token เฉพาะ endpoint ที่ต้องใช้จริง เพื่อไม่ให้ token ติดไปกับทุก API
 api.interceptors.request.use(config => {
-  const kioskToken = localStorage.getItem('kioskToken') || sessionStorage.getItem('kioskToken');
+  const kioskToken = sessionStorage.getItem('kioskToken');
   const url = config.url || '';
   const shouldAttachScopedToken = SCOPED_TOKEN_ENDPOINTS.some((endpoint) => url.startsWith(endpoint));
   if (kioskToken && shouldAttachScopedToken) {

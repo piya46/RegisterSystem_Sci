@@ -2,19 +2,58 @@ const Donation = require('../models/Donation');
 const Package = require('../models/Package'); // [เพิ่ม] เรียกใช้ Package Model
 const { sendLineDonationAlert } = require('../utils/lineNotify');
 const auditLog = require('../helpers/auditLog'); 
+const verifyTurnstile = require('../utils/verifyTurnstile');
+const isAdmin = require('../helpers/isAdmin');
+const { serverError, pickAllowed } = require('../utils/httpResponses');
+
+const DONATION_FIELDS = [
+  'firstName',
+  'lastName',
+  'amount',
+  'transferDateTime',
+  'source',
+  'isPackage',
+  'packageType',
+  'size',
+  'slipUrl',
+  'address',
+  'pickupMethod',
+  'pickupLocation'
+];
+
+function trimString(value) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+function isAdminSession(req) {
+  return req.auth?.type === 'admin_session' && isAdmin(req.user);
+}
 
 exports.createDonation = async (req, res) => {
   try {
+    if (!isAdminSession(req)) {
+      const isHuman = await verifyTurnstile(req.body?.cfToken, req.ip);
+      if (!isHuman) {
+        auditLog({ req, action: 'DONATION_BOT_BLOCK', detail: 'Turnstile verification failed', status: 400 });
+        return res.status(400).json({
+          error: 'Security Check Failed',
+          message: 'ไม่ผ่านการตรวจสอบความปลอดภัย กรุณาลองใหม่อีกครั้ง'
+        });
+      }
+    }
+
     const { firstName, lastName, amount, transferDateTime, source, isPackage, packageType, size, slipUrl, address, pickupMethod, pickupLocation } = req.body;
     const numericAmount = Number(amount);
     const transferDate = new Date(transferDateTime);
+    const packageSelected = isPackage === true || isPackage === 'true';
 
     if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
     if (Number.isNaN(transferDate.getTime())) return res.status(400).json({ message: 'รูปแบบวันเวลาโอนไม่ถูกต้อง' });
     if (source && !['PRE_REGISTER', 'SUPPORT_SYSTEM'].includes(source)) return res.status(400).json({ message: 'ช่องทางการสนับสนุนไม่ถูกต้อง' });
+    if (pickupMethod && !['DELIVERY', 'PICKUP'].includes(pickupMethod)) return res.status(400).json({ message: 'วิธีรับสินค้าไม่ถูกต้อง' });
 
-    if (isPackage) {
+    if (packageSelected) {
       if (!packageType || !size) return res.status(400).json({ message: 'กรุณาระบุแพ็กเกจและขนาด' });
 
       const selectedPackage = await Package.findOne({ name: packageType, isActive: true });
@@ -37,14 +76,19 @@ exports.createDonation = async (req, res) => {
       amount: numericAmount,
       transferDateTime: transferDate,
       source: source || 'PRE_REGISTER',
-      isPackage: !!isPackage, packageType: packageType || "", size: size || "",
-      slipUrl: slipUrl || "", address: address || "", pickupMethod: pickupMethod || "", pickupLocation: pickupLocation || ""
+      isPackage: packageSelected,
+      packageType: trimString(packageType) || "",
+      size: trimString(size) || "",
+      slipUrl: trimString(slipUrl) || "",
+      address: trimString(address) || "",
+      pickupMethod: pickupMethod || "",
+      pickupLocation: trimString(pickupLocation) || ""
     });
 
     const savedDonation = await newDonation.save();
 
     // [เพิ่ม] ตัดสต๊อกเสื้อ
-    if (isPackage && packageType && size) {
+    if (packageSelected && packageType && size) {
       await Package.findOneAndUpdate(
         { name: packageType, "items.sizes.size": size },
         { $inc: { "items.$[].sizes.$[sizeElem].sold": 1 } },
@@ -58,7 +102,7 @@ exports.createDonation = async (req, res) => {
   } catch (error) {
     console.error(error);
     auditLog({ req, action: 'CREATE_DONATION_ERROR', detail: 'Failed to create donation', status: 500, error: error.message });
-    res.status(500).json({ message: 'Server Error', error: error.message });
+    serverError(res);
   }
 };
 
@@ -74,10 +118,11 @@ exports.getDonationSummary = async (req, res) => {
 
 exports.updateDonation = async (req, res) => {
   try {
-    const updatedDonation = await Donation.findByIdAndUpdate(req.params.id, { $set: req.body }, { new: true });
+    const updates = pickAllowed(req.body, DONATION_FIELDS);
+    const updatedDonation = await Donation.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!updatedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
     res.json({ success: true, message: 'อัปเดตสำเร็จ', data: updatedDonation });
-  } catch (error) { res.status(500).json({ message: 'Error updating donation', error: error.message }); }
+  } catch (error) { serverError(res, 'Error updating donation'); }
 };
 
 exports.deleteDonation = async (req, res) => {
@@ -85,5 +130,5 @@ exports.deleteDonation = async (req, res) => {
     const deletedDonation = await Donation.findByIdAndDelete(req.params.id);
     if (!deletedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
     res.json({ success: true, message: 'ลบรายการสำเร็จ' });
-  } catch (error) { res.status(500).json({ message: 'Error deleting donation', error: error.message }); }
+  } catch (error) { serverError(res, 'Error deleting donation'); }
 };

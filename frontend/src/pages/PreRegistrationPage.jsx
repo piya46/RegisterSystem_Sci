@@ -42,6 +42,7 @@ import WheelchairPickupIcon from '@mui/icons-material/WheelchairPickup';
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
 import { listParticipantFields, createParticipant, createDonation, getSystemSettings, listPackages } from "../utils/api";
+import { getTurnstileToken } from "../utils/turnstile";
 import dayjs from "dayjs";
 import Turnstile from "../components/Turnstile";
 import Confetti from 'react-confetti';
@@ -326,10 +327,12 @@ export default function PreRegistrationPage() {
                 const transferDateTime = new Date(`${donationDate}T${donationTime || '00:00'}`);
                 const addressText = `${form.usr_add || ''} ${form.usr_add_post || ''}`.trim();
 
+                const donationCfToken = await getTurnstileToken('donation_create');
                 await createDonation({
                   userId: null, firstName, lastName, amount: parseFloat(donationAmount), transferDateTime,
                   source: "PRE_REGISTER", isPackage: wantPackage, packageType: packageType,
-                  size: wantPackage ? packageSize : "", pickupMethod: pickupMethod, address: addressText
+                  size: wantPackage ? packageSize : "", pickupMethod: pickupMethod, address: addressText,
+                  cfToken: donationCfToken
                 });
               } catch {
                 // Registration succeeded; donation can be followed up separately by staff.

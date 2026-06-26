@@ -10,6 +10,8 @@ const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
 const { OAuth2Client } = require('google-auth-library');
 const { hashSessionToken } = require('../utils/sessionToken');
+const logger = require('../utils/logger');
+const { serverError } = require('../utils/httpResponses');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 const INVALID_LOGIN_MESSAGE = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('invalid-password-placeholder', Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
@@ -18,65 +20,78 @@ function isStrongPassword(password) {
     return typeof password === 'string' && password.length >= 8;
 }
 
+function isLocalDevelopmentRequest(req) {
+    if (process.env.NODE_ENV === 'production') return false;
+    return ['localhost', '127.0.0.1', '::1'].includes(req.hostname);
+}
+
 // --- Login ---
 exports.login = async (req, res) => {
-    const { username, password, cfToken } = req.body;
+    try {
+        const { username, password, cfToken } = req.body;
 
-    // 1. Verify Turnstile
-    const isHuman = await verifyTurnstile(cfToken, req.ip);
-    if (!isHuman) {
-        auditLog({ req, action: 'LOGIN_BOT_BLOCK', detail: 'Turnstile failed', status: 400 });
-        return res.status(400).json({ 
-            error: 'Security Check Failed', 
-            message: 'ระบบตรวจสอบพบความผิดปกติ กรุณาลองใหม่อีกครั้ง' 
-        });
-    }
-
-    const admin = await Admin.findOne({ username });
-    const isMatch = await bcrypt.compare(String(password || ''), admin?.passwordHash || DUMMY_PASSWORD_HASH);
-    if (!admin || !isMatch) {
-        auditLog({ req, action: 'LOGIN_FAIL', detail: 'Invalid credentials', status: 401 });
-        return res.status(401).json({ error: INVALID_LOGIN_MESSAGE });
-    }
-
-    // 2. Session Management
-    const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
-    const expiresInMs = ms(jwtExpiresIn);
-    const expiresAt = new Date(Date.now() + expiresInMs);
-
-    await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
-
-    const activeSessionCount = await Session.countDocuments({
-        userId: admin._id, revoked: false, expiresAt: { $gt: new Date() }
-    });
-    if (activeSessionCount >= 3) {
-        auditLog({ req, action: 'LOGIN_FAIL', detail: 'Too many sessions', status: 400 });
-        return res.status(400).json({ error: 'Login from too many devices (Max 3)' });
-    }
-
-    const payload = { id: admin._id, role: admin.role };
-    const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
-
-    await Session.create({
-        userId: admin._id, tokenHash: hashSessionToken(token), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
-    });
-
-    // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
-    res.cookie('token', token, {
-        httpOnly: true, 
-        secure: process.env.NODE_ENV === 'production', 
-        sameSite: 'lax', 
-        maxAge: expiresInMs 
-    });
-
-    res.json({
-        success: true, // ✅ ไม่ต้องส่ง token ไปใน JSON แล้ว
-        admin: {
-            id: admin._id, username: admin.username, role: admin.role,
-            email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
+        // 1. Verify Turnstile. Local development is allowed to bypass this so localhost
+        // testing is not blocked by Cloudflare domain/key restrictions.
+        const isHuman = isLocalDevelopmentRequest(req) || await verifyTurnstile(cfToken, req.ip);
+        if (!isHuman) {
+            auditLog({ req, action: 'LOGIN_BOT_BLOCK', detail: 'Turnstile failed', status: 400 });
+            return res.status(400).json({
+                error: 'Security Check Failed',
+                message: 'ระบบตรวจสอบพบความผิดปกติ กรุณาลองใหม่อีกครั้ง'
+            });
         }
-    });
-    auditLog({ req, action: 'LOGIN', detail: 'Login success' });
+
+        const admin = await Admin.findOne({ username });
+        const isMatch = await bcrypt.compare(String(password || ''), admin?.passwordHash || DUMMY_PASSWORD_HASH);
+        if (!admin || !isMatch) {
+            auditLog({ req, action: 'LOGIN_FAIL', detail: 'Invalid credentials', status: 401 });
+            return res.status(401).json({ error: INVALID_LOGIN_MESSAGE });
+        }
+
+        // 2. Session Management
+        const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
+        const expiresInMs = ms(jwtExpiresIn);
+        if (!expiresInMs) throw new Error(`Invalid JWT_EXPIRES_IN value: ${jwtExpiresIn}`);
+        const expiresAt = new Date(Date.now() + expiresInMs);
+
+        await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
+
+        const activeSessionCount = await Session.countDocuments({
+            userId: admin._id, revoked: false, expiresAt: { $gt: new Date() }
+        });
+        if (activeSessionCount >= 3) {
+            auditLog({ req, action: 'LOGIN_FAIL', detail: 'Too many sessions', status: 400 });
+            return res.status(400).json({ error: 'Login from too many devices (Max 3)' });
+        }
+
+        const payload = { id: admin._id, role: admin.role };
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
+
+        await Session.create({
+            userId: admin._id, tokenHash: hashSessionToken(token), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+        });
+
+        // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: expiresInMs
+        });
+
+        res.json({
+            success: true, // ✅ ไม่ต้องส่ง token ไปใน JSON แล้ว
+            admin: {
+                id: admin._id, username: admin.username, role: admin.role,
+                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
+            }
+        });
+        auditLog({ req, action: 'LOGIN', detail: 'Login success' });
+    } catch (err) {
+        logger.error(`[Auth] Login failed unexpectedly: ${err.stack || err.message}`);
+        auditLog({ req, action: 'LOGIN_ERROR', detail: 'Unexpected login failure', status: 500, error: err.message });
+        serverError(res);
+    }
 };
 
 // --- Get Me ---

@@ -7,7 +7,5 @@ export default function getAvatarUrl(user) {
     
     return `${base}/uploads/avatars/${user.avatarUrl}`;
   }
-  
-  // รูป Default (UI Avatars)
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.fullName || user?.username || "")}&background=FFC1E3&color=fff&size=128&bold=true`;
+  return "";
 }

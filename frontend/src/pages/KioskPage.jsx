@@ -270,6 +270,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         await verifyUser({ username: exitUsername, password: exitPassword });
         setKioskMode(false); closeFullscreen(); setExitOpen(false); setResult(null);
         localStorage.removeItem('kioskToken');
+        sessionStorage.removeItem('kioskToken');
         window.close();
     } catch (err) { setExitError(err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); } 
     finally { setVerifyingExit(false); }

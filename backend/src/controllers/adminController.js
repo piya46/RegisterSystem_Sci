@@ -9,6 +9,7 @@ const CronLog = require('../models/cronLog');
 const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp');
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
+const { serverError } = require('../utils/httpResponses');
 
 function isStrongPassword(password) {
   return typeof password === 'string' && password.length >= 8;
@@ -48,7 +49,7 @@ exports.createAdmin = async (req,res) => {
     res.json({ message: 'Admin created', admin: { ...admin.toObject(), passwordHash: undefined } });
   } catch (err) {
     logger.error(`Create Admin Error: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -60,7 +61,7 @@ exports.listAdmins = async (req, res) => {
     res.json(admins);
   } catch (err) {
     console.error('List Admins Error:', err);
-    res.status(500).json({ error: 'Failed to fetch admins list', details: err.message });
+    serverError(res, 'Failed to fetch admins list');
   }
 };
 
@@ -91,7 +92,7 @@ exports.deleteAdmin = async (req, res) => {
     res.json({ message: 'User deleted successfully' });
     auditLog({ req, action: 'DELETE_ADMIN', detail: `targetId=${targetId}` });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -117,7 +118,7 @@ exports.updateAdmin = async (req, res) => {
     auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}` });
     res.json({ message: 'Admin updated', admin });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -213,7 +214,7 @@ exports.resetPassword = async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -240,7 +241,7 @@ exports.changePassword = async (req, res) => {
     auditLog({ req, action: 'CHANGE_PASSWORD', detail: `User=${admin.username}` });
     res.json({ message: 'Password changed successfully' });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -274,7 +275,7 @@ exports.updateStaff = async (req, res) => {
     auditLog({ req, action: 'UPDATE_STAFF', detail: `Updated staff id=${staff._id}` });
     res.json(staff);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };
 
@@ -317,6 +318,6 @@ exports.getCronLogs = async (req, res) => {
     const logs = await CronLog.find().sort({ startTime: -1 }).limit(50);
     res.json(logs);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    serverError(res);
   }
 };

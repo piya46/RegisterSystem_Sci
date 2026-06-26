@@ -7,6 +7,7 @@ const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
 const auditLog = require('../helpers/auditLog');
 const { sendTicketMail } = require('../utils/sendTicketMail');
 const verifyTurnstile = require('../utils/verifyTurnstile'); 
+const { serverError } = require('../utils/httpResponses');
 
 function checkAdmin(req, res) {
   if (!req.user?.role || !Array.isArray(req.user.role) || !req.user.role.includes('admin')) {
@@ -98,7 +99,7 @@ exports.createParticipant = async (req, res) => {
     res.json(participant);
   } catch (err) {
     auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT_ERROR', detail: err.message, status: 500 });
-    res.status(500).json({ error: 'Server error', detail: err.message });
+    serverError(res);
   }
 };
 
@@ -174,7 +175,7 @@ exports.createParticipantByStaff = async (req, res) => {
 
     res.json({ _id: participant._id, fields: participant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error', detail: err.message });
+    serverError(res, 'Internal server error');
   }
 };
 
@@ -235,7 +236,7 @@ exports.registerOnsite = async (req, res) => {
 
     res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant });
   } catch (err) {
-    res.status(500).json({ error: 'Internal server error', detail: err.message });
+    serverError(res, 'Internal server error');
   }
 };
 
@@ -244,7 +245,7 @@ exports.listParticipants = async (req, res) => {
     if (!checkAdmin(req, res)) return;
     const participants = await Participant.find({ isDeleted: false }).sort({ createdAt: -1 });
     res.json(participants);
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.updateParticipant = async (req, res) => {
@@ -270,7 +271,7 @@ exports.updateParticipant = async (req, res) => {
     participant.markModified('fields'); participant.updatedAt = new Date();
     await participant.save();
     res.json(participant);
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.deleteParticipant = async (req, res) => {
@@ -281,7 +282,7 @@ exports.deleteParticipant = async (req, res) => {
     participant.isDeleted = true;
     await participant.save();
     res.json({ message: 'Participant deleted (soft)' });
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.checkinByQr = async (req, res) => {
@@ -316,7 +317,7 @@ res.json({
             followers: participant.followers,
             tags: participant.tags // ✅ เพิ่มตรงนี้เพื่อให้ส่งคืน Tag กลับไปด้วย
         } 
-    });  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+    });  } catch (err) { serverError(res); }
 };
 
 exports.resendTicket = async (req, res) => {
@@ -412,7 +413,7 @@ exports.exportParticipants = async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.send(`\uFEFF${csv}`);
-  } catch (err) { res.status(500).json({ error: 'Server error', detail: err.message }); }
+  } catch (err) { serverError(res); }
 };
 
 exports.restorePrizeRight = async (req, res) => {

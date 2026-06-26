@@ -54,9 +54,12 @@ module.exports = async function (req, res, next) {
     if (!session) {
       session = await Session.findOne({ token }).select('+token +tokenHash');
       if (session && !session.tokenHash) {
+        await Session.updateOne(
+          { _id: session._id },
+          { $set: { tokenHash }, $unset: { token: 1 } }
+        );
         session.tokenHash = tokenHash;
         session.token = undefined;
-        await session.save();
       }
     }
     if (!session) {

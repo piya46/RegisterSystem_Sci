@@ -11,13 +11,14 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-module.exports = async function sendMail(to, subject, text, html = null) {
+module.exports = async function sendMail(to, subject, text, html = null, options = {}) {
   const mailOptions = {
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
     subject,
     text,
-    ...(html ? { html } : {})
+    ...(html ? { html } : {}),
+    ...options
   };
   return transporter.sendMail(mailOptions);
 };
