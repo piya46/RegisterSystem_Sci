@@ -106,7 +106,7 @@ exports.createParticipant = async (req, res) => {
       try {
         await sendTicketMail(userFields.email, revealParticipantObject(participant));
       } catch (err) {
-        auditLog && auditLog({ req, action: 'SEND_TICKET_EMAIL_FAIL', detail: `email=${userFields.email} error=${err.message}`, status: 500 });
+        auditLog && auditLog({ req, action: 'SEND_TICKET_EMAIL_FAIL', detail: `participantId=${participant._id}`, status: 500, error: err.message });
       }
     }
 
@@ -360,8 +360,12 @@ exports.checkinByQr = async (req, res) => {
     if (!qrCode) return res.status(400).json({ error: 'qrCode is required.' });
     if (!registrationPoint) return res.status(400).json({ error: 'registrationPoint is required.' });
     
-    // [แก้ไข] รองรับ Kiosk token
-    const isKioskDevice = req.user.role?.includes('kiosk_device') || req.user.role?.includes('kiosk');
+    // Scoped kiosk tokens are bound to a single registration point.
+    const isKioskDevice = req.auth?.scope === 'kiosk_device' || req.user.role?.includes('kiosk');
+    const tokenPoint = req.kioskPoint || req.user?.kioskPoint;
+    if (isKioskDevice && (!tokenPoint || String(tokenPoint) !== String(registrationPoint))) {
+      return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
+    }
     if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
       return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }
@@ -371,8 +375,9 @@ exports.checkinByQr = async (req, res) => {
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
     if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
+    const actualRegistrationPoint = isKioskDevice ? tokenPoint : registrationPoint;
     if (followers !== undefined) participant.followers = followers;
-    participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = registrationPoint;
+    participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = actualRegistrationPoint;
     await participant.save();
     const safeParticipant = revealParticipantObject(participant);
     await auditSensitiveAccess({
@@ -433,7 +438,7 @@ exports.resendTicket = async (req, res) => {
       await sendTicketMail(email, safeParticipant);
       return res.json(genericResponse);
     } catch (err) {
-      auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `phone=${phone} error=${err.message}`, status: 500 });
+      auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `participantId=${participant._id}`, status: 500, error: err.message });
       return res.json(genericResponse);
     }
   } else { return res.json(genericResponse); }
@@ -610,10 +615,10 @@ exports.exportParticipants = async (req, res) => {
 
 exports.restorePrizeRight = async (req, res) => {
   try {
-    if (!checkAdmin(req, res)) return; 
+    if (!checkAdmin(req, res)) return;
     const participant = await Participant.findByIdAndUpdate(
-      req.params.id, 
-      { isForfeited: false }, 
+      req.params.id,
+      { $set: { isForfeited: false }, $unset: { prizeId: 1, prizeWonAt: 1 } },
       { new: true }
     );
     if (!participant) return res.status(404).json({ error: 'ไม่พบผู้เข้าร่วม' });

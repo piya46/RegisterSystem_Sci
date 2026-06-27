@@ -48,7 +48,9 @@ const participantSchema = new mongoose.Schema({
 
 
   specialAssistance: { type: mongoose.Schema.Types.Mixed, default: "" },
-  isForfeited: { type: Boolean, default: false, index: true }
+  isForfeited: { type: Boolean, default: false, index: true },
+  prizeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Prize', default: null, index: true },
+  prizeWonAt: { type: Date, default: null, index: true }
 
 }, { timestamps: true, versionKey: false });
 
@@ -64,5 +66,6 @@ participantSchema.index({ 'secureIndex.phone': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.email': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.name': 1 }, { sparse: true });
 participantSchema.index({ secureSearch: 1 }, { sparse: true });
+participantSchema.index({ eventYear: 1, prizeWonAt: 1, isForfeited: 1 });
 
 module.exports = mongoose.model('Participant', participantSchema);

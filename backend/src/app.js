@@ -138,7 +138,13 @@ app.use('/api/prizes', prizeRoutes);
 app.use('/api/public', publicRoutes);
 
 app.use((err, req, res, next) => {
-  auditLog({ req, action: 'ERROR', detail: '', status: err.statusCode || 500, error: err.stack || String(err) });
+  auditLog({
+    req,
+    action: 'ERROR',
+    detail: '',
+    status: err.statusCode || 500,
+    error: process.env.NODE_ENV === 'development' ? (err.stack || String(err)) : (err.message || String(err))
+  });
   errorHandler(err, req, res, next);
 });
 

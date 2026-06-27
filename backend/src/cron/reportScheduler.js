@@ -12,13 +12,14 @@ const runBackupTask = async () => {
   logger.info(`[Scheduler] Starting ${jobName}...`);
   
   const logEntry = await CronLog.create({ jobName, status: 'running' });
+  let eventYear = null;
 
   try {
     const now = new Date();
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
     
-    const eventYear = await getCurrentEventYear();
+    eventYear = await getCurrentEventYear();
     const data = await getReportData(eventYear);
     await auditSensitiveAccess({
       action: 'SENSITIVE_EXPORT_REPORT_PDF_AUTO',
@@ -45,6 +46,17 @@ const runBackupTask = async () => {
     logEntry.endTime = new Date();
     logEntry.detail = error.message;
     await logEntry.save();
+    await auditSensitiveAccess({
+      action: 'SENSITIVE_EXPORT_REPORT_PDF_AUTO_FAIL',
+      purpose: 'scheduled_pdf_report_upload',
+      resource: 'participants,donations',
+      eventYear,
+      recordCount: 0,
+      fields: ['participant.fields', 'participant.specialAssistance', 'donation.name', 'donation.amount'],
+      status: error.statusCode || 500,
+      error: error.message,
+      extra: { jobName, destination: 'google_drive' },
+    });
     
     logger.error(`[Scheduler] Task failed: ${error.message}`);
   }

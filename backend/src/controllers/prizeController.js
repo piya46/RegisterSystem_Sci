@@ -1,5 +1,6 @@
 const Prize = require('../models/prize');
 const Participant = require('../models/participant');
+const mongoose = require('mongoose');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
@@ -110,56 +111,125 @@ exports.deletePrize = async (req, res) => {
 
 // สุ่มผู้โชคดี (Lucky Draw)
 exports.drawPrize = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const { prizeId } = req.params;
-    const prize = await Prize.findById(prizeId);
-    if (!prize) return res.status(404).json({ error: 'ไม่พบของรางวัล' });
-    if (prize.remainingQuantity <= 0) return res.status(400).json({ error: 'ของรางวัลหมดแล้ว' });
+    let result = null;
 
-    // ดึงคนที่ชนะไปแล้วออกมาทั้งหมด (กันได้ซ้ำ)
-    const prizeEventYear = normalizeEventYear(prize.eventYear || await getCurrentEventYear());
-    const allPrizes = await Prize.find({ eventYear: prizeEventYear });
-    let wonIds = [];
-    allPrizes.forEach(p => {
+    await session.withTransaction(async () => {
+      const prize = await Prize.findById(prizeId).session(session);
+      if (!prize) {
+        const err = new Error('ไม่พบของรางวัล');
+        err.statusCode = 404;
+        throw err;
+      }
+      if (prize.remainingQuantity <= 0) {
+        const err = new Error('ของรางวัลหมดแล้ว');
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // Existing embedded winners are still the source for legacy data.
+      const prizeEventYear = normalizeEventYear(prize.eventYear || await getCurrentEventYear());
+      const allPrizes = await Prize.find({ eventYear: prizeEventYear }).session(session);
+      const wonIds = [];
+      allPrizes.forEach(p => {
         p.winners.forEach(w => wonIds.push(w.participantId));
+      });
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const randomWinner = await Participant.aggregate([
+          {
+            $match: {
+              status: 'checkedIn',
+              isDeleted: false,
+              eventYear: prizeEventYear,
+              isForfeited: { $ne: true },
+              _id: { $nin: wonIds },
+              $or: [{ prizeWonAt: null }, { prizeWonAt: { $exists: false } }]
+            }
+          },
+          { $sample: { size: 1 } }
+        ]).session(session);
+
+        if (!randomWinner || randomWinner.length === 0) break;
+
+        const winnerId = randomWinner[0]._id;
+        const wonAt = new Date();
+        const reservedWinner = await Participant.findOneAndUpdate(
+          {
+            _id: winnerId,
+            status: 'checkedIn',
+            isDeleted: false,
+            eventYear: prizeEventYear,
+            isForfeited: { $ne: true },
+            $or: [{ prizeWonAt: null }, { prizeWonAt: { $exists: false } }]
+          },
+          { $set: { prizeId: prize._id, prizeWonAt: wonAt } },
+          { new: true, session }
+        ).select('+secureIndex');
+
+        if (!reservedWinner) continue;
+
+        const updatedPrize = await Prize.findOneAndUpdate(
+          {
+            _id: prize._id,
+            remainingQuantity: { $gt: 0 },
+            'winners.participantId': { $ne: winnerId }
+          },
+          {
+            $inc: { remainingQuantity: -1 },
+            $push: { winners: { participantId: winnerId, wonAt } }
+          },
+          { new: true, session }
+        );
+
+        if (!updatedPrize) {
+          const err = new Error('ของรางวัลหมดแล้ว หรือผู้เข้าร่วมได้รับรางวัลไปแล้ว');
+          err.statusCode = 409;
+          throw err;
+        }
+
+        result = {
+          prizeEventYear,
+          winner: revealParticipantObject(reservedWinner),
+          prize: updatedPrize
+        };
+        return;
+      }
+
+      const err = new Error('ไม่พบผู้ที่มีสิทธิ์รับรางวัล (หรือทุกคนได้รางวัลไปหมดแล้ว)');
+      err.statusCode = 400;
+      throw err;
     });
 
-    // 🌟 สุ่มคน Check-in ที่ยังไม่ได้รางวัล และ "ไม่เคยสละสิทธิ์"
-    const randomWinner = await Participant.aggregate([
-      { $match: { status: 'checkedIn', isDeleted: false, eventYear: prizeEventYear, isForfeited: { $ne: true }, _id: { $nin: wonIds } } },
-      { $sample: { size: 1 } }
-    ]);
-
-    if (!randomWinner || randomWinner.length === 0) {
-      return res.status(400).json({ error: 'ไม่พบผู้ที่มีสิทธิ์รับรางวัล (หรือทุกคนได้รางวัลไปหมดแล้ว)' });
-    }
-
-    const winner = revealParticipantObject(randomWinner[0]);
+    const winner = result.winner;
     await auditSensitiveAccess({
       req,
       action: 'SENSITIVE_DECRYPT_PRIZE_DRAW_WINNER',
       purpose: 'admin_prize_draw',
       resource: 'participants',
-      eventYear: prizeEventYear,
+      eventYear: result.prizeEventYear,
       recordCount: 1,
       fields: ['participant.fields.name', 'participant.fields.department'],
-      extra: { prizeId: String(prize._id) },
+      extra: { prizeId: String(result.prize._id) },
     });
-    const winnerId = winner._id;
-    prize.remainingQuantity -= 1;
-    prize.winners.push({ participantId: winnerId });
-    await prize.save();
 
-   res.json({
+    res.json({
         message: 'Draw success',
         winner: { 
-            _id: randomWinner[0]._id, // 🌟 เพิ่ม _id ส่งกลับไปให้ Frontend เอาไว้อ้างอิงตอนสละสิทธิ์
+            _id: winner._id,
             name: winner.fields.name,
             department: winner.fields.department || winner.fields.dept || ''
         },
-        prize
+        prize: result.prize
     });
-  } catch (err) { serverError(res, err); }
+  } catch (err) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    serverError(res, err);
+  } finally {
+    session.endSession();
+  }
 };
 
 exports.cancelWinner = async (req, res) => {
@@ -197,7 +267,10 @@ exports.cancelWinner = async (req, res) => {
       await prize.save();
 
       // 🌟 5. อัปเดตข้อมูล Participant ว่าคนนี้ "สละสิทธิ์" (Blacklist) ไปแล้ว
-      await Participant.findByIdAndUpdate(winnerId, { isForfeited: true });
+      await Participant.findByIdAndUpdate(winnerId, {
+        $set: { isForfeited: true },
+        $unset: { prizeId: 1, prizeWonAt: 1 }
+      });
 
       return res.json({ message: "ยกเลิกสิทธิ์สำเร็จ โควต้าถูกคืนแล้ว", prize });
       

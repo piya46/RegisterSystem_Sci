@@ -25,6 +25,24 @@ function ensureAdmin(req, res, action = 'UNAUTHORIZED_ATTEMPT') {
   return true;
 }
 
+function compactPreviousTokenHashes(session, tokenHashes, expiresAt, now) {
+  const seen = new Set();
+  const entries = [
+    ...(session.previousTokenHashes || []),
+    ...tokenHashes.filter(Boolean).map(tokenHash => ({ tokenHash, expiresAt })),
+  ]
+    .filter(entry => entry?.tokenHash && entry.expiresAt && entry.expiresAt > now)
+    .reverse()
+    .filter((entry) => {
+      if (seen.has(entry.tokenHash)) return false;
+      seen.add(entry.tokenHash);
+      return true;
+    })
+    .reverse();
+
+  return entries.slice(-5);
+}
+
 // GET /api/sessions?role=staff
 exports.listSessions = async (req, res) => {
   if (!ensureAdmin(req, res, 'VIEW_SESSION_LIST')) return;
@@ -133,9 +151,17 @@ exports.refresh = async (req, res) => {
   const timing = createSessionTiming(now, absoluteExpiresAt);
   const payload = { id: req.user._id, role: req.user.role };
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: timing.jwtExpiresInSeconds });
+  const oldTokenHash = hashSessionToken(oldToken);
+  const previousTokenExpiresAt = new Date(now.getTime() + sessionPreviousTokenGraceMs());
 
-  session.previousTokenHash = hashSessionToken(oldToken);
-  session.previousTokenExpiresAt = new Date(now.getTime() + sessionPreviousTokenGraceMs());
+  session.previousTokenHash = oldTokenHash;
+  session.previousTokenExpiresAt = previousTokenExpiresAt;
+  session.previousTokenHashes = compactPreviousTokenHashes(
+    session,
+    [oldTokenHash, session.tokenHash],
+    previousTokenExpiresAt,
+    now
+  );
   session.tokenHash = hashSessionToken(token);
   session.expiresAt = timing.expiresAt;
   session.absoluteExpiresAt = timing.absoluteExpiresAt;

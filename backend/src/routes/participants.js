@@ -34,8 +34,9 @@ router.post('/resend-ticket', participantController.resendTicket);
 router.get('/export', auth, requireAdmin, participantController.exportParticipants);
 
 router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
+  let eventYear = null;
   try {
-    const eventYear = await eventYearOrCurrentFromRequest(req);
+    eventYear = await eventYearOrCurrentFromRequest(req);
     const data = await getReportData(eventYear);
     await auditSensitiveAccess({
       req,
@@ -55,6 +56,18 @@ router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
     });
     res.send(pdfBuffer);
   } catch (err) {
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_EXPORT_REPORT_PDF_FAIL',
+      purpose: 'admin_pdf_report',
+      resource: 'participants,donations',
+      eventYear,
+      recordCount: 0,
+      fields: ['participant.fields', 'participant.specialAssistance', 'donation.name', 'donation.amount'],
+      status: err.statusCode || 500,
+      error: err.message,
+      extra: { format: 'pdf' },
+    });
     serverError(res, err);
   }
 });

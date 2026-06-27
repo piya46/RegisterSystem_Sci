@@ -6,6 +6,10 @@ const sessionSchema = new mongoose.Schema({
   tokenHash: { type: String, index: true, select: false },
   previousTokenHash: { type: String, index: true, select: false },
   previousTokenExpiresAt: { type: Date },
+  previousTokenHashes: [{
+    tokenHash: { type: String, index: true, select: false },
+    expiresAt: { type: Date }
+  }],
   userAgent: String,
   ip: String,
   createdAt: { type: Date, default: Date.now },
@@ -21,6 +25,7 @@ sessionSchema.set('toJSON', {
     delete ret.token;
     delete ret.tokenHash;
     delete ret.previousTokenHash;
+    delete ret.previousTokenHashes;
     return ret;
   }
 });
@@ -29,6 +34,7 @@ sessionSchema.set('toObject', {
     delete ret.token;
     delete ret.tokenHash;
     delete ret.previousTokenHash;
+    delete ret.previousTokenHashes;
     return ret;
   }
 });

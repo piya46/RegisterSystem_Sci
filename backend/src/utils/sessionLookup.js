@@ -3,16 +3,28 @@ const { hashSessionToken } = require('./sessionToken');
 
 async function findSessionByToken(token) {
   const tokenHash = hashSessionToken(token);
-  let session = await Session.findOne({ tokenHash }).select('+token +tokenHash +previousTokenHash');
+  let session = await Session.findOne({ tokenHash }).select('+token +tokenHash +previousTokenHash +previousTokenHashes.tokenHash');
   if (session) return { matched: 'current', session, tokenHash };
 
   session = await Session.findOne({
-    previousTokenHash: tokenHash,
-    previousTokenExpiresAt: { $gt: new Date() },
-  }).select('+token +tokenHash +previousTokenHash');
+    $or: [
+      {
+        previousTokenHash: tokenHash,
+        previousTokenExpiresAt: { $gt: new Date() },
+      },
+      {
+        previousTokenHashes: {
+          $elemMatch: {
+            tokenHash,
+            expiresAt: { $gt: new Date() }
+          }
+        }
+      }
+    ]
+  }).select('+token +tokenHash +previousTokenHash +previousTokenHashes.tokenHash');
   if (session) return { matched: 'previous', session, tokenHash };
 
-  session = await Session.findOne({ token }).select('+token +tokenHash +previousTokenHash');
+  session = await Session.findOne({ token }).select('+token +tokenHash +previousTokenHash +previousTokenHashes.tokenHash');
   if (session && !session.tokenHash) {
     await Session.updateOne(
       { _id: session._id },

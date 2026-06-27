@@ -119,6 +119,7 @@ exports.getReportData = async (eventYear = null) => {
 
   } catch (error) {
     console.error('Report Service Error:', error);
-    return { count: 0, rows: [], summary: {} };
+    error.statusCode = error.statusCode || 500;
+    throw error;
   }
 };

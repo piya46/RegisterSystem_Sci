@@ -1,5 +1,6 @@
 const Donation = require('../models/Donation');
 const Package = require('../models/Package'); // [เพิ่ม] เรียกใช้ Package Model
+const mongoose = require('mongoose');
 const { sendLineDonationAlert } = require('../utils/lineNotify');
 const auditLog = require('../helpers/auditLog'); 
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
@@ -34,6 +35,7 @@ function isAdminSession(req) {
 }
 
 exports.createDonation = async (req, res) => {
+  const dbSession = await mongoose.startSession();
   try {
     if (!isAdminSession(req)) {
       const isHuman = await verifyTurnstile(req.body?.cfToken, req.ip);
@@ -92,17 +94,57 @@ exports.createDonation = async (req, res) => {
     };
 
     const newDonation = new Donation(protectDonationPayload(donationPayload));
+    let savedDonation;
 
-    const savedDonation = await newDonation.save();
+    await dbSession.withTransaction(async () => {
+      savedDonation = await newDonation.save({ session: dbSession });
 
-    // [เพิ่ม] ตัดสต๊อกเสื้อ
-    if (packageSelected && packageType && size) {
-      await Package.findOneAndUpdate(
-        { name: packageType, eventYear, "items.sizes.size": size },
-        { $inc: { "items.$[].sizes.$[sizeElem].sold": 1 } },
-        { arrayFilters: [{ "sizeElem.size": size }] }
-      );
-    }
+      // ตัดสต๊อกแบบ atomic: update สำเร็จเฉพาะเมื่อ sold < stock ณ เวลานั้นจริง
+      if (packageSelected && packageType && size) {
+        const stockUpdate = await Package.updateOne(
+          {
+            name: packageType,
+            eventYear,
+            isActive: true,
+            $or: [
+              { orderDeadline: { $exists: false } },
+              { orderDeadline: null },
+              { orderDeadline: { $gte: new Date() } },
+            ],
+            $expr: {
+              $anyElementTrue: {
+                $map: {
+                  input: '$items',
+                  as: 'item',
+                  in: {
+                    $anyElementTrue: {
+                      $map: {
+                        input: '$$item.sizes',
+                        as: 'sizeEntry',
+                        in: {
+                          $and: [
+                            { $eq: ['$$sizeEntry.size', size] },
+                            { $lt: [{ $ifNull: ['$$sizeEntry.sold', 0] }, { $ifNull: ['$$sizeEntry.stock', 0] }] }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          { $inc: { "items.$[].sizes.$[sizeElem].sold": 1 } },
+          { arrayFilters: [{ "sizeElem.size": size }], session: dbSession }
+        );
+
+        if (stockUpdate.modifiedCount !== 1) {
+          const err = new Error('สินค้าขนาดนี้หมดสต๊อกแล้ว');
+          err.statusCode = 409;
+          throw err;
+        }
+      }
+    });
 
     const safeDonation = revealDonationObject(savedDonation);
     await sendLineDonationAlert(safeDonation);
@@ -110,8 +152,11 @@ exports.createDonation = async (req, res) => {
     res.status(201).json({ success: true, message: 'บันทึกข้อมูลและแจ้งเตือนสำเร็จ', data: safeDonation });
   } catch (error) {
     console.error(error);
-    auditLog({ req, action: 'CREATE_DONATION_ERROR', detail: 'Failed to create donation', status: 500, error: error.message });
+    auditLog({ req, action: 'CREATE_DONATION_ERROR', detail: 'Failed to create donation', status: error.statusCode || 500, error: error.message });
+    if (error.statusCode) return res.status(error.statusCode).json({ message: error.message });
     serverError(res, error);
+  } finally {
+    dbSession.endSession();
   }
 };
 

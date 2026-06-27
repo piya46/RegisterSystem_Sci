@@ -98,7 +98,7 @@ exports.login = async (req, res) => {
         });
         auditLog({ req, action: 'LOGIN', detail: 'Login success' });
     } catch (err) {
-        logger.error(`[Auth] Login failed unexpectedly: ${err.stack || err.message}`);
+        logger.error(`[Auth] Login failed unexpectedly: ${process.env.NODE_ENV === 'development' ? (err.stack || err.message) : err.message}`);
         auditLog({ req, action: 'LOGIN_ERROR', detail: 'Unexpected login failure', status: 500, error: err.message });
         serverError(res);
     }
@@ -171,7 +171,7 @@ exports.googleLogin = async (req, res) => {
         const admin = await Admin.findOne({ email });
 
         if (!admin) {
-            auditLog({ req, action: 'GOOGLE_LOGIN_FAIL', detail: `Email not found: ${email}`, status: 401 });
+            auditLog({ req, action: 'GOOGLE_LOGIN_FAIL', detail: 'Google email not matched to an admin account', status: 401 });
             return res.status(401).json({ 
                 error: 'ไม่พบอีเมลในระบบ', 
                 message: 'กรุณาติดต่อผู้ดูแลระบบเพื่อสร้างบัญชีก่อนใช้งาน' 
@@ -182,7 +182,7 @@ exports.googleLogin = async (req, res) => {
             admin.googleId = googleId;
             if (!admin.avatarUrl) admin.avatarUrl = picture; 
             await admin.save();
-            auditLog({ req, action: 'GOOGLE_BIND', detail: `Linked ${email} with Google` });
+            auditLog({ req, action: 'GOOGLE_BIND', detail: `adminId=${admin._id}` });
         }
 
         const now = new Date();

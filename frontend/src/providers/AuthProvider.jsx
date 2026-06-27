@@ -6,6 +6,33 @@ const IDLE_TIMEOUT_MS = Number(import.meta.env.VITE_SESSION_IDLE_TIMEOUT_MS) || 
 const SESSION_CHECK_INTERVAL_MS = Number(import.meta.env.VITE_SESSION_CHECK_INTERVAL_MS) || 60 * 1000;
 const DEFAULT_REFRESH_THRESHOLD_MS = Number(import.meta.env.VITE_SESSION_REFRESH_THRESHOLD_MS) || 5 * 60 * 1000;
 const ACTIVITY_EVENTS = ['pointerdown', 'keydown', 'scroll', 'touchstart'];
+const SESSION_REFRESH_CHANNEL = 'psevent-session-refresh';
+const SESSION_REFRESH_LOCK_KEY = 'psevent:session-refresh-lock';
+const SESSION_REFRESH_LOCK_TTL_MS = 15 * 1000;
+
+function parseJson(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function acquireRefreshLock(owner) {
+  const now = Date.now();
+  const current = parseJson(localStorage.getItem(SESSION_REFRESH_LOCK_KEY));
+  if (current?.expiresAt > now && current.owner !== owner) return false;
+
+  const nextLock = { owner, expiresAt: now + SESSION_REFRESH_LOCK_TTL_MS };
+  localStorage.setItem(SESSION_REFRESH_LOCK_KEY, JSON.stringify(nextLock));
+  const confirmed = parseJson(localStorage.getItem(SESSION_REFRESH_LOCK_KEY));
+  return confirmed?.owner === owner;
+}
+
+function releaseRefreshLock(owner) {
+  const current = parseJson(localStorage.getItem(SESSION_REFRESH_LOCK_KEY));
+  if (current?.owner === owner) localStorage.removeItem(SESSION_REFRESH_LOCK_KEY);
+}
 
 export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -13,9 +40,20 @@ export default function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const lastActivityRef = useRef(Date.now());
   const refreshingRef = useRef(false);
+  const tabIdRef = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const channelRef = useRef(null);
 
   const setSessionFromPayload = useCallback((payload) => {
     setSessionMeta(payload?.session || null);
+  }, []);
+
+  const clearAuthState = useCallback(() => {
+    setUser(null);
+    setSessionMeta(null);
+  }, []);
+
+  const broadcastSession = useCallback((message) => {
+    channelRef.current?.postMessage(message);
   }, []);
 
   // 1. ตรวจสอบ Session ตอนโหลดแอปครั้งแรก
@@ -33,8 +71,7 @@ export default function AuthProvider({ children }) {
       } catch {
         // ถ้าคุกกี้หมดอายุ หรือไม่มีคุกกี้ API จะตีกลับ 401 เราก็แค่เซ็ต user เป็น null
         if (!ignore) {
-          setUser(null);
-          setSessionMeta(null);
+          clearAuthState();
         }
       } finally {
         if (!ignore) setLoading(false);
@@ -42,7 +79,29 @@ export default function AuthProvider({ children }) {
     }
     checkSession();
     return () => { ignore = true; };
-  }, [setSessionFromPayload]);
+  }, [clearAuthState, setSessionFromPayload]);
+
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined') return undefined;
+
+    const channel = new BroadcastChannel(SESSION_REFRESH_CHANNEL);
+    channelRef.current = channel;
+    channel.onmessage = (event) => {
+      if (event.data?.source === tabIdRef.current) return;
+      if (event.data?.type === 'SESSION_REFRESHED') {
+        setSessionFromPayload(event.data.payload);
+        lastActivityRef.current = Date.now();
+      }
+      if (event.data?.type === 'SESSION_LOGOUT') {
+        clearAuthState();
+      }
+    };
+
+    return () => {
+      channel.close();
+      if (channelRef.current === channel) channelRef.current = null;
+    };
+  }, [clearAuthState, setSessionFromPayload]);
 
   // 2. ดักจับ Error 401 หาก Session หมดอายุระหว่างการใช้งาน
   useEffect(() => {
@@ -50,15 +109,15 @@ export default function AuthProvider({ children }) {
       res => res,
       err => {
         if (err.response?.status === 401) {
-          setUser(null);
-          setSessionMeta(null);
+          clearAuthState();
+          broadcastSession({ type: 'SESSION_LOGOUT', source: tabIdRef.current });
           // เอา localStorage.removeItem ทิ้งไปได้เลย
         }
         return Promise.reject(err);
       }
     );
     return () => api.default.interceptors.response.eject(interceptor);
-  }, []);
+  }, [broadcastSession, clearAuthState]);
 
   // 3. ฟังก์ชัน Login
   const login = useCallback(async (username, password, cfToken) => {
@@ -71,16 +130,15 @@ export default function AuthProvider({ children }) {
       lastActivityRef.current = Date.now();
       return res.data.admin;
     } catch (err) {
-      setUser(null);
-      setSessionMeta(null);
+      clearAuthState();
       throw err;
     } finally {
       setLoading(false);
     }
-  }, [setSessionFromPayload]);
+  }, [clearAuthState, setSessionFromPayload]);
 
   // 4. ฟังก์ชัน Logout
-  const logout = useCallback(async () => {
+  const logout = useCallback(async ({ broadcast = true } = {}) => {
     setLoading(true);
     try { 
       // สั่งยิง API Logout เพื่อให้ Backend เคลียร์ Session ใน DB และสั่ง res.clearCookie('token')
@@ -88,11 +146,11 @@ export default function AuthProvider({ children }) {
     } catch (err) {
       console.error("Logout failed", err);
     } finally {
-      setUser(null);
-      setSessionMeta(null);
+      clearAuthState();
+      if (broadcast) broadcastSession({ type: 'SESSION_LOGOUT', source: tabIdRef.current });
       setLoading(false);
     }
-  }, []);
+  }, [broadcastSession, clearAuthState]);
 
   const updateUser = useCallback((newUserData) => {
     setUser(prev => ({ ...prev, ...newUserData }));
@@ -136,20 +194,23 @@ export default function AuthProvider({ children }) {
       const expiresAtMs = sessionMeta?.expiresAt ? new Date(sessionMeta.expiresAt).getTime() : 0;
       const refreshThresholdMs = Number(sessionMeta?.refreshThresholdMs) || DEFAULT_REFRESH_THRESHOLD_MS;
       if (!expiresAtMs || expiresAtMs - now > refreshThresholdMs || refreshingRef.current) return;
+      if (!acquireRefreshLock(tabIdRef.current)) return;
 
       refreshingRef.current = true;
       try {
         const res = await api.refreshSession();
         setSessionFromPayload(res.data);
+        broadcastSession({ type: 'SESSION_REFRESHED', source: tabIdRef.current, payload: res.data });
       } catch {
         await logout();
       } finally {
         refreshingRef.current = false;
+        releaseRefreshLock(tabIdRef.current);
       }
     }, SESSION_CHECK_INTERVAL_MS);
 
     return () => window.clearInterval(interval);
-  }, [logout, sessionMeta, setSessionFromPayload, user]);
+  }, [broadcastSession, logout, sessionMeta, setSessionFromPayload, user]);
 
   // ✅ ลบ token ออกจาก Context value เพราะไม่ต้องใช้แล้ว
   return (
