@@ -1,9 +1,10 @@
+const { isAdminLike } = require('../utils/permissions');
+
 module.exports = function (req, res, next) {
   if (
     req.user &&
     req.auth?.type !== 'scoped_token' &&
-    Array.isArray(req.user.role) &&
-    req.user.role.includes('admin')
+    isAdminLike(req.user)
   ) {
     next();
   } else {

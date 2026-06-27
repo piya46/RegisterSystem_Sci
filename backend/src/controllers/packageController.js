@@ -1,7 +1,7 @@
 const Package = require('../models/Package');
 const auditLog = require('../helpers/auditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 const PACKAGE_FIELDS = [
   'name',
@@ -14,6 +14,15 @@ const PACKAGE_FIELDS = [
   'isActive',
   'eventYear'
 ];
+
+function contextRefsForYear(context, eventYear) {
+  if (normalizeEventYear(context?.eventYear) !== normalizeEventYear(eventYear)) return {};
+  return {
+    organizationId: context.organizationId,
+    seriesId: context.seriesId,
+    eventId: context.eventId,
+  };
+}
 
 // ดึงแพ็กเกจทั้งหมด (ใช้ได้ทั้ง User และ Admin)
 exports.getAllPackages = async (req, res) => {
@@ -30,7 +39,9 @@ exports.getAllPackages = async (req, res) => {
 exports.createPackage = async (req, res) => {
   try {
     const payload = pickAllowed(req.body, PACKAGE_FIELDS);
-    payload.eventYear = normalizeEventYear(payload.eventYear || await getCurrentEventYear());
+    const eventContext = await getCurrentEventContext();
+    payload.eventYear = normalizeEventYear(payload.eventYear || eventContext.eventYear || await getCurrentEventYear());
+    Object.assign(payload, contextRefsForYear(eventContext, payload.eventYear));
     const newPackage = await Package.create(payload);
     auditLog({ req, action: 'CREATE_PACKAGE', detail: `Created package: ${newPackage.name}` });
     res.status(201).json({ success: true, data: newPackage });
@@ -43,7 +54,12 @@ exports.createPackage = async (req, res) => {
 exports.updatePackage = async (req, res) => {
   try {
     const updates = pickAllowed(req.body, PACKAGE_FIELDS);
-    if (updates.eventYear !== undefined) updates.eventYear = normalizeEventYear(updates.eventYear);
+    if (updates.eventYear !== undefined) {
+      updates.eventYear = normalizeEventYear(updates.eventYear);
+      updates.organizationId = null;
+      updates.seriesId = null;
+      updates.eventId = null;
+    }
     const updatedPackage = await Package.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!updatedPackage) return res.status(404).json({ error: 'ไม่พบแพ็กเกจ' });
     auditLog({ req, action: 'UPDATE_PACKAGE', detail: `Updated package ID: ${req.params.id}` });

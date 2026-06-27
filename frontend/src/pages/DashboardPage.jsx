@@ -33,6 +33,7 @@ import UpdateIcon from '@mui/icons-material/Update';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพิ่ม] ไอคอนถ้วยรางวัลสำหรับ Lucky Draw
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
@@ -101,12 +102,13 @@ const StatCard = ({ title, value, subtext, icon, color1, color2, textColor = "#f
 );
 
 const MAIN_MENU = [
-  { label: "Dashboard", icon: <DashboardIcon />, path: "/dashboard", roles: ["admin", "staff", "kiosk"] },
+  { label: "Dashboard", icon: <DashboardIcon />, path: "/dashboard", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"] },
   { label: "Check-in (Staff)", icon: <QrCodeIcon />, path: "/staff", roles: ["staff", "admin"] },
   { label: "Kiosk Onsite", icon: <StoreIcon />, path: "/kiosk", roles: ["kiosk", "admin", "staff"] }
 ];
 
 const MANAGE_MENU = [
+  { label: "จัดการกิจกรรม", icon: <EventAvailableIcon />, path: "/admin/events", roles: ["admin", "org_admin", "event_admin", "event_manager"] },
   { label: "จัดการจุดลงทะเบียน", icon: <StoreIcon />, path: "/registration-points", roles: ["admin", "staff"] },
   { label: "จัดการผู้ใช้", icon: <GroupIcon />, path: "/admin", roles: ["admin"] },
   { label: "จัดการผู้เข้าร่วม", icon: <PeopleIcon />, path: "/admin/participants", roles: ["admin"] },
@@ -230,8 +232,9 @@ export default function DashboardPage() {
     return () => clearInterval(countdownRef.current);
   }, [fetchSummary]);
 
-  const mainMenuFiltered = MAIN_MENU.filter(item => item.roles.some(r => roles.includes(r)));
-  const manageMenuFiltered = MANAGE_MENU.filter(item => item.roles.some(r => roles.includes(r)));
+  const canSeeMenuItem = (item) => roles.includes("superadmin") || item.roles.some(r => roles.includes(r));
+  const mainMenuFiltered = MAIN_MENU.filter(canSeeMenuItem);
+  const manageMenuFiltered = MANAGE_MENU.filter(canSeeMenuItem);
 
   const displayName = user?.fullName || user?.username || "";
   const displayShort = displayName.length > 10 ? displayName.slice(0, 10) + "..." : displayName;

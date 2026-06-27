@@ -18,10 +18,20 @@ const {
   protectParticipantFields,
   revealParticipantObject,
 } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { isAdminLike } = require('../utils/permissions');
+
+function contextRefsForYear(context, eventYear) {
+  if (normalizeEventYear(context?.eventYear) !== normalizeEventYear(eventYear)) return {};
+  return {
+    organizationId: context.organizationId,
+    seriesId: context.seriesId,
+    eventId: context.eventId,
+  };
+}
 
 function checkAdmin(req, res) {
-  if (!req.user?.role || !Array.isArray(req.user.role) || !req.user.role.includes('admin')) {
+  if (!isAdminLike(req.user)) {
     auditLog && auditLog({ req, action: 'UNAUTHORIZED_ACCESS_PARTICIPANT', detail: 'Not admin', status: 403 });
     res.status(403).json({ error: 'Admin only!' });
     return false;
@@ -79,7 +89,8 @@ exports.createParticipant = async (req, res) => {
       if (!isNaN(yearVal) && yearVal < 2400) return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
     }
 
-    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
+    const eventContext = await getCurrentEventContext();
+    const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
@@ -93,6 +104,7 @@ exports.createParticipant = async (req, res) => {
       fields: protectParticipantFields(userFields),
       secureIndex: participantBlindIndexes(userFields),
       secureSearch: participantSearchTokens(userFields),
+      ...contextRefsForYear(eventContext, eventYear),
       eventYear,
       qrCode,
       registeredBy: req.user?._id || null,
@@ -169,7 +181,8 @@ exports.createParticipantByStaff = async (req, res) => {
       if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
-    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
+    const eventContext = await getCurrentEventContext();
+    const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
@@ -182,6 +195,7 @@ exports.createParticipantByStaff = async (req, res) => {
       fields: protectParticipantFields(userFields),
       secureIndex: participantBlindIndexes(userFields),
       secureSearch: participantSearchTokens(userFields),
+      ...contextRefsForYear(eventContext, eventYear),
       eventYear,
       status: 'checkedIn',
       checkedInAt: new Date(),
@@ -223,7 +237,8 @@ exports.registerOnsite = async (req, res) => {
       return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
     }
 
-    const eventYear = normalizeEventYear(requestedEventYear || await getCurrentEventYear());
+    const eventContext = await getCurrentEventContext();
+    const eventYear = normalizeEventYear(requestedEventYear || eventContext.eventYear || await getCurrentEventYear());
 
     // ตรวจสอบข้อมูลซ้ำ
     const existing = await Participant.findOne({
@@ -250,6 +265,7 @@ exports.registerOnsite = async (req, res) => {
       fields: protectParticipantFields(fields),
       secureIndex: participantBlindIndexes(fields),
       secureSearch: participantSearchTokens(fields),
+      ...contextRefsForYear(eventContext, eventYear),
       eventYear,
       status: 'checkedIn',
       checkedInAt: new Date(),
@@ -331,7 +347,12 @@ exports.updateParticipant = async (req, res) => {
     });
     const plainFields = plainParticipant.fields || {};
     for (const f of allowedFields) { if (inputFields[f] !== undefined) plainFields[f] = inputFields[f]; }
-    if (req.body.eventYear !== undefined) participant.eventYear = normalizeEventYear(req.body.eventYear);
+    if (req.body.eventYear !== undefined) {
+      participant.eventYear = normalizeEventYear(req.body.eventYear);
+      participant.organizationId = null;
+      participant.seriesId = null;
+      participant.eventId = null;
+    }
 
     participant.fields = protectParticipantFields(plainFields);
     participant.secureIndex = participantBlindIndexes(plainFields);

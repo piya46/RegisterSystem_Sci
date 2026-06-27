@@ -14,6 +14,7 @@ const { serverError } = require('../utils/httpResponses');
 const { authCookieOptions } = require('../utils/authCookie');
 const { setCsrfCookie } = require('../utils/csrf');
 const { createSessionTiming } = require('../utils/sessionPolicy');
+const { isAdminLike, permissionsOf } = require('../utils/permissions');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 const INVALID_LOGIN_MESSAGE = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('invalid-password-placeholder', Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
@@ -92,6 +93,9 @@ exports.login = async (req, res) => {
             },
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
+                permissions: [...permissionsOf(admin)],
+                organizationIds: admin.organizationIds || [],
+                eventIds: admin.eventIds || [],
                 email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
                 mustChangePassword: admin.mustChangePassword === true
             }
@@ -121,6 +125,9 @@ exports.getMe = async (req, res) => {
   const csrfToken = setCsrfCookie(res);
   res.json({
     id: admin._id, username: admin.username, role: admin.role,
+    permissions: [...permissionsOf(admin)],
+    organizationIds: admin.organizationIds || [],
+    eventIds: admin.eventIds || [],
     email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
     mustChangePassword: admin.mustChangePassword === true,
     csrfToken,
@@ -142,8 +149,8 @@ exports.verify = async (req, res) => {
             return res.status(400).json({ error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
         }
 
-        const allowedRoles = ['admin', 'staff'];
-        const hasPermission = admin.role.some(r => allowedRoles.includes(r));
+        const allowedRoles = ['staff'];
+        const hasPermission = isAdminLike(admin) || admin.role.some(r => allowedRoles.includes(r));
         if (!hasPermission) return res.status(403).json({ error: 'ไม่มีสิทธิ์ปลดล็อคเครื่อง' });
 
         auditLog({ req, action: 'KIOSK_UNLOCK', detail: `Unlocked by ${username}` });
@@ -227,6 +234,9 @@ exports.googleLogin = async (req, res) => {
             },
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
+                permissions: [...permissionsOf(admin)],
+                organizationIds: admin.organizationIds || [],
+                eventIds: admin.eventIds || [],
                 email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
                 mustChangePassword: admin.mustChangePassword === true
             }

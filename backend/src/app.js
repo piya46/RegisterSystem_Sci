@@ -18,6 +18,7 @@ const participantRoutes = require('./routes/participants');
 const registrationPointRoutes = require('./routes/registrationPoints');
 const donationsRoutes = require('./routes/donationRoutes');
 const systemSettingRoutes = require('./routes/systemSettingRoutes');
+const eventRoutes = require('./routes/events');
 const packageRoutes = require('./routes/packageRoutes');
 const dashboardRoutes = require('./routes/dashboard');
 // [เพิ่ม] Routes ใหม่
@@ -132,6 +133,7 @@ app.use('/api/registration-points', registrationPointRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/donations', donationsRoutes);
 app.use('/api/settings', systemSettingRoutes);
+app.use('/api/events', eventRoutes);
 app.use('/api/packages', packageRoutes);
 // [เพิ่ม] ลงทะเบียน Route ใหม่
 app.use('/api/prizes', prizeRoutes);

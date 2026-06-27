@@ -11,9 +11,53 @@ const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp')
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
 const { serverError } = require('../utils/httpResponses');
+const { isAdminLike, isSuperadmin } = require('../utils/permissions');
 
 function isStrongPassword(password) {
   return typeof password === 'string' && password.length >= 8;
+}
+
+function rolesOfPayload(role) {
+  if (role === undefined) return [];
+  return (Array.isArray(role) ? role : [role]).filter(Boolean);
+}
+
+function wantsSystemAdminRole(role) {
+  return rolesOfPayload(role).some((item) => ['superadmin', 'admin', 'org_admin'].includes(item));
+}
+
+function customPermissionsRequested(permissions) {
+  return Array.isArray(permissions) ? permissions.length > 0 : permissions !== undefined && permissions !== null;
+}
+
+function assertCanWriteSensitiveUserAccess(req, res, payload = {}, targetUser = null) {
+  const operatorIsSuperadmin = isSuperadmin(req.user);
+
+  if (!operatorIsSuperadmin && wantsSystemAdminRole(payload.role)) {
+    auditLog({ req, action: 'USER_ROLE_ESCALATION_BLOCK', detail: 'Non-superadmin attempted to assign system admin role', status: 403 });
+    res.status(403).json({ error: 'เฉพาะ Superadmin เท่านั้นที่กำหนดสิทธิ์ผู้ดูแลระบบระดับสูงได้' });
+    return false;
+  }
+
+  if (!operatorIsSuperadmin && customPermissionsRequested(payload.permissions)) {
+    auditLog({ req, action: 'USER_PERMISSION_ESCALATION_BLOCK', detail: 'Non-superadmin attempted to set custom permissions', status: 403 });
+    res.status(403).json({ error: 'เฉพาะ Superadmin เท่านั้นที่กำหนด permissions แบบกำหนดเองได้' });
+    return false;
+  }
+
+  if (targetUser && isSuperadmin(targetUser) && !operatorIsSuperadmin) {
+    auditLog({ req, action: 'SUPERADMIN_UPDATE_BLOCK', detail: `targetId=${targetUser._id}`, status: 403 });
+    res.status(403).json({ error: 'เฉพาะ Superadmin เท่านั้นที่แก้ไขบัญชี Superadmin ได้' });
+    return false;
+  }
+
+  if (targetUser && isAdminLike(targetUser) && !operatorIsSuperadmin && String(targetUser._id) !== String(req.user?._id)) {
+    auditLog({ req, action: 'ADMIN_UPDATE_BLOCK', detail: `targetId=${targetUser._id}`, status: 403 });
+    res.status(403).json({ error: 'เฉพาะ Superadmin เท่านั้นที่แก้ไขบัญชีผู้ดูแลระบบคนอื่นได้' });
+    return false;
+  }
+
+  return true;
 }
 
 function isValidImageSignature(filePath, mimeType) {
@@ -33,7 +77,8 @@ function isValidImageSignature(filePath, mimeType) {
 
 exports.createAdmin = async (req,res) => {
   try {
-    const {username, password, role, email, fullName} = req.body;
+    const {username, password, role, email, fullName, permissions, organizationIds, eventIds} = req.body;
+    if (!assertCanWriteSensitiveUserAccess(req, res, { role, permissions })) return;
     if (!isStrongPassword(password)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
     const exists = await Admin.findOne({ username });
     if (exists) {
@@ -41,7 +86,7 @@ exports.createAdmin = async (req,res) => {
       return res.status(400).json({ error: 'Username exists' });
     }
     const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
-    const admin = new Admin({ username, passwordHash, role, email, fullName });
+    const admin = new Admin({ username, passwordHash, role, email, fullName, permissions, organizationIds, eventIds });
     await admin.save();
     
     auditLog({ req, action: 'CREATE_ADMIN', detail: `username=${username}` });
@@ -82,9 +127,13 @@ exports.deleteAdmin = async (req, res) => {
     }
 
 
-    if (admin.role.includes('admin')) {
+    if (isAdminLike(admin) && !isSuperadmin(req.user)) {
         auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `Try to delete admin ${admin.username}`, status: 403 });
         return res.status(403).json({ error: 'ไม่ได้รับอนุญาตให้ลบบัญชีผู้ดูแลระบบ (Admin) ท่านอื่น' });
+    }
+    if (isSuperadmin(admin)) {
+        auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `Try to delete superadmin ${admin.username}`, status: 403 });
+        return res.status(403).json({ error: 'ไม่สามารถลบบัญชี Superadmin ได้จากหน้านี้' });
     }
 
  
@@ -100,9 +149,18 @@ exports.deleteAdmin = async (req, res) => {
 exports.updateAdmin = async (req, res) => {
   try {
 
-    const { role, email, fullName, registrationPoints } = req.body;
+    const { role, email, fullName, registrationPoints, permissions, organizationIds, eventIds } = req.body;
+    const targetUser = await Admin.findById(req.params.id);
+    if (!targetUser) {
+      auditLog({ req, action: 'UPDATE_ADMIN_FAIL', detail: `targetId=${req.params.id} not found`, status: 404 });
+      return res.status(404).json({ error: 'Admin not found' });
+    }
+    if (!assertCanWriteSensitiveUserAccess(req, res, { role, permissions }, targetUser)) return;
     
     const updateData = { role, email, fullName };
+    if (permissions !== undefined) updateData.permissions = permissions;
+    if (organizationIds !== undefined) updateData.organizationIds = organizationIds;
+    if (eventIds !== undefined) updateData.eventIds = eventIds;
     if (registrationPoints !== undefined) {
       updateData.registrationPoints = registrationPoints;
     }
@@ -112,10 +170,6 @@ exports.updateAdmin = async (req, res) => {
       updateData,
       { new: true }
     );
-    if (!admin) {
-      auditLog({ req, action: 'UPDATE_ADMIN_FAIL', detail: `targetId=${req.params.id} not found`, status: 404 });
-      return res.status(404).json({ error: 'Admin not found' });
-    }
     auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}` });
     res.json({ message: 'Admin updated', admin });
   } catch (err) {
@@ -159,7 +213,7 @@ exports.requestActionOtp = async (req, res) => {
 exports.resetPassword = async (req, res) => {
   try {
     // ต้องเป็น Admin เท่านั้น
-    if (!req.user.role.includes('admin')) {
+    if (!isAdminLike(req.user)) {
       return res.status(403).json({ error: 'Permission denied' });
     }
 
@@ -169,9 +223,13 @@ exports.resetPassword = async (req, res) => {
     const operator = await Admin.findById(req.user.id);
 
     if (!targetUser) return res.status(404).json({ error: 'User not found' });
+    if (isSuperadmin(targetUser) && !isSuperadmin(req.user)) {
+      auditLog({ req, action: 'RESET_SUPERADMIN_PASSWORD_BLOCK', detail: `targetId=${targetUser._id}`, status: 403 });
+      return res.status(403).json({ error: 'เฉพาะ Superadmin เท่านั้นที่รีเซ็ตรหัสผ่านบัญชี Superadmin ได้' });
+    }
 
     // --- LOGIC แยก Role ---
-    const isTargetAdmin = targetUser.role.includes('admin');
+    const isTargetAdmin = isAdminLike(targetUser);
 
     if (isTargetAdmin) {
         // 🔒 กรณีแก้ให้ Admin: ต้องใช้ OTP ของ Operator
@@ -259,7 +317,7 @@ exports.changePassword = async (req, res) => {
 
 exports.updateStaff = async (req, res) => {
   try {
-    if (!req.user.role.includes('admin')) {
+    if (!isAdminLike(req.user)) {
       auditLog({ req, action: 'UPDATE_STAFF_FAIL', detail: 'Not authorized', status: 403 });
       return res.status(403).json({ error: 'You do not have permission to update staff.' });
     }
@@ -272,7 +330,7 @@ exports.updateStaff = async (req, res) => {
       return res.status(404).json({ error: 'Staff not found' });
     }
 
-    if (staff.role.includes('admin') && !req.user._id.equals(staff._id)) {
+    if (isAdminLike(staff) && !isSuperadmin(req.user) && !req.user._id.equals(staff._id)) {
       auditLog({ req, action: 'UPDATE_STAFF_FAIL', detail: `Cannot update another admin.`, status: 403 });
       return res.status(403).json({ error: 'You cannot update another admin.' });
     }

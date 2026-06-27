@@ -7,6 +7,9 @@ const participantSchema = new mongoose.Schema({
   fields: { type: Object, default: {} },
   secureIndex: { type: Object, default: {}, select: false },
   secureSearch: { type: [String], default: [], select: false },
+  organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', default: null, index: true },
+  seriesId: { type: mongoose.Schema.Types.ObjectId, ref: 'EventSeries', default: null, index: true },
+  eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null, index: true },
   eventYear: { type: String, default: '', index: true },
   tags: [{ type: String, trim: true }],
 
@@ -56,6 +59,7 @@ const participantSchema = new mongoose.Schema({
 
 // Index ที่ช่วยการค้นหา/แดชบอร์ด
 participantSchema.index({ status: 1, registeredPoint: 1, createdAt: -1 });
+participantSchema.index({ eventId: 1, status: 1, registeredPoint: 1, createdAt: -1 }, { sparse: true });
 participantSchema.index({ eventYear: 1, status: 1, registeredPoint: 1, createdAt: -1 });
 participantSchema.index({ registeredAt: -1 });
 participantSchema.index({ 'fields.phone': 1 }, { sparse: true });
@@ -67,5 +71,6 @@ participantSchema.index({ 'secureIndex.email': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.name': 1 }, { sparse: true });
 participantSchema.index({ secureSearch: 1 }, { sparse: true });
 participantSchema.index({ eventYear: 1, prizeWonAt: 1, isForfeited: 1 });
+participantSchema.index({ eventId: 1, prizeWonAt: 1, isForfeited: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Participant', participantSchema);

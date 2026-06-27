@@ -7,7 +7,7 @@ const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const verifyTurnstile = require('../utils/verifyTurnstile');
 const isAdmin = require('../helpers/isAdmin');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 const { protectDonationPayload, revealDonationObject } = require('../utils/fieldEncryption');
 
 const DONATION_FIELDS = [
@@ -34,6 +34,15 @@ function isAdminSession(req) {
   return req.auth?.type === 'admin_session' && isAdmin(req.user);
 }
 
+function contextRefsForYear(context, eventYear) {
+  if (normalizeEventYear(context?.eventYear) !== normalizeEventYear(eventYear)) return {};
+  return {
+    organizationId: context.organizationId,
+    seriesId: context.seriesId,
+    eventId: context.eventId,
+  };
+}
+
 exports.createDonation = async (req, res) => {
   const dbSession = await mongoose.startSession();
   try {
@@ -52,7 +61,8 @@ exports.createDonation = async (req, res) => {
     const numericAmount = Number(amount);
     const transferDate = new Date(transferDateTime);
     const packageSelected = isPackage === true || isPackage === 'true';
-    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
+    const eventContext = await getCurrentEventContext();
+    const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
 
     if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
@@ -90,6 +100,7 @@ exports.createDonation = async (req, res) => {
       address: trimString(address) || "",
       pickupMethod: pickupMethod || "",
       pickupLocation: trimString(pickupLocation) || "",
+      ...contextRefsForYear(eventContext, eventYear),
       eventYear
     };
 
@@ -184,7 +195,12 @@ exports.getDonationSummary = async (req, res) => {
 exports.updateDonation = async (req, res) => {
   try {
     const updates = pickAllowed(req.body, DONATION_FIELDS);
-    if (updates.eventYear !== undefined) updates.eventYear = normalizeEventYear(updates.eventYear);
+    if (updates.eventYear !== undefined) {
+      updates.eventYear = normalizeEventYear(updates.eventYear);
+      updates.organizationId = null;
+      updates.seriesId = null;
+      updates.eventId = null;
+    }
     const updatedDonation = await Donation.findByIdAndUpdate(req.params.id, { $set: protectDonationPayload(updates) }, { new: true, runValidators: true });
     if (!updatedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
     res.json({ success: true, message: 'อัปเดตสำเร็จ', data: revealDonationObject(updatedDonation) });

@@ -18,6 +18,18 @@ async function getCurrentEventYear() {
   return normalizeEventYear(setting?.currentEventYear);
 }
 
+async function getCurrentEventContext() {
+  const setting = await SystemSetting.findOne()
+    .select('currentEventYear currentEventId currentEventSeriesId defaultOrganizationId eventLinkingMode');
+  return {
+    eventYear: normalizeEventYear(setting?.currentEventYear),
+    eventId: setting?.currentEventId || null,
+    seriesId: setting?.currentEventSeriesId || null,
+    organizationId: setting?.defaultOrganizationId || null,
+    linkingMode: setting?.eventLinkingMode || 'series-linked',
+  };
+}
+
 function eventYearFromRequest(req) {
   const value = req.query?.eventYear || req.body?.eventYear || null;
   if (isAllEventYears(value)) return null;
@@ -42,6 +54,7 @@ module.exports = {
   defaultEventYear,
   eventYearFromRequest,
   eventYearOrCurrentFromRequest,
+  getCurrentEventContext,
   getCurrentEventYear,
   normalizeEventYear,
 };

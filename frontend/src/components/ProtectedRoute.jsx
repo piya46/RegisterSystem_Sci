@@ -40,7 +40,7 @@ export default function ProtectedRoute({ children, roles }) {
   // 3. Role Check
   if (roles) {
     const userRoles = Array.isArray(user.role) ? user.role : [user.role];
-    if (!roles.some(role => userRoles.includes(role))) {
+    if (!userRoles.includes('superadmin') && !roles.some(role => userRoles.includes(role))) {
       return <Navigate to="/unauthorized" replace />;
     }
   }

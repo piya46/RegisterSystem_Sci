@@ -2,7 +2,15 @@ const mongoose = require('mongoose');
 
 const systemSettingSchema = new mongoose.Schema({
   eventName: { type: String, default: 'Event Name' },
+  defaultOrganizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', default: null },
+  currentEventSeriesId: { type: mongoose.Schema.Types.ObjectId, ref: 'EventSeries', default: null },
+  currentEventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null, index: true },
   currentEventYear: { type: String, default: () => String(new Date().getFullYear()), index: true },
+  eventLinkingMode: {
+    type: String,
+    enum: ['isolated', 'series-linked', 'manual-linked'],
+    default: 'series-linked',
+  },
   archivedEventYears: [{ type: String, trim: true }],
   enableRegister: { type: Boolean, default: true },
   maintenanceMode: { type: Boolean, default: false },

@@ -2,13 +2,18 @@ const SystemSetting = require('../models/SystemSetting');
 const Participant = require('../models/participant');
 const Donation = require('../models/Donation');
 const Prize = require('../models/prize');
+const EventModel = require('../models/event');
 const auditLog = require('../helpers/auditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { defaultEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 const SETTING_FIELDS = [
   'eventName',
+  'defaultOrganizationId',
+  'currentEventSeriesId',
+  'currentEventId',
   'currentEventYear',
+  'eventLinkingMode',
   'archivedEventYears',
   'enableRegister',
   'maintenanceMode',
@@ -69,10 +74,11 @@ exports.updateSettings = async (req, res) => {
 exports.getEventYears = async (req, res) => {
   try {
     const settings = await SystemSetting.findOne();
-    const [participantYears, donationYears, prizeYears] = await Promise.all([
+    const [participantYears, donationYears, prizeYears, eventYears] = await Promise.all([
       Participant.distinct('eventYear', { eventYear: { $ne: '' } }),
       Donation.distinct('eventYear', { eventYear: { $ne: '' } }),
       Prize.distinct('eventYear', { eventYear: { $ne: '' } }),
+      EventModel.distinct('eventYear', { eventYear: { $ne: '' } }),
     ]);
 
     const years = new Set([
@@ -81,6 +87,7 @@ exports.getEventYears = async (req, res) => {
       ...participantYears.map(normalizeEventYear),
       ...donationYears.map(normalizeEventYear),
       ...prizeYears.map(normalizeEventYear),
+      ...eventYears.map(normalizeEventYear),
     ]);
 
     res.json({

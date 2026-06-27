@@ -8,6 +8,8 @@
     "dev": "nodemon src/server.js",
     "test": "find src -name '*.js' -exec node --check {} \\;",
     "backfill:privacy-year": "node src/scripts/backfillPrivacyAndEventYear.js",
+    "backfill:event-refs": "node src/scripts/backfillEventReferences.js",
+    "migrate:legacy-events": "node src/scripts/backfillEventReferences.js",
     "rotate:field-encryption": "node src/scripts/rotateFieldEncryptionKey.js"
   },
   "keywords": [],

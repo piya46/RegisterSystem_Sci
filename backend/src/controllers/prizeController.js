@@ -4,9 +4,29 @@ const mongoose = require('mongoose');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventYearFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 const PRIZE_FIELDS = ['name', 'totalQuantity', 'image', 'eventYear'];
+
+function contextRefsForYear(context, eventYear) {
+  if (normalizeEventYear(context?.eventYear) !== normalizeEventYear(eventYear)) return {};
+  return {
+    organizationId: context.organizationId,
+    seriesId: context.seriesId,
+    eventId: context.eventId,
+  };
+}
+
+function scopeForPrize(prize, prizeEventYear) {
+  if (!prize.eventId) return { eventYear: prizeEventYear };
+  return {
+    $or: [
+      { eventId: prize.eventId },
+      { eventId: null, eventYear: prizeEventYear },
+      { eventId: { $exists: false }, eventYear: prizeEventYear },
+    ],
+  };
+}
 
 function revealWinnerParticipant(winner) {
   if (!winner?.participantId || typeof winner.participantId !== 'object') return winner;
@@ -91,12 +111,15 @@ exports.createPrize = async (req, res) => {
     if (!payload.name || !Number.isFinite(totalQuantity) || totalQuantity < 1) {
       return res.status(400).json({ error: 'กรุณาระบุชื่อและจำนวนรางวัลให้ถูกต้อง' });
     }
+    const eventContext = await getCurrentEventContext();
+    const eventYear = normalizeEventYear(payload.eventYear || eventContext.eventYear || await getCurrentEventYear());
     const prize = await Prize.create({
       name: payload.name,
       totalQuantity,
       remainingQuantity: totalQuantity,
       image: payload.image || null,
-      eventYear: normalizeEventYear(payload.eventYear || await getCurrentEventYear())
+      ...contextRefsForYear(eventContext, eventYear),
+      eventYear
     });
     res.json(prize);
   } catch (err) { serverError(res, err); }
@@ -131,7 +154,8 @@ exports.drawPrize = async (req, res) => {
 
       // Existing embedded winners are still the source for legacy data.
       const prizeEventYear = normalizeEventYear(prize.eventYear || await getCurrentEventYear());
-      const allPrizes = await Prize.find({ eventYear: prizeEventYear }).session(session);
+      const prizeScope = scopeForPrize(prize, prizeEventYear);
+      const allPrizes = await Prize.find(prizeScope).session(session);
       const wonIds = [];
       allPrizes.forEach(p => {
         p.winners.forEach(w => wonIds.push(w.participantId));
@@ -143,7 +167,7 @@ exports.drawPrize = async (req, res) => {
             $match: {
               status: 'checkedIn',
               isDeleted: false,
-              eventYear: prizeEventYear,
+              ...prizeScope,
               isForfeited: { $ne: true },
               _id: { $nin: wonIds },
               $or: [{ prizeWonAt: null }, { prizeWonAt: { $exists: false } }]
@@ -161,7 +185,7 @@ exports.drawPrize = async (req, res) => {
             _id: winnerId,
             status: 'checkedIn',
             isDeleted: false,
-            eventYear: prizeEventYear,
+            ...prizeScope,
             isForfeited: { $ne: true },
             $or: [{ prizeWonAt: null }, { prizeWonAt: { $exists: false } }]
           },

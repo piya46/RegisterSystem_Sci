@@ -13,9 +13,14 @@ import AlternateEmailIcon from "@mui/icons-material/AlternateEmail";
 import BadgeIcon from "@mui/icons-material/Badge";
 
 const roles = [
-  { value: "admin", label: "Admin" },
-  { value: "staff", label: "Staff" },
-  { value: "kiosk", label: "Kiosk" }
+  { value: "superadmin", label: "Superadmin - ดูแลทั้งระบบ" },
+  { value: "admin", label: "Admin - ผู้ดูแลระบบ" },
+  { value: "org_admin", label: "Organization Admin - ดูแลหน่วยงาน" },
+  { value: "event_admin", label: "Event Admin - ดูแลกิจกรรม" },
+  { value: "event_manager", label: "Event Manager - จัดการกิจกรรม" },
+  { value: "staff", label: "Staff - เจ้าหน้าที่หน้างาน" },
+  { value: "kiosk", label: "Kiosk - เครื่องลงทะเบียน" },
+  { value: "auditor", label: "Auditor - ตรวจสอบรายงาน" }
 ];
 
 const Y = {
@@ -27,7 +32,7 @@ const Y = {
 };
 
 export default function AdminUserDialog({
-  open, onClose, onSave, initialData, isEdit, pointsList = []
+  open, onClose, onSave, initialData, isEdit, pointsList = [], canManageSystemRoles = false
 }) {
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
@@ -74,6 +79,11 @@ export default function AdminUserDialog({
                       : pwdStrength >= 40 ? "Medium"
                       : pwdStrength > 0   ? "Weak"
                       : "";
+
+  const roleOptions = useMemo(() => {
+    const systemRoles = new Set(["superadmin", "admin", "org_admin"]);
+    return roles.filter((option) => canManageSystemRoles || !systemRoles.has(option.value) || option.value === role);
+  }, [canManageSystemRoles, role]);
 
   const validate = () => {
     const e = {};
@@ -221,11 +231,11 @@ export default function AdminUserDialog({
             onChange={e => setRole(e.target.value)}
             fullWidth
             margin="dense"
-            helperText="Select Role ของ User"
+            helperText="เลือกระดับสิทธิ์ของผู้ใช้งาน ควรให้สิทธิ์เท่าที่จำเป็น"
             sx={tfStyle}
           >
-            {roles.map(option => (
-              <MenuItem value={option.value} key={option.value}>
+            {roleOptions.map(option => (
+              <MenuItem value={option.value} key={option.value} disabled={!canManageSystemRoles && ["superadmin", "admin", "org_admin"].includes(option.value)}>
                 {option.label}
               </MenuItem>
             ))}
@@ -316,7 +326,7 @@ export default function AdminUserDialog({
 
           <Box sx={{ px: 1 }}>
             <Typography variant="caption" sx={{ color: "#8b7a1a" }}>
-              Tips: ใช้ Role <b>Staff</b> สำหรับเจ้าหน้าที่ทั่วไป และ <b>Kiosk</b> สำหรับจุด Registration หน้างาน
+              Tips: ใช้ <b>Staff</b> สำหรับเจ้าหน้าที่ทั่วไป, <b>Event Manager</b> สำหรับคนจัดกิจกรรม และเก็บ <b>Superadmin</b> ไว้เฉพาะผู้ดูแลระบบหลัก
             </Typography>
           </Box>
         </Stack>

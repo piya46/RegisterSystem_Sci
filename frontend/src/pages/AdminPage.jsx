@@ -191,7 +191,9 @@ export default function AdminPage() {
     setQrDialogOpen(true);
   };
 
-  const canEdit = !!user && (Array.isArray(user.role) ? user.role.includes("admin") : user.role === "admin");
+  const userRoles = Array.isArray(user?.role) ? user.role : [user?.role].filter(Boolean);
+  const canManageSystemRoles = userRoles.includes("superadmin");
+  const canEdit = !!user && (canManageSystemRoles || userRoles.includes("admin"));
   const progressValue = (1 - (refreshCountdown - 1) / (AUTO_REFRESH_SEC - 1)) * 100;
 
   return (
@@ -504,6 +506,7 @@ export default function AdminPage() {
         initialData={editData}
         isEdit={!!editData}
         pointsList={pointsList}
+        canManageSystemRoles={canManageSystemRoles}
       />
 
       <AdminPasswordDialog

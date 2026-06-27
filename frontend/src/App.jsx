@@ -26,6 +26,7 @@ import LuckyDrawPage from "./pages/LuckyDrawPage";
 import PublicDashboardPage from "./pages/PublicDashboardPage";
 import SelfRegisterPage from "./pages/SelfRegisterPage";
 import PublicLuckyDrawPage from "./pages/PublicLuckyDrawPage"; // 🌟 [เพิ่มนำเข้า]
+import EventPlatformPage from "./pages/EventPlatformPage";
 
 export default function App() {
   return (
@@ -44,11 +45,12 @@ export default function App() {
             <Route path="/kiosk/join" element={<KioskJoinPage />} />
             <Route path="/self-register" element={<SelfRegisterPage />} />
 
-            <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><DashboardPage /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute roles={["admin", "staff", "kiosk"]}><ProfilePage /></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"]}><DashboardPage /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"]}><ProfilePage /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute roles={["admin"]}><SystemSettingsPage /></ProtectedRoute>} />
             <Route path="/admin" element={<ProtectedRoute roles={["admin"]}><AdminPage /></ProtectedRoute>} />
             <Route path="/registration-points" element={<ProtectedRoute roles={["admin"]}><RegistrationPointPage /></ProtectedRoute>} />
+            <Route path="/admin/events" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager"]}><EventPlatformPage /></ProtectedRoute>} />
             <Route path="/admin/lucky-draw" element={<ProtectedRoute roles={["admin"]}><LuckyDrawPage /></ProtectedRoute>} />
 
             <Route path="/staff" element={<ProtectedRoute roles={["admin", "staff"]}><CheckinStaffPage /></ProtectedRoute>} />
