@@ -1,10 +1,14 @@
 const Participant = require('../models/participant');
 const Donation = require('../models/Donation');
+const { revealDonationObject, revealParticipantObject } = require('../utils/fieldEncryption');
+const { applyEventYearFilter } = require('../utils/eventYear');
 
-exports.getReportData = async () => {
+exports.getReportData = async (eventYear = null) => {
   try {
-    const participants = await Participant.find({ isDeleted: false }).lean();
-    const donations = await Donation.find({}).lean();
+    const participants = (await Participant.find(applyEventYearFilter({ isDeleted: false }, eventYear)).select('+secureIndex'))
+      .map(revealParticipantObject);
+    const donations = (await Donation.find(applyEventYearFilter({}, eventYear)).lean())
+      .map(revealDonationObject);
 
     // 1. เตรียมตัวแปรสรุปผล (Summary Object)
     const summary = {

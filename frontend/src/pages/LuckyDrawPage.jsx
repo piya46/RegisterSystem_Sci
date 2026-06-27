@@ -1,5 +1,5 @@
 // frontend/src/pages/LuckyDrawPage.jsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { Box, Typography, Button, Paper, Stack, FormControl, Select, MenuItem, Fade, Chip, CircularProgress } from '@mui/material'; // 🌟 เพิ่ม CircularProgress ตรงนี้
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -11,6 +11,7 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import { useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { listPrizes, drawPrize, cancelPrizeWinner } from '../utils/api';
+import EventYearSelect from '../components/EventYearSelect';
 
 // 🌟 ธีมสีเหลืองเสือเหลืองคืนถิ่น (Yellow & Dark Brown)
 const THEME = {
@@ -30,6 +31,7 @@ export default function LuckyDrawPage() {
   const navigate = useNavigate();
   const [prizes, setPrizes] = useState([]);
   const [selectedPrize, setSelectedPrize] = useState('');
+  const [eventYear, setEventYear] = useState('');
 
   // States สำหรับการสุ่ม
   const [isDrawing, setIsDrawing] = useState(false);
@@ -52,23 +54,24 @@ export default function LuckyDrawPage() {
   }, []);
 
   // 🌟 ฟังก์ชันโหลดข้อมูลของรางวัล
-  const fetchPrizes = async () => {
+  const fetchPrizes = useCallback(async () => {
     try {
-      const res = await listPrizes();
+      const res = await listPrizes(eventYear ? { eventYear } : undefined);
       setPrizes(res.data);
     } catch (err) {
       console.error("Auto-refresh error:", err);
     }
-  };
+  }, [eventYear]);
 
   // 🌟 ระบบ Auto-Refresh ข้อมูลทุกๆ 10 วินาที
   useEffect(() => {
+    setSelectedPrize('');
     fetchPrizes();
     const refreshInterval = setInterval(() => {
       fetchPrizes();
     }, 10000);
     return () => clearInterval(refreshInterval);
-  }, []);
+  }, [fetchPrizes]);
 
   // ระบบนับถอยหลัง 5 นาที
   useEffect(() => {
@@ -171,7 +174,8 @@ export default function LuckyDrawPage() {
 
   // 🌟 ฟังก์ชันจัดการ Share หน้า Public
   const handleSharePublic = () => {
-    const link = `${window.location.origin}/public/lucky-draw`;
+    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
+    const link = `${window.location.origin}/public/lucky-draw${query}`;
     navigator.clipboard.writeText(link);
     alert('คัดลอกลิงก์ Live สำหรับหน้าจอแสดงผลสำเร็จ!');
   };
@@ -197,9 +201,12 @@ export default function LuckyDrawPage() {
             <AccessTimeIcon /> เวลาปัจจุบัน: {currentTime.toLocaleTimeString('th-TH')}
           </Typography>
         </Stack>
-        <Button variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublic} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.accent, borderColor: THEME.accent, borderWidth: 2, '&:hover': { bgcolor: '#FFFDE7', borderWidth: 2 } }}>
-          แชร์จอแสดงผล (Public)
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+          <Button variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublic} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.accent, borderColor: THEME.accent, borderWidth: 2, '&:hover': { bgcolor: '#FFFDE7', borderWidth: 2 } }}>
+            แชร์จอแสดงผล (Public)
+          </Button>
+        </Stack>
       </Stack>
 
       {/* 🌟 หน้าต่างลอย (Floating Board) สำหรับคนรับล่าสุด */}

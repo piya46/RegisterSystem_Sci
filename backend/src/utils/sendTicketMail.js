@@ -135,7 +135,7 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
 /**
  * ส่งอีเมลแจ้ง Reset Password (ปรับโฉมใหม่ให้เข้ากัน)
  */
-exports.sendResetPasswordMail = async function sendResetPasswordMail(toEmail, newPassword, username) {
+exports.sendResetPasswordMail = async function sendResetPasswordMail(toEmail, username) {
   try {
     const html = `
       <div style="background-color: #f4f4f4; padding: 40px 20px; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;">

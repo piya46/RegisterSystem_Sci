@@ -24,17 +24,18 @@ export default function PublicDashboardPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await getPublicDashboardStats();
+      const res = await getPublicDashboardStats(eventYear ? { eventYear } : undefined);
       setStats(res.data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [eventYear]);
 
   useEffect(() => {
     fetchStats();

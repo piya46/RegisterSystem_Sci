@@ -9,11 +9,12 @@ export default function PublicReportPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await getPublicReportData();
+        const res = await getPublicReportData(eventYear ? { eventYear } : undefined);
         setData(res.data.data || []);
         setTotal(res.data.totalCheckedIn || 0);
       } catch {
@@ -23,7 +24,7 @@ export default function PublicReportPage() {
       }
     };
     fetchData();
-  }, []);
+  }, [eventYear]);
 
   const formatTime = (dateString) => {
     if (!dateString) return '-';

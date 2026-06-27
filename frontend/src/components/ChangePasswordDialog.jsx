@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
-  Alert, InputAdornment, IconButton, Stack, Box, Typography
+  Alert, InputAdornment, IconButton, Box, Typography
 } from "@mui/material";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
@@ -10,7 +10,7 @@ import LockResetIcon from '@mui/icons-material/LockReset';
 import SaveIcon from '@mui/icons-material/Save';
 import * as api from "../utils/api";
 
-export default function ChangePasswordDialog({ open, onClose }) {
+export default function ChangePasswordDialog({ open, onClose, onSuccess, required = false }) {
   // Form States
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -62,6 +62,7 @@ export default function ChangePasswordDialog({ open, onClose }) {
       await api.changePassword({ oldPassword, newPassword });
       setSuccess("เปลี่ยนรหัสผ่านสำเร็จแล้ว");
       setTimeout(() => {
+        onSuccess?.();
         onClose();
       }, 1500);
     } catch (err) {
@@ -97,7 +98,8 @@ export default function ChangePasswordDialog({ open, onClose }) {
   return (
     <Dialog 
       open={open} 
-      onClose={!loading ? onClose : undefined} 
+      onClose={!loading && !required ? onClose : undefined}
+      disableEscapeKeyDown={required}
       fullWidth 
       maxWidth="xs"
       PaperProps={{
@@ -117,6 +119,11 @@ export default function ChangePasswordDialog({ open, onClose }) {
         <Box sx={{ mt: 1 }}>
           {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
           {success && <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }}>{success}</Alert>}
+          {required && !success && (
+            <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }}>
+              บัญชีนี้ใช้รหัสผ่านชั่วคราว กรุณาเปลี่ยนรหัสผ่านก่อนใช้งานระบบต่อ
+            </Alert>
+          )}
           
           {renderPasswordInput("รหัสผ่านเดิม", oldPassword, setOldPassword, showOld, setShowOld, true)}
           {renderPasswordInput("รหัสผ่านใหม่", newPassword, setNewPassword, showNew, setShowNew)}
@@ -125,14 +132,16 @@ export default function ChangePasswordDialog({ open, onClose }) {
       </DialogContent>
 
       <DialogActions sx={{ px: 3, pb: 3, justifyContent: 'space-between' }}>
-        <Button 
-          onClick={onClose} 
-          color="inherit" 
-          disabled={loading}
-          sx={{ borderRadius: 2, px: 3 }}
-        >
-          ยกเลิก
-        </Button>
+        {!required && (
+          <Button
+            onClick={onClose}
+            color="inherit"
+            disabled={loading}
+            sx={{ borderRadius: 2, px: 3 }}
+          >
+            ยกเลิก
+          </Button>
+        )}
         <Button
           onClick={handleSave}
           variant="contained"

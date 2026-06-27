@@ -8,6 +8,7 @@ const rateLimit = require('express-rate-limit');
 const requestLogger = require('./middleware/requestLogger');
 const errorHandler = require('./middleware/errorHandler');
 const auditLog = require('./helpers/auditLog');
+const { csrfProtection } = require('./utils/csrf');
 
 const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
@@ -56,7 +57,7 @@ app.use(cors({
     return cb(error);
   },
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   credentials: true
 }));
 
@@ -84,6 +85,14 @@ const publicWriteLimiter = rateLimit({
   message: { error: 'ส่งข้อมูลถี่เกินไป กรุณารอสักครู่' }
 });
 
+const publicReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'เรียกดูข้อมูลถี่เกินไป กรุณารอสักครู่' }
+});
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 1000,
@@ -98,9 +107,21 @@ app.use('/api/auth/verify', authLimiter);
 app.use('/api/auth/forgot-password', resetLimiter);
 app.use('/api/auth/reset-password-otp', resetLimiter);
 app.use('/api/participants/resend-ticket', publicWriteLimiter);
-app.use('/api/donations', publicWriteLimiter);
+app.use('/api/donations', (req, res, next) => (
+  req.method === 'POST' ? publicWriteLimiter(req, res, next) : next()
+));
+app.use('/api/public', publicReadLimiter);
+app.use('/api', csrfProtection);
 app.use(requestLogger);
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads/avatars', express.static(path.join(__dirname, 'uploads', 'avatars'), {
+  dotfiles: 'deny',
+  index: false,
+  maxAge: '1h',
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+  }
+}));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admins', adminRoutes);

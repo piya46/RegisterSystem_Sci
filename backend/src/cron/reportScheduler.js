@@ -4,6 +4,8 @@ const { generatePDF } = require('../utils/pdfGenerator');
 const { uploadToDrive } = require('../utils/googleDrive');
 const CronLog = require('../models/cronLog');
 const logger = require('../utils/logger');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
+const { getCurrentEventYear } = require('../utils/eventYear');
 
 const runBackupTask = async () => {
   const jobName = 'Auto PDF Report (Mon-Wed-Fri)';
@@ -16,7 +18,17 @@ const runBackupTask = async () => {
     const dateStr = now.toISOString().split('T')[0];
     const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
     
-    const data = await getReportData();
+    const eventYear = await getCurrentEventYear();
+    const data = await getReportData(eventYear);
+    await auditSensitiveAccess({
+      action: 'SENSITIVE_EXPORT_REPORT_PDF_AUTO',
+      purpose: 'scheduled_pdf_report_upload',
+      resource: 'participants,donations',
+      eventYear,
+      recordCount: data.count || 0,
+      fields: ['participant.fields', 'participant.specialAssistance', 'donation.name', 'donation.amount'],
+      extra: { jobName, destination: 'google_drive' },
+    });
     const pdfBuffer = await generatePDF(data, 'System Authorized Access Auto');
     const fileName = `Report_${dateStr}_${timeStr}.pdf`;
 

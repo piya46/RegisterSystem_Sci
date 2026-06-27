@@ -5,9 +5,20 @@ const { v4: uuidv4 } = require('uuid');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
 const auditLog = require('../helpers/auditLog');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { sendTicketMail } = require('../utils/sendTicketMail');
 const verifyTurnstile = require('../utils/verifyTurnstile'); 
 const { serverError } = require('../utils/httpResponses');
+const {
+  encryptValue,
+  participantBlindIndexes,
+  participantFieldMatch,
+  participantSearchTokens,
+  participantSearchTokensForQuery,
+  protectParticipantFields,
+  revealParticipantObject,
+} = require('../utils/fieldEncryption');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 function checkAdmin(req, res) {
   if (!req.user?.role || !Array.isArray(req.user.role) || !req.user.role.includes('admin')) {
@@ -68,38 +79,42 @@ exports.createParticipant = async (req, res) => {
       if (!isNaN(yearVal) && yearVal < 2400) return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
     }
 
+    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone });
+      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventYear });
       if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียนไปแล้ว' });
     }
 
     const qrCode = uuidv4();
 
     const participant = await Participant.create({
-      fields: userFields,
+      fields: protectParticipantFields(userFields),
+      secureIndex: participantBlindIndexes(userFields),
+      secureSearch: participantSearchTokens(userFields),
+      eventYear,
       qrCode,
       registeredBy: req.user?._id || null,
       registrationType: 'online',
       followers,
       consent, 
-      specialAssistance 
+      specialAssistance: encryptValue(specialAssistance)
     });
 
     if (userFields.email) {
       try {
-        await sendTicketMail(userFields.email, participant);
+        await sendTicketMail(userFields.email, revealParticipantObject(participant));
       } catch (err) {
         auditLog && auditLog({ req, action: 'SEND_TICKET_EMAIL_FAIL', detail: `email=${userFields.email} error=${err.message}`, status: 500 });
       }
     }
 
     auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT', detail: `participantId=${participant._id}` });
-    res.json(participant);
+    res.json(revealParticipantObject(participant));
   } catch (err) {
     auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT_ERROR', detail: err.message, status: 500 });
-    serverError(res);
+    serverError(res, err);
   }
 };
 
@@ -144,6 +159,7 @@ exports.createParticipantByStaff = async (req, res) => {
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
     const followers = Math.max(0, Number.parseInt(req.body.followers || 0, 10) || 0);
     const consent = req.body.consent;
+    const specialAssistance = req.body.specialAssistance || "";
 
     const userFields = {};
     for (const f of allowedFields) {
@@ -153,16 +169,20 @@ exports.createParticipantByStaff = async (req, res) => {
       if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
+    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone });
+      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventYear });
       if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียน/เช็คอิน ไปแล้ว' });
     }
 
     const qrCode = uuidv4();
     const participant = await Participant.create({
-      fields: userFields,
+      fields: protectParticipantFields(userFields),
+      secureIndex: participantBlindIndexes(userFields),
+      secureSearch: participantSearchTokens(userFields),
+      eventYear,
       status: 'checkedIn',
       checkedInAt: new Date(),
       registeredBy: req.user._id,
@@ -170,18 +190,28 @@ exports.createParticipantByStaff = async (req, res) => {
       registeredPoint: registrationPoint,
       registrationType: 'onsite',
       followers,
-      consent
+      consent,
+      specialAssistance: encryptValue(specialAssistance)
     });
 
-    res.json({ _id: participant._id, fields: participant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
+    const safeParticipant = revealParticipantObject(participant);
+    res.json({ _id: participant._id, fields: safeParticipant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
   } catch (err) {
-    serverError(res, 'Internal server error');
+    serverError(res, err);
   }
 };
 
 exports.registerOnsite = async (req, res) => {
   try {
-    const { cfToken, consent, followers, registrationPoint, ...fields } = req.body;
+    const {
+      cfToken,
+      consent,
+      followers,
+      registrationPoint,
+      eventYear: requestedEventYear,
+      specialAssistance,
+      ...fields
+    } = req.body;
     
     // ตรวจสอบ Turnstile (หากอยู่ใน Production)
     const isValid = await verifyTurnstile(cfToken);
@@ -193,10 +223,19 @@ exports.registerOnsite = async (req, res) => {
       return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
     }
 
+    const eventYear = normalizeEventYear(requestedEventYear || await getCurrentEventYear());
+
     // ตรวจสอบข้อมูลซ้ำ
     const existing = await Participant.findOne({
-      $or: [{ 'fields.email': fields.email }, { 'fields.phone': fields.phone }],
-      isDeleted: false
+      $and: [
+        { isDeleted: false, eventYear },
+        {
+          $or: [
+            participantFieldMatch('email', fields.email),
+            participantFieldMatch('phone', fields.phone),
+          ],
+        },
+      ],
     });
     if (existing) return res.status(400).json({ error: 'อีเมลหรือเบอร์โทรนี้ลงทะเบียนในระบบแล้ว' });
 
@@ -204,17 +243,21 @@ exports.registerOnsite = async (req, res) => {
     if (!actualPoint) return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน' });
 
     // ตรวจสอบสิทธิ์และสถานะของจุดลงทะเบียน
-    const canReg = await canRegisterAtPoint(actualPoint);
+    const canReg = canRegisterAtPoint(req.user, actualPoint);
     if (!canReg) return res.status(400).json({ error: 'จุดลงทะเบียนนี้ปิดใช้งานหรือไม่พบในระบบ' });
 
     const participant = await Participant.create({
-      fields: fields,
+      fields: protectParticipantFields(fields),
+      secureIndex: participantBlindIndexes(fields),
+      secureSearch: participantSearchTokens(fields),
+      eventYear,
       status: 'checkedIn',
       checkedInAt: new Date(),
       registeredPoint: actualPoint,
       registrationType: 'onsite',
       followers: parseInt(followers, 10) || 0,
       consent: consent === 'agreed' ? 'agreed' : 'disagreed',
+      specialAssistance: encryptValue(specialAssistance || ''),
       qrCode: `ON-${uuidv4()}`,
       
       // 🌟 บันทึกสตาฟผู้ดูแล (ดึงจาก Token ที่ใช้ลงทะเบียน)
@@ -226,26 +269,35 @@ exports.registerOnsite = async (req, res) => {
             : ['Walk-in', 'Staff-Assisted']
     });
 
-    // อัปเดตสถิติจุดลงทะเบียน
-    await checkInStatusService.updatePointStats(actualPoint, 1);
-
     // บันทึก Log การกระทำ
     if (req.user && req.user._id) {
-       await auditLog(req.user._id, 'CREATE_PARTICIPANT_ONSITE', `Method: ${req.registrationMethod}`, participant._id);
+       auditLog({ req, action: 'CREATE_PARTICIPANT_ONSITE', detail: `Method: ${req.registrationMethod} participantId=${participant._id}` });
     }
 
-    res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant });
+    res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant: revealParticipantObject(participant) });
   } catch (err) {
-    serverError(res, 'Internal server error');
+    serverError(res, err);
   }
 };
 
 exports.listParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const participants = await Participant.find({ isDeleted: false }).sort({ createdAt: -1 });
-    res.json(participants);
-  } catch (err) { serverError(res); }
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const filter = applyEventYearFilter({ isDeleted: false }, eventYear);
+    const participants = await Participant.find(filter).sort({ createdAt: -1 }).select('+secureIndex');
+    const safeParticipants = participants.map(revealParticipantObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PARTICIPANTS_LIST',
+      purpose: 'admin_participant_list',
+      resource: 'participants',
+      eventYear,
+      recordCount: safeParticipants.length,
+      fields: ['participant.fields', 'participant.specialAssistance'],
+    });
+    res.json(safeParticipants);
+  } catch (err) { serverError(res, err); }
 };
 
 exports.updateParticipant = async (req, res) => {
@@ -258,7 +310,7 @@ exports.updateParticipant = async (req, res) => {
 
     if (req.body.followers !== undefined) participant.followers = Math.max(0, Number.parseInt(req.body.followers, 10) || 0);
     if (req.body.consent !== undefined) participant.consent = req.body.consent;
-    if (req.body.specialAssistance !== undefined) participant.specialAssistance = req.body.specialAssistance;
+    if (req.body.specialAssistance !== undefined) participant.specialAssistance = encryptValue(req.body.specialAssistance);
     
     // [เพิ่ม] บันทึก Tags ถ้ามีการส่งมา
     if (req.body.tags !== undefined && Array.isArray(req.body.tags)) {
@@ -266,12 +318,28 @@ exports.updateParticipant = async (req, res) => {
     }
 
     const inputFields = req.body.fields || req.body;
-    for (const f of allowedFields) { if (inputFields[f] !== undefined) participant.fields[f] = inputFields[f]; }
+    const plainParticipant = revealParticipantObject(participant);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PARTICIPANT_UPDATE',
+      purpose: 'admin_update_merge_existing_fields',
+      resource: 'participants',
+      eventYear: participant.eventYear,
+      recordCount: 1,
+      fields: ['participant.fields', 'participant.specialAssistance'],
+      extra: { participantId: String(participant._id) },
+    });
+    const plainFields = plainParticipant.fields || {};
+    for (const f of allowedFields) { if (inputFields[f] !== undefined) plainFields[f] = inputFields[f]; }
+    if (req.body.eventYear !== undefined) participant.eventYear = normalizeEventYear(req.body.eventYear);
 
-    participant.markModified('fields'); participant.updatedAt = new Date();
+    participant.fields = protectParticipantFields(plainFields);
+    participant.secureIndex = participantBlindIndexes(plainFields);
+    participant.secureSearch = participantSearchTokens(plainFields);
+    participant.markModified('fields'); participant.markModified('secureIndex'); participant.markModified('secureSearch'); participant.updatedAt = new Date();
     await participant.save();
-    res.json(participant);
-  } catch (err) { serverError(res); }
+    res.json(revealParticipantObject(participant));
+  } catch (err) { serverError(res, err); }
 };
 
 exports.deleteParticipant = async (req, res) => {
@@ -282,7 +350,7 @@ exports.deleteParticipant = async (req, res) => {
     participant.isDeleted = true;
     await participant.save();
     res.json({ message: 'Participant deleted (soft)' });
-  } catch (err) { serverError(res); }
+  } catch (err) { serverError(res, err); }
 };
 
 exports.checkinByQr = async (req, res) => {
@@ -298,18 +366,30 @@ exports.checkinByQr = async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }
 
-    const participant = await Participant.findOne({ qrCode, isDeleted: false });
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const participant = await Participant.findOne(applyEventYearFilter({ qrCode, isDeleted: false }, eventYear));
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
     if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
     if (followers !== undefined) participant.followers = followers;
     participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = registrationPoint;
     await participant.save();
+    const safeParticipant = revealParticipantObject(participant);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_CHECKIN_RESULT',
+      purpose: 'staff_checkin_response',
+      resource: 'participants',
+      eventYear,
+      recordCount: 1,
+      fields: ['participant.fields'],
+      extra: { participantId: String(participant._id) },
+    });
 res.json({ 
         message: 'Check-in successful', 
         participant: { 
             _id: participant._id, 
-            fields: participant.fields, // ข้อมูล fields จะถูกถอดรหัส (Decrypt) อัตโนมัติก่อนส่งกลับ
+            fields: safeParticipant.fields,
             checkedInAt: participant.checkedInAt, 
             registeredPoint: participant.registeredPoint, 
             registeredBy: req.user.username, 
@@ -317,7 +397,8 @@ res.json({
             followers: participant.followers,
             tags: participant.tags // ✅ เพิ่มตรงนี้เพื่อให้ส่งคืน Tag กลับไปด้วย
         } 
-    });  } catch (err) { serverError(res); }
+    });
+  } catch (err) { serverError(res, err); }
 };
 
 exports.resendTicket = async (req, res) => {
@@ -326,13 +407,30 @@ exports.resendTicket = async (req, res) => {
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
   const phoneRegex = /^0[689]\d{8}$/;
   if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-  const participant = await Participant.findOne({ 'fields.phone': phone, isDeleted: false });
+  const eventYear = await eventYearOrCurrentFromRequest(req);
+  const participant = await Participant.findOne({
+    $and: [
+      applyEventYearFilter({ isDeleted: false }, eventYear),
+      participantFieldMatch('phone', phone),
+    ],
+  }).select('+secureIndex');
   const genericResponse = { success: true, message: 'หากพบข้อมูลในระบบ ระบบจะส่ง E-Ticket ไปยังอีเมลที่ลงทะเบียนไว้' };
   if (!participant) return res.json(genericResponse);
-  const email = participant.fields.email;
+  const safeParticipant = revealParticipantObject(participant);
+  await auditSensitiveAccess({
+    req,
+    action: 'SENSITIVE_DECRYPT_RESEND_TICKET',
+    purpose: 'public_resend_ticket_email_lookup',
+    resource: 'participants',
+    eventYear,
+    recordCount: 1,
+    fields: ['participant.fields.email'],
+    extra: { participantId: String(participant._id) },
+  });
+  const email = safeParticipant.fields.email;
   if (email) {
     try {
-      await sendTicketMail(email, participant);
+      await sendTicketMail(email, safeParticipant);
       return res.json(genericResponse);
     } catch (err) {
       auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `phone=${phone} error=${err.message}`, status: 500 });
@@ -342,28 +440,122 @@ exports.resendTicket = async (req, res) => {
 };
 
 exports.searchParticipants = async (req, res) => {
-  // โค้ดเดิม
-  const { phone, name, email, qrCode, q } = req.query;
-  let filter = { isDeleted: false };
-  if (q) { filter.$or = [ { 'fields.name': { $regex: q, $options: 'i' } }, { 'fields.phone': q }, { 'fields.email': q }, { qrCode: q } ]; } 
-  else {
-    if (phone) filter['fields.phone'] = phone;
-    if (name) filter['fields.name'] = { $regex: name, $options: 'i' };
-    if (email) filter['fields.email'] = email;
+  try {
+    const { phone, name, email, qrCode, q } = req.query;
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    let filter = applyEventYearFilter({ isDeleted: false }, eventYear);
+    if (q) {
+      const secureSearchTokens = participantSearchTokensForQuery(q);
+      const directResults = await Participant.find({
+        $and: [
+          filter,
+          {
+            $or: [
+              { 'fields.name': { $regex: q, $options: 'i' } },
+              participantFieldMatch('phone', q),
+              participantFieldMatch('email', q),
+              ...(secureSearchTokens.length ? [{ secureSearch: { $in: secureSearchTokens } }] : []),
+              { qrCode: q },
+            ],
+          },
+        ],
+      }).select('+secureIndex +secureSearch');
+      const normalizedQ = String(q).trim().toLowerCase();
+      const scanned = directResults.length ? [] : await Participant.find(filter).limit(500).select('+secureIndex +secureSearch');
+      const merged = new Map();
+      [...directResults, ...scanned].forEach((participant) => {
+        const safe = revealParticipantObject(participant);
+        const f = safe.fields || {};
+        const haystack = [f.name, f.fullName, f.fullname, f.phone, f.email, safe.qrCode]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (haystack.includes(normalizedQ)) merged.set(String(safe._id), safe);
+      });
+      const results = [...merged.values()];
+      await auditSensitiveAccess({
+        req,
+        action: 'SENSITIVE_DECRYPT_PARTICIPANTS_SEARCH',
+        purpose: 'staff_admin_search',
+        resource: 'participants',
+        eventYear,
+        recordCount: results.length,
+        fields: ['participant.fields'],
+        extra: { searchMode: 'q' },
+      });
+      return res.json(results);
+    }
+    if (name) {
+      const normalizedName = String(name).trim().toLowerCase();
+      const secureSearchTokens = participantSearchTokensForQuery(name);
+      const indexed = secureSearchTokens.length
+        ? await Participant.find({ ...filter, secureSearch: { $in: secureSearchTokens } }).select('+secureIndex +secureSearch')
+        : [];
+      const scanned = indexed.length ? indexed : await Participant.find(filter).limit(1000).select('+secureIndex +secureSearch');
+      const matches = scanned.map(revealParticipantObject).filter((participant) => {
+        const f = participant.fields || {};
+        const displayName = String(f.name || f.fullName || f.fullname || '').toLowerCase();
+        if (!displayName.includes(normalizedName)) return false;
+        if (phone && String(f.phone || '') !== String(phone)) return false;
+        if (email && String(f.email || '') !== String(email)) return false;
+        if (qrCode && String(participant.qrCode || '') !== String(qrCode)) return false;
+        return true;
+      });
+      await auditSensitiveAccess({
+        req,
+        action: 'SENSITIVE_DECRYPT_PARTICIPANTS_SEARCH',
+        purpose: 'staff_admin_search',
+        resource: 'participants',
+        eventYear,
+        recordCount: matches.length,
+        fields: ['participant.fields'],
+        extra: { searchMode: 'name_scan' },
+      });
+      return res.json(matches);
+    }
+
+    const and = [filter];
+    if (phone) and.push(participantFieldMatch('phone', phone));
+    if (email) and.push(participantFieldMatch('email', email));
     if (qrCode) filter['qrCode'] = qrCode;
+    if (and.length > 1) filter = { $and: and };
+    const results = await Participant.find(filter).select('+secureIndex');
+    const safeResults = results.map(revealParticipantObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PARTICIPANTS_SEARCH',
+      purpose: 'staff_admin_search',
+      resource: 'participants',
+      eventYear,
+      recordCount: safeResults.length,
+      fields: ['participant.fields'],
+      extra: { searchMode: 'exact' },
+    });
+    return res.json(safeResults);
+  } catch (err) {
+    return serverError(res, err);
   }
-  const results = await Participant.find(filter);
-  res.json(results);
 };
 
 exports.exportParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
     const { status } = req.query;
-    const find = { isDeleted: false };
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const find = applyEventYearFilter({ isDeleted: false }, eventYear);
     if (status) find.status = status;
 
-    const participants = await Participant.find(find).populate('registeredBy', 'username fullName email').lean();
+    const participants = (await Participant.find(find).populate('registeredBy', 'username fullName email').select('+secureIndex')).map(revealParticipantObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_EXPORT_PARTICIPANTS_CSV',
+      purpose: 'admin_csv_export',
+      resource: 'participants',
+      eventYear,
+      recordCount: participants.length,
+      fields: ['name', 'phone', 'email', 'address', 'specialAssistance', 'qrCode'],
+      extra: { status: status || 'all' },
+    });
     const headers = [
       'No.', 'Name', 'Phone', 'Email', 'Department', 'Address', 'ZipCode', 'Status',
       'RegisteredAt', 'CheckedInAt', 'RegistrationPoint', 'RegistrationType',
@@ -413,7 +605,7 @@ exports.exportParticipants = async (req, res) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
     res.send(`\uFEFF${csv}`);
-  } catch (err) { serverError(res); }
+  } catch (err) { serverError(res, err); }
 };
 
 exports.restorePrizeRight = async (req, res) => {
@@ -427,6 +619,6 @@ exports.restorePrizeRight = async (req, res) => {
     if (!participant) return res.status(404).json({ error: 'ไม่พบผู้เข้าร่วม' });
     res.json({ message: 'คืนสิทธิ์จับรางวัลสำเร็จ', participant });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    serverError(res, err);
   }
 };

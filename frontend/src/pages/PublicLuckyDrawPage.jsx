@@ -1,5 +1,5 @@
 // frontend/src/pages/PublicLuckyDrawPage.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { Box, Typography, Paper, Stack } from '@mui/material';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -16,26 +16,27 @@ const THEME = {
 export default function PublicLuckyDrawPage() {
     const [prizes, setPrizes] = useState([]);
     const [currentTime, setCurrentTime] = useState(new Date());
+    const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
 
     useEffect(() => {
         const clock = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(clock);
     }, []);
 
-    const fetchPrizes = async () => {
+    const fetchPrizes = useCallback(async () => {
         try {
-            const res = await getPublicPrizes();
+            const res = await getPublicPrizes(eventYear ? { eventYear } : undefined);
             setPrizes(res.data);
         } catch (err) {
             console.error("Auto-refresh error:", err);
         }
-    };
+    }, [eventYear]);
 
     useEffect(() => {
         fetchPrizes();
         const refreshInterval = setInterval(fetchPrizes, 5000); // 🌟 Refresh ทุก 5 วินาที
         return () => clearInterval(refreshInterval);
-    }, []);
+    }, [fetchPrizes]);
 
     const recentWinners = prizes
         .flatMap(p => p.winners.map(w => ({

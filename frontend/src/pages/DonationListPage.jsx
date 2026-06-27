@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   TextField, Button, IconButton, Typography, Stack, Chip, InputAdornment, LinearProgress,
@@ -18,11 +18,13 @@ import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
 import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
 import { useNavigate } from 'react-router-dom';
+import EventYearSelect from '../components/EventYearSelect';
 
 export default function DonationListPage() {
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [eventYear, setEventYear] = useState('');
   
   const [openDialog, setOpenDialog] = useState(false);
   const [formData, setFormData] = useState({});
@@ -30,19 +32,19 @@ export default function DonationListPage() {
 
   const navigate = useNavigate();
 
-  useEffect(() => { fetchDonations(); }, []);
-
-  const fetchDonations = async () => {
+  const fetchDonations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getDonationSummary();
+      const res = await getDonationSummary(eventYear ? { eventYear } : undefined);
       setDonations(res.data?.transactions || []);
     } catch (err) {
       console.error("Failed to fetch donations", err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [eventYear]);
+
+  useEffect(() => { fetchDonations(); }, [fetchDonations]);
 
   const formatDate = (dateString) => {
     if (!dateString) return '-';
@@ -67,7 +69,7 @@ export default function DonationListPage() {
       setFormData(donation);
     } else {
       setIsEditing(false);
-      setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY' });
+      setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY', eventYear: eventYear || undefined });
     }
     setOpenDialog(true);
   };
@@ -126,6 +128,7 @@ export default function DonationListPage() {
             </Typography>
             <Typography variant="body2" color="text.secondary">เพิ่ม ลบ อัปเดต และตรวจสอบสลิป</Typography>
           </Box>
+          <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
           <Button variant="contained" color="primary" startIcon={<AddBoxIcon />} onClick={() => handleOpenDialog()} sx={{ borderRadius: 2 }}>เพิ่มรายการใหม่</Button>
           <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export CSV</Button>
         </Stack>

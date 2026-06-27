@@ -4,10 +4,14 @@ const sessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
   token: { type: String, select: false },
   tokenHash: { type: String, index: true, select: false },
+  previousTokenHash: { type: String, index: true, select: false },
+  previousTokenExpiresAt: { type: Date },
   userAgent: String,
   ip: String,
   createdAt: { type: Date, default: Date.now },
+  lastActivityAt: { type: Date, default: Date.now },
   expiresAt: { type: Date },
+  absoluteExpiresAt: { type: Date },
   revoked: { type: Boolean, default: false },
 });
 
@@ -16,6 +20,7 @@ sessionSchema.set('toJSON', {
   transform: (doc, ret) => {
     delete ret.token;
     delete ret.tokenHash;
+    delete ret.previousTokenHash;
     return ret;
   }
 });
@@ -23,6 +28,7 @@ sessionSchema.set('toObject', {
   transform: (doc, ret) => {
     delete ret.token;
     delete ret.tokenHash;
+    delete ret.previousTokenHash;
     return ret;
   }
 });

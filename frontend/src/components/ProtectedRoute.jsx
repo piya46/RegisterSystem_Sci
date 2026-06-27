@@ -2,10 +2,11 @@
 import React from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
-import { Box, CircularProgress, Typography, Stack } from "@mui/material";
+import { Box, CircularProgress, Typography } from "@mui/material";
+import ChangePasswordDialog from "./ChangePasswordDialog";
 
 export default function ProtectedRoute({ children, roles }) {
-  const { user, loading } = useAuth();
+  const { user, loading, updateUser } = useAuth();
   const location = useLocation(); // [NEW] ดึงตำแหน่งปัจจุบัน
 
   // 1. Loading State (แต่งให้สวยขึ้นนิดนึง)
@@ -42,6 +43,20 @@ export default function ProtectedRoute({ children, roles }) {
     if (!roles.some(role => userRoles.includes(role))) {
       return <Navigate to="/unauthorized" replace />;
     }
+  }
+
+  if (user.mustChangePassword) {
+    return (
+      <>
+        {children}
+        <ChangePasswordDialog
+          open
+          required
+          onClose={() => {}}
+          onSuccess={() => updateUser({ mustChangePassword: false })}
+        />
+      </>
+    );
   }
 
   return children;

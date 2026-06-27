@@ -16,6 +16,7 @@ const packageSchema = new mongoose.Schema({
   pickupLocations: [{ type: String }],
   isDeliveryAvailable: { type: Boolean, default: true },
   isActive: { type: Boolean, default: true },
+  eventYear: { type: String, default: '', index: true },
   createdAt: { type: Date, default: Date.now }
 });
 

@@ -2,6 +2,8 @@ const mongoose = require('mongoose');
 
 const systemSettingSchema = new mongoose.Schema({
   eventName: { type: String, default: 'Event Name' },
+  currentEventYear: { type: String, default: () => String(new Date().getFullYear()), index: true },
+  archivedEventYears: [{ type: String, trim: true }],
   enableRegister: { type: Boolean, default: true },
   maintenanceMode: { type: Boolean, default: false },
   enablePickup: { type: Boolean, default: true },   // เพิ่มบรรทัดนี้: เปิดให้รับหน้างาน

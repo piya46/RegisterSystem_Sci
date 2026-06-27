@@ -1,10 +1,18 @@
 const Session = require('../models/session');
 const Admin = require('../models/admin');
+const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const isAdmin = require('../helpers/isAdmin');
 const auditLog = require('../helpers/auditLog');
 const { hashSessionToken } = require('../utils/sessionToken');
-const { clearAuthCookie } = require('../utils/authCookie');
+const { authCookieOptions, clearAuthCookie } = require('../utils/authCookie');
+const { clearCsrfCookie, setCsrfCookie } = require('../utils/csrf');
+const { findSessionByToken } = require('../utils/sessionLookup');
+const {
+  createSessionTiming,
+  sessionAbsoluteTimeoutMs,
+  sessionPreviousTokenGraceMs,
+} = require('../utils/sessionPolicy');
 
 
 // Helper: เช็ค admin และ log ถ้าโดนบล็อก
@@ -84,16 +92,68 @@ exports.logout = async (req, res) => {
   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(400).json({ error: 'No token provided' });
 
-  const tokenHash = hashSessionToken(token);
-  const updated = await Session.findOneAndUpdate({ tokenHash }, { revoked: true });
-  if (!updated) {
+  const { session, tokenHash } = await findSessionByToken(token);
+  if (session) {
+    session.revoked = true;
+    await session.save();
+  } else {
     await Session.findOneAndUpdate(
       { token },
       { $set: { revoked: true, tokenHash }, $unset: { token: 1 } }
     );
   }
   clearAuthCookie(res);
+  clearCsrfCookie(res);
   logger.info(`[Session][${req.user?.username}] LOGOUT`);
   auditLog({ req, action: 'LOGOUT', detail: 'User logged out' });
   res.json({ message: 'Logged out' });
+};
+
+exports.refresh = async (req, res) => {
+  if (req.auth?.type !== 'admin_session' || !req.session || !req.user) {
+    return res.status(401).json({ error: 'Session refresh is only available for user sessions' });
+  }
+
+  const oldToken = req.cookies?.token || req.headers.authorization?.split(' ')[1];
+  if (!oldToken) return res.status(401).json({ error: 'No token provided' });
+
+  const now = new Date();
+  const session = req.session;
+  const absoluteExpiresAt = session.absoluteExpiresAt ||
+    new Date(new Date(session.createdAt).getTime() + sessionAbsoluteTimeoutMs());
+
+  if (absoluteExpiresAt <= now) {
+    session.revoked = true;
+    await session.save();
+    clearAuthCookie(res);
+    clearCsrfCookie(res);
+    return res.status(401).json({ error: 'Session หมดอายุสูงสุดแล้ว กรุณาเข้าสู่ระบบใหม่' });
+  }
+
+  const timing = createSessionTiming(now, absoluteExpiresAt);
+  const payload = { id: req.user._id, role: req.user.role };
+  const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: timing.jwtExpiresInSeconds });
+
+  session.previousTokenHash = hashSessionToken(oldToken);
+  session.previousTokenExpiresAt = new Date(now.getTime() + sessionPreviousTokenGraceMs());
+  session.tokenHash = hashSessionToken(token);
+  session.expiresAt = timing.expiresAt;
+  session.absoluteExpiresAt = timing.absoluteExpiresAt;
+  session.lastActivityAt = now;
+  session.userAgent = req.headers['user-agent'];
+  session.ip = req.ip;
+  await session.save();
+
+  res.cookie('token', token, authCookieOptions({ maxAge: timing.cookieMaxAgeMs }));
+  const csrfToken = setCsrfCookie(res);
+  logger.info(`[Session][${req.user.username}] REFRESH_SESSION expiresAt=${timing.expiresAt.toISOString()}`);
+  res.json({
+    success: true,
+    csrfToken,
+    session: {
+      expiresAt: timing.expiresAt,
+      absoluteExpiresAt: timing.absoluteExpiresAt,
+      refreshThresholdMs: timing.refreshThresholdMs,
+    },
+  });
 };

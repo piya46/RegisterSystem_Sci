@@ -5,6 +5,9 @@ const participantSchema = new mongoose.Schema({
 
 
   fields: { type: Object, default: {} },
+  secureIndex: { type: Object, default: {}, select: false },
+  secureSearch: { type: [String], default: [], select: false },
+  eventYear: { type: String, default: '', index: true },
   tags: [{ type: String, trim: true }],
 
   status: {
@@ -44,17 +47,22 @@ const participantSchema = new mongoose.Schema({
   },
 
 
-  specialAssistance: { type: String, default: "" },
+  specialAssistance: { type: mongoose.Schema.Types.Mixed, default: "" },
   isForfeited: { type: Boolean, default: false, index: true }
 
 }, { timestamps: true, versionKey: false });
 
 // Index ที่ช่วยการค้นหา/แดชบอร์ด
 participantSchema.index({ status: 1, registeredPoint: 1, createdAt: -1 });
+participantSchema.index({ eventYear: 1, status: 1, registeredPoint: 1, createdAt: -1 });
 participantSchema.index({ registeredAt: -1 });
 participantSchema.index({ 'fields.phone': 1 }, { sparse: true });
 participantSchema.index({ 'fields.name': 1 }, { sparse: true });
 participantSchema.index({ 'fields.dept': 1 }, { sparse: true });
 participantSchema.index({ 'fields.date_year': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.phone': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.email': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.name': 1 }, { sparse: true });
+participantSchema.index({ secureSearch: 1 }, { sparse: true });
 
 module.exports = mongoose.model('Participant', participantSchema);

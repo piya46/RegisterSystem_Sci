@@ -3,7 +3,6 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const Session = require('../models/session');
 const auditLog = require('../helpers/auditLog');
-const ms = require('ms');
 const verifyTurnstile = require('../utils/verifyTurnstile');
 const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp'); // ✅ OTP 8 หลัก
 const sendMail = require('../utils/sendMail');
@@ -13,6 +12,8 @@ const { hashSessionToken } = require('../utils/sessionToken');
 const logger = require('../utils/logger');
 const { serverError } = require('../utils/httpResponses');
 const { authCookieOptions } = require('../utils/authCookie');
+const { setCsrfCookie } = require('../utils/csrf');
+const { createSessionTiming } = require('../utils/sessionPolicy');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 const INVALID_LOGIN_MESSAGE = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('invalid-password-placeholder', Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
@@ -50,10 +51,8 @@ exports.login = async (req, res) => {
         }
 
         // 2. Session Management
-        const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
-        const expiresInMs = ms(jwtExpiresIn);
-        if (!expiresInMs) throw new Error(`Invalid JWT_EXPIRES_IN value: ${jwtExpiresIn}`);
-        const expiresAt = new Date(Date.now() + expiresInMs);
+        const now = new Date();
+        const timing = createSessionTiming(now);
 
         await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
 
@@ -66,20 +65,35 @@ exports.login = async (req, res) => {
         }
 
         const payload = { id: admin._id, role: admin.role };
-        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
+        const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: timing.jwtExpiresInSeconds });
 
         await Session.create({
-            userId: admin._id, tokenHash: hashSessionToken(token), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+            userId: admin._id,
+            tokenHash: hashSessionToken(token),
+            userAgent: req.headers['user-agent'],
+            ip: req.ip,
+            revoked: false,
+            lastActivityAt: now,
+            expiresAt: timing.expiresAt,
+            absoluteExpiresAt: timing.absoluteExpiresAt
         });
 
         // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
-        res.cookie('token', token, authCookieOptions({ maxAge: expiresInMs }));
+        res.cookie('token', token, authCookieOptions({ maxAge: timing.cookieMaxAgeMs }));
+        const csrfToken = setCsrfCookie(res);
 
         res.json({
             success: true, // ✅ ไม่ต้องส่ง token ไปใน JSON แล้ว
+            csrfToken,
+            session: {
+                expiresAt: timing.expiresAt,
+                absoluteExpiresAt: timing.absoluteExpiresAt,
+                refreshThresholdMs: timing.refreshThresholdMs
+            },
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
-                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
+                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
+                mustChangePassword: admin.mustChangePassword === true
             }
         });
         auditLog({ req, action: 'LOGIN', detail: 'Login success' });
@@ -104,9 +118,17 @@ exports.getMe = async (req, res) => {
   }
   const admin = await Admin.findById(req.user.id);
   if (!admin) return res.status(404).json({ error: 'User not found' });
+  const csrfToken = setCsrfCookie(res);
   res.json({
     id: admin._id, username: admin.username, role: admin.role,
     email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
+    mustChangePassword: admin.mustChangePassword === true,
+    csrfToken,
+    session: req.session ? {
+      expiresAt: req.session.expiresAt,
+      absoluteExpiresAt: req.session.absoluteExpiresAt,
+      refreshThresholdMs: createSessionTiming(new Date(), req.session.absoluteExpiresAt || null).refreshThresholdMs
+    } : undefined,
   });
 };
 
@@ -141,6 +163,10 @@ exports.googleLogin = async (req, res) => {
         });
         const payload = ticket.getPayload();
         const { email, sub: googleId, picture } = payload;
+        if (payload.email_verified !== true) {
+            auditLog({ req, action: 'GOOGLE_LOGIN_FAIL', detail: 'Email not verified by Google', status: 401 });
+            return res.status(401).json({ error: 'Google account email is not verified' });
+        }
 
         const admin = await Admin.findOne({ email });
 
@@ -159,9 +185,8 @@ exports.googleLogin = async (req, res) => {
             auditLog({ req, action: 'GOOGLE_BIND', detail: `Linked ${email} with Google` });
         }
 
-        const jwtExpiresIn = process.env.JWT_EXPIRES_IN || '4h';
-        const expiresInMs = ms(jwtExpiresIn);
-        const expiresAt = new Date(Date.now() + expiresInMs);
+        const now = new Date();
+        const timing = createSessionTiming(now);
 
         await Session.deleteMany({ userId: admin._id, expiresAt: { $lt: new Date() } });
 
@@ -173,22 +198,37 @@ exports.googleLogin = async (req, res) => {
         }
 
         const jwtPayload = { id: admin._id, role: admin.role };
-        const jwtToken = jwt.sign(jwtPayload, process.env.JWT_SECRET, { expiresIn: jwtExpiresIn });
+        const jwtToken = jwt.sign(jwtPayload, process.env.JWT_SECRET, { expiresIn: timing.jwtExpiresInSeconds });
 
         await Session.create({
-            userId: admin._id, tokenHash: hashSessionToken(jwtToken), userAgent: req.headers['user-agent'], ip: req.ip, revoked: false, expiresAt
+            userId: admin._id,
+            tokenHash: hashSessionToken(jwtToken),
+            userAgent: req.headers['user-agent'],
+            ip: req.ip,
+            revoked: false,
+            lastActivityAt: now,
+            expiresAt: timing.expiresAt,
+            absoluteExpiresAt: timing.absoluteExpiresAt
         });
 
         auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });
 
         // ✅ สร้าง HttpOnly Cookie สำหรับ Google Login
-        res.cookie('token', jwtToken, authCookieOptions({ maxAge: expiresInMs }));
+        res.cookie('token', jwtToken, authCookieOptions({ maxAge: timing.cookieMaxAgeMs }));
+        const csrfToken = setCsrfCookie(res);
 
         res.json({
             success: true, // ✅ ไม่ต้องส่ง token กลับไปแล้ว
+            csrfToken,
+            session: {
+                expiresAt: timing.expiresAt,
+                absoluteExpiresAt: timing.absoluteExpiresAt,
+                refreshThresholdMs: timing.refreshThresholdMs
+            },
             admin: {
                 id: admin._id, username: admin.username, role: admin.role,
-                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl
+                email: admin.email, fullName: admin.fullName, avatarUrl: admin.avatarUrl,
+                mustChangePassword: admin.mustChangePassword === true
             }
         });
 
@@ -207,7 +247,11 @@ exports.requestPasswordReset = async (req, res) => {
 
         if (!admin || !admin.email) {
             auditLog({ req, action: 'REQUEST_RESET_PWD_UNKNOWN', detail: 'Reset requested for unknown/no-email account' });
-            return res.json({ success: true, message: 'หากพบบัญชีในระบบ ระบบจะส่ง OTP ไปยังอีเมลที่ลงทะเบียนไว้' });
+            return res.json({
+                success: true,
+                message: 'หากพบบัญชีในระบบ ระบบจะส่ง OTP ไปยังอีเมลที่ลงทะเบียนไว้',
+                ref: generateRef()
+            });
         }
 
         const otp = generateOTP(); 
@@ -217,6 +261,7 @@ exports.requestPasswordReset = async (req, res) => {
         admin.resetPasswordOtp = hashOTP(otp);
         admin.resetPasswordRef = ref;
         admin.resetPasswordExpires = expiresAt;
+        admin.resetPasswordAttempts = 0;
         await admin.save();
 
         const htmlContent = getOtpTemplate(otp, ref, admin.username, 'ลืมรหัสผ่าน');
@@ -244,8 +289,13 @@ exports.resetPasswordWithOtp = async (req, res) => {
 
         if (!admin) return res.status(400).json({ error: 'ข้อมูลยืนยันไม่ถูกต้อง' });
         if (!isStrongPassword(newPassword)) return res.status(400).json({ error: 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร' });
+        if ((admin.resetPasswordAttempts || 0) >= 5) {
+            return res.status(429).json({ error: 'กรอกรหัส OTP ผิดเกินกำหนด กรุณาขอรหัสใหม่' });
+        }
 
         if (!verifyOTP(otp, admin.resetPasswordOtp)) {
+            admin.resetPasswordAttempts = (admin.resetPasswordAttempts || 0) + 1;
+            await admin.save();
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
         if (!admin.resetPasswordExpires || admin.resetPasswordExpires < new Date()) {
@@ -257,7 +307,10 @@ exports.resetPasswordWithOtp = async (req, res) => {
         admin.resetPasswordOtp = undefined;
         admin.resetPasswordRef = undefined;
         admin.resetPasswordExpires = undefined;
+        admin.resetPasswordAttempts = 0;
+        admin.mustChangePassword = false;
         await admin.save();
+        await Session.updateMany({ userId: admin._id }, { revoked: true });
 
         auditLog({ req, action: 'RESET_PWD_SUCCESS', detail: `User: ${admin.username}` });
         res.json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' });

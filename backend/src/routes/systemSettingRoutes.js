@@ -6,6 +6,7 @@ const requireAdmin = require('../middleware/requireAdmin');
 
 // Public - ไว้ให้ฝั่งหน้าเว็บเช็คสถานะการเปิด-ปิดได้
 router.get('/', systemSettingController.getSettings);
+router.get('/event-years', systemSettingController.getEventYears);
 
 // Admin Only
 router.put('/', auth, requireAdmin, systemSettingController.updateSettings);

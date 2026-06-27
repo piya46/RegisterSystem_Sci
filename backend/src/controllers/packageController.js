@@ -1,6 +1,7 @@
 const Package = require('../models/Package');
 const auditLog = require('../helpers/auditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 const PACKAGE_FIELDS = [
   'name',
@@ -10,13 +11,15 @@ const PACKAGE_FIELDS = [
   'orderDeadline',
   'pickupLocations',
   'isDeliveryAvailable',
-  'isActive'
+  'isActive',
+  'eventYear'
 ];
 
 // ดึงแพ็กเกจทั้งหมด (ใช้ได้ทั้ง User และ Admin)
 exports.getAllPackages = async (req, res) => {
   try {
-    const packages = await Package.find({ isActive: true });
+    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
+    const packages = await Package.find(applyEventYearFilter({ isActive: true }, eventYear));
     res.json({ success: true, data: packages });
   } catch (error) {
     serverError(res);
@@ -27,6 +30,7 @@ exports.getAllPackages = async (req, res) => {
 exports.createPackage = async (req, res) => {
   try {
     const payload = pickAllowed(req.body, PACKAGE_FIELDS);
+    payload.eventYear = normalizeEventYear(payload.eventYear || await getCurrentEventYear());
     const newPackage = await Package.create(payload);
     auditLog({ req, action: 'CREATE_PACKAGE', detail: `Created package: ${newPackage.name}` });
     res.status(201).json({ success: true, data: newPackage });
@@ -39,6 +43,7 @@ exports.createPackage = async (req, res) => {
 exports.updatePackage = async (req, res) => {
   try {
     const updates = pickAllowed(req.body, PACKAGE_FIELDS);
+    if (updates.eventYear !== undefined) updates.eventYear = normalizeEventYear(updates.eventYear);
     const updatedPackage = await Package.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!updatedPackage) return res.status(404).json({ error: 'ไม่พบแพ็กเกจ' });
     auditLog({ req, action: 'UPDATE_PACKAGE', detail: `Updated package ID: ${req.params.id}` });

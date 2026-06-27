@@ -1,15 +1,20 @@
 const Participant = require('../models/participant');
 const Admin = require('../models/admin');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
+const { revealParticipantObject } = require('../utils/fieldEncryption');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { serverError } = require('../utils/httpResponses');
 
 exports.getDashboardSummary = async (req, res) => {
   try {
+    const baseFilter = applyEventYearFilter({ isDeleted: false }, await eventYearOrCurrentFromRequest(req));
     // -------- สถิติโดยรวม (รายการ/participant) --------
     const [totalRegistered, checkedIn, cancelled, onlineRegistered, onsiteRegistered] = await Promise.all([
-      Participant.countDocuments({ isDeleted: false }),
-      Participant.countDocuments({ isDeleted: false, status: 'checkedIn' }),
-      Participant.countDocuments({ isDeleted: false, status: 'cancelled' }),
-      Participant.countDocuments({ isDeleted: false, registrationType: 'online' }),
-      Participant.countDocuments({ isDeleted: false, registrationType: 'onsite' })
+      Participant.countDocuments(baseFilter),
+      Participant.countDocuments({ ...baseFilter, status: 'checkedIn' }),
+      Participant.countDocuments({ ...baseFilter, status: 'cancelled' }),
+      Participant.countDocuments({ ...baseFilter, registrationType: 'online' }),
+      Participant.countDocuments({ ...baseFilter, registrationType: 'onsite' })
     ]);
 
     const notCheckedIn = Math.max(0, totalRegistered - checkedIn - cancelled);
@@ -18,7 +23,7 @@ exports.getDashboardSummary = async (req, res) => {
     // -------- Followers รวม และตามสถานะ --------
     // รวมผู้ติดตาม + แยกตามสถานะ
     const followersStat = await Participant.aggregate([
-      { $match: { isDeleted: false } },
+      { $match: baseFilter },
       {
         $group: {
           _id: '$status',
@@ -47,8 +52,8 @@ exports.getDashboardSummary = async (req, res) => {
     const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
     const [newParticipantsLast7Days, newParticipantsPrev7Days] = await Promise.all([
-      Participant.countDocuments({ isDeleted: false, registeredAt: { $gte: sevenDaysAgo } }),
-      Participant.countDocuments({ isDeleted: false, registeredAt: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo } })
+      Participant.countDocuments({ ...baseFilter, registeredAt: { $gte: sevenDaysAgo } }),
+      Participant.countDocuments({ ...baseFilter, registeredAt: { $gte: fourteenDaysAgo, $lt: sevenDaysAgo } })
     ]);
 
     let growthRate = 0;
@@ -60,7 +65,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- Peak Hour (รวมผู้ติดตาม) --------
     const peakHourAgg = await Participant.aggregate([
-      { $match: { isDeleted: false, status: 'checkedIn', checkedInAt: { $ne: null } } },
+      { $match: { ...baseFilter, status: 'checkedIn', checkedInAt: { $ne: null } } },
       {
         $project: {
           hour: { $hour: { date: '$checkedInAt', timezone: 'Asia/Bangkok' } },
@@ -83,7 +88,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- Peak Day (นับรายการลงทะเบียน) --------
     const peakDayAgg = await Participant.aggregate([
-      { $match: { isDeleted: false, registeredAt: { $ne: null } } },
+      { $match: { ...baseFilter, registeredAt: { $ne: null } } },
       {
         $project: {
           day: { $dateToString: { format: '%Y-%m-%d', date: '$registeredAt', timezone: 'Asia/Bangkok' } },
@@ -99,7 +104,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- Check-in by hour (มีทั้ง participantCount และ totalCount) --------
     const checkinByHour = await Participant.aggregate([
-      { $match: { isDeleted: false, status: 'checkedIn', checkedInAt: { $ne: null } } },
+      { $match: { ...baseFilter, status: 'checkedIn', checkedInAt: { $ne: null } } },
       {
         $project: {
           hour: { $hour: { date: '$checkedInAt', timezone: 'Asia/Bangkok' } },
@@ -119,7 +124,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- Registration by day (มีทั้ง count และ totalCount) --------
     const registrationByDay = await Participant.aggregate([
-      { $match: { isDeleted: false, registeredAt: { $ne: null } } },
+      { $match: { ...baseFilter, registeredAt: { $ne: null } } },
       {
         $project: {
           day: { $dateToString: { format: '%Y-%m-%d', date: '$registeredAt', timezone: 'Asia/Bangkok' } },
@@ -139,7 +144,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- By Registration Point (รองรับ OID/สตริง + เคส online/onsite + fallback ชื่อเดิม) --------
     const byRegistrationPoint = await Participant.aggregate([
-      { $match: { isDeleted: false, registeredPoint: { $ne: null } } },
+      { $match: { ...baseFilter, registeredPoint: { $ne: null } } },
 
       // ระบุชนิดค่า: objectId จริง, สตริง 24-hex, หรือสตริงทั่วไป
       {
@@ -287,7 +292,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- By Department --------
     const byDepartment = await Participant.aggregate([
-      { $match: { isDeleted: false, 'fields.dept': { $exists: true, $ne: null } } },
+      { $match: { ...baseFilter, 'fields.dept': { $exists: true, $ne: null } } },
       {
         $group: {
           _id: '$fields.dept',
@@ -316,7 +321,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- By Year --------
     const byYear = await Participant.aggregate([
-      { $match: { isDeleted: false, 'fields.date_year': { $exists: true, $ne: null } } },
+      { $match: { ...baseFilter, 'fields.date_year': { $exists: true, $ne: null } } },
       {
         $group: {
           _id: '$fields.date_year',
@@ -345,7 +350,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- ผู้ใช้ที่เช็คอิน --------
     const checkedInUsers = await Participant.aggregate([
-      { $match: { isDeleted: false, status: 'checkedIn', registeredBy: { $ne: null } } },
+      { $match: { ...baseFilter, status: 'checkedIn', registeredBy: { $ne: null } } },
       { $group: { _id: '$registeredBy', count: { $sum: 1 } } },
       { $lookup: { from: 'admins', localField: '_id', foreignField: '_id', as: 'user' } },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
@@ -355,7 +360,7 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- ผู้ใช้ที่ลงทะเบียน (ทั้งหมด) --------
     const registeredByUsers = await Participant.aggregate([
-      { $match: { isDeleted: false, registeredBy: { $ne: null } } },
+      { $match: { ...baseFilter, registeredBy: { $ne: null } } },
       { $group: { _id: '$registeredBy', count: { $sum: 1 } } },
       { $lookup: { from: 'admins', localField: '_id', foreignField: '_id', as: 'user' } },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
@@ -365,15 +370,24 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- เช็คอินล่าสุด --------
     const lastCheckedInDocs = await Participant.find(
-      { isDeleted: false, status: 'checkedIn' },
+      { ...baseFilter, status: 'checkedIn' },
       { 'fields.name': 1, checkedInAt: 1 }
     ).sort({ checkedInAt: -1 }).limit(10).lean();
 
-    const lastCheckedIn = lastCheckedInDocs.map(d => ({
+    const lastCheckedIn = lastCheckedInDocs.map(revealParticipantObject).map(d => ({
       _id: d._id,
       fullName: d.fields?.name || '-',
       checkedInAt: d.checkedInAt
     }));
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_DASHBOARD_RECENTS',
+      purpose: 'admin_dashboard_recent_checkins',
+      resource: 'participants',
+      eventYear: baseFilter.eventYear,
+      recordCount: lastCheckedIn.length,
+      fields: ['participant.fields.name'],
+    });
 
     // -------- สรุปสถานะรวม (สำหรับวาดโดนัท) --------
     const statusBreakdown = {
@@ -442,6 +456,6 @@ exports.getDashboardSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in getDashboardSummary:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    serverError(res, error);
   }
 };

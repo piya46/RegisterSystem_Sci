@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const logger = require('../utils/logger');
 const CronLog = require('../models/cronLog');
+const Session = require('../models/session');
 const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp');
 const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
@@ -134,6 +135,7 @@ exports.requestActionOtp = async (req, res) => {
         operator.actionOtp = hashOTP(otp);
         operator.actionRef = ref;
         operator.actionExpires = expiresAt;
+        operator.actionAttempts = 0;
         await operator.save();
 
         // ใช้ Template ลูกเสือ
@@ -181,7 +183,13 @@ exports.resetPassword = async (req, res) => {
         }
 
         // ตรวจสอบ OTP ที่ตัว Operator
+        if ((operator.actionAttempts || 0) >= 5) {
+            return res.status(429).json({ error: 'กรอกรหัส OTP ผิดเกินกำหนด กรุณาขอรหัสใหม่' });
+        }
+
         if (!verifyOTP(otp, operator.actionOtp)) {
+            operator.actionAttempts = (operator.actionAttempts || 0) + 1;
+            await operator.save();
             return res.status(400).json({ error: 'รหัส OTP ไม่ถูกต้อง' });
         }
         if (!operator.actionExpires || operator.actionExpires < new Date()) {
@@ -191,13 +199,16 @@ exports.resetPassword = async (req, res) => {
         // ใช้แล้วลบทิ้ง
         operator.actionOtp = undefined;
         operator.actionExpires = undefined;
+        operator.actionAttempts = 0;
         await operator.save();
     } 
     // 🔓 กรณีแก้ให้ Staff/Kiosk: ไม่ต้องทำอะไรเพิ่ม (ผ่านได้เลย)
 
     // บันทึกรหัสผ่านใหม่
     targetUser.passwordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
+    targetUser.mustChangePassword = true;
     await targetUser.save();
+    await Session.updateMany({ userId: targetUser._id }, { revoked: true });
 
     auditLog({ 
         req, 
@@ -207,7 +218,7 @@ exports.resetPassword = async (req, res) => {
     
     // ส่งอีเมลแจ้งเจ้าตัวว่ารหัสเปลี่ยนแล้ว
     try {
-      await sendResetPasswordMail(targetUser.email, newPassword, targetUser.username);
+      await sendResetPasswordMail(targetUser.email, targetUser.username);
     } catch (e) { console.error("Email fail:", e); }
 
     res.json({ message: 'เปลี่ยนรหัสผ่านสำเร็จ (ส่งอีเมลแจ้งเรียบร้อย)' });
@@ -236,6 +247,7 @@ exports.changePassword = async (req, res) => {
     }
 
     admin.passwordHash = await bcrypt.hash(newPassword, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
+    admin.mustChangePassword = false;
     await admin.save();
 
     auditLog({ req, action: 'CHANGE_PASSWORD', detail: `User=${admin.username}` });
@@ -290,14 +302,12 @@ exports.uploadAvatar = async (req, res) => {
     const admin = await Admin.findById(req.user._id);
     if (!admin) return res.status(404).json({ error: "User not found" });
 
-
     if (admin.avatarUrl) {
-    const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
-    if (fs.existsSync(oldPath)) {
+      const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
+      if (fs.existsSync(oldPath)) {
         fs.unlinkSync(oldPath);
+      }
     }
-}
-
 
     admin.avatarUrl = req.file.filename;
     await admin.save();

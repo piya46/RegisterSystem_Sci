@@ -2,9 +2,12 @@ const Donation = require('../models/Donation');
 const Package = require('../models/Package'); // [เพิ่ม] เรียกใช้ Package Model
 const { sendLineDonationAlert } = require('../utils/lineNotify');
 const auditLog = require('../helpers/auditLog'); 
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const verifyTurnstile = require('../utils/verifyTurnstile');
 const isAdmin = require('../helpers/isAdmin');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { protectDonationPayload, revealDonationObject } = require('../utils/fieldEncryption');
 
 const DONATION_FIELDS = [
   'firstName',
@@ -18,7 +21,8 @@ const DONATION_FIELDS = [
   'slipUrl',
   'address',
   'pickupMethod',
-  'pickupLocation'
+  'pickupLocation',
+  'eventYear'
 ];
 
 function trimString(value) {
@@ -46,6 +50,7 @@ exports.createDonation = async (req, res) => {
     const numericAmount = Number(amount);
     const transferDate = new Date(transferDateTime);
     const packageSelected = isPackage === true || isPackage === 'true';
+    const eventYear = normalizeEventYear(req.body.eventYear || await getCurrentEventYear());
 
     if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) return res.status(400).json({ message: 'จำนวนเงินต้องมากกว่า 0' });
@@ -56,7 +61,7 @@ exports.createDonation = async (req, res) => {
     if (packageSelected) {
       if (!packageType || !size) return res.status(400).json({ message: 'กรุณาระบุแพ็กเกจและขนาด' });
 
-      const selectedPackage = await Package.findOne({ name: packageType, isActive: true });
+      const selectedPackage = await Package.findOne({ name: packageType, eventYear, isActive: true });
       if (!selectedPackage) return res.status(400).json({ message: 'ไม่พบแพ็กเกจที่เลือก หรือแพ็กเกจถูกปิดใช้งานแล้ว' });
       if (selectedPackage.orderDeadline && selectedPackage.orderDeadline < new Date()) {
         return res.status(400).json({ message: 'หมดเวลาสั่งแพ็กเกจนี้แล้ว' });
@@ -70,7 +75,7 @@ exports.createDonation = async (req, res) => {
       }
     }
 
-    const newDonation = new Donation({
+    const donationPayload = {
       firstName: String(firstName).trim(),
       lastName: String(lastName).trim(),
       amount: numericAmount,
@@ -82,47 +87,63 @@ exports.createDonation = async (req, res) => {
       slipUrl: trimString(slipUrl) || "",
       address: trimString(address) || "",
       pickupMethod: pickupMethod || "",
-      pickupLocation: trimString(pickupLocation) || ""
-    });
+      pickupLocation: trimString(pickupLocation) || "",
+      eventYear
+    };
+
+    const newDonation = new Donation(protectDonationPayload(donationPayload));
 
     const savedDonation = await newDonation.save();
 
     // [เพิ่ม] ตัดสต๊อกเสื้อ
     if (packageSelected && packageType && size) {
       await Package.findOneAndUpdate(
-        { name: packageType, "items.sizes.size": size },
+        { name: packageType, eventYear, "items.sizes.size": size },
         { $inc: { "items.$[].sizes.$[sizeElem].sold": 1 } },
         { arrayFilters: [{ "sizeElem.size": size }] }
       );
     }
 
-    await sendLineDonationAlert(savedDonation);
-    auditLog({ req, action: 'CREATE_DONATION', detail: `Donation received: ${amount} THB from ${firstName} ${lastName}`, status: 201 });
-    res.status(201).json({ success: true, message: 'บันทึกข้อมูลและแจ้งเตือนสำเร็จ', data: savedDonation });
+    const safeDonation = revealDonationObject(savedDonation);
+    await sendLineDonationAlert(safeDonation);
+    auditLog({ req, action: 'CREATE_DONATION', detail: `Donation received: ${numericAmount} THB`, status: 201 });
+    res.status(201).json({ success: true, message: 'บันทึกข้อมูลและแจ้งเตือนสำเร็จ', data: safeDonation });
   } catch (error) {
     console.error(error);
     auditLog({ req, action: 'CREATE_DONATION_ERROR', detail: 'Failed to create donation', status: 500, error: error.message });
-    serverError(res);
+    serverError(res, error);
   }
 };
 
 exports.getDonationSummary = async (req, res) => {
   try {
-    const donations = await Donation.find().sort({ createdAt: -1 });
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const donations = (await Donation.find(applyEventYearFilter({}, eventYear)).sort({ createdAt: -1 }))
+      .map(revealDonationObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_DONATION_SUMMARY',
+      purpose: 'admin_donation_summary',
+      resource: 'donations',
+      eventYear,
+      recordCount: donations.length,
+      fields: ['donation.firstName', 'donation.lastName', 'donation.address', 'donation.slipUrl'],
+    });
     const totalAmount = donations.reduce((sum, item) => sum + item.amount, 0);
     const preRegisterTotal = donations.filter(d => d.source === 'PRE_REGISTER').reduce((sum, item) => sum + item.amount, 0);
     const supportSystemTotal = donations.filter(d => d.source === 'SUPPORT_SYSTEM').reduce((sum, item) => sum + item.amount, 0);
     res.json({ success: true, stats: { totalAmount, totalCount: donations.length, breakdown: { preRegister: { count: donations.filter(d => d.source === 'PRE_REGISTER').length, amount: preRegisterTotal }, supportSystem: { count: donations.filter(d => d.source === 'SUPPORT_SYSTEM').length, amount: supportSystemTotal } } }, transactions: donations });
-  } catch (error) { res.status(500).json({ message: 'Error fetching summary' }); }
+  } catch (error) { serverError(res, error); }
 };
 
 exports.updateDonation = async (req, res) => {
   try {
     const updates = pickAllowed(req.body, DONATION_FIELDS);
-    const updatedDonation = await Donation.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
+    if (updates.eventYear !== undefined) updates.eventYear = normalizeEventYear(updates.eventYear);
+    const updatedDonation = await Donation.findByIdAndUpdate(req.params.id, { $set: protectDonationPayload(updates) }, { new: true, runValidators: true });
     if (!updatedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
-    res.json({ success: true, message: 'อัปเดตสำเร็จ', data: updatedDonation });
-  } catch (error) { serverError(res, 'Error updating donation'); }
+    res.json({ success: true, message: 'อัปเดตสำเร็จ', data: revealDonationObject(updatedDonation) });
+  } catch (error) { serverError(res, error); }
 };
 
 exports.deleteDonation = async (req, res) => {
@@ -130,5 +151,5 @@ exports.deleteDonation = async (req, res) => {
     const deletedDonation = await Donation.findByIdAndDelete(req.params.id);
     if (!deletedDonation) return res.status(404).json({ message: 'ไม่พบรายการสนับสนุน' });
     res.json({ success: true, message: 'ลบรายการสำเร็จ' });
-  } catch (error) { serverError(res, 'Error deleting donation'); }
+  } catch (error) { serverError(res, error); }
 };

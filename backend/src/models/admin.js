@@ -14,9 +14,12 @@ const adminSchema = new mongoose.Schema({
     resetPasswordOtp: { type: String },
     resetPasswordRef: { type: String },
     resetPasswordExpires: { type: Date },
+    resetPasswordAttempts: { type: Number, default: 0 },
     actionOtp: { type: String },
   actionRef: { type: String },
-  actionExpires: { type: Date }
+  actionExpires: { type: Date },
+  actionAttempts: { type: Number, default: 0 },
+  mustChangePassword: { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('Admin', adminSchema);

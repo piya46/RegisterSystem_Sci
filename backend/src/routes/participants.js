@@ -9,6 +9,8 @@ const participantController = require('../controllers/participantController');
 const { getReportData } = require('../services/reportService');
 const { generatePDF } = require('../utils/pdfGenerator');
 const { serverError } = require('../utils/httpResponses');
+const { eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 
 // 1. ลงทะเบียนล่วงหน้า (public ไม่ต้องล็อกอิน)
 router.post('/public', participantController.createParticipant);
@@ -19,6 +21,7 @@ router.post('/register-onsite', auth, requireRegistrationActor, participantContr
 // 3. ตรวจสอบ/ค้นหา/รายงาน (admin เท่านั้น)
 router.get('/', auth, requireAdmin, participantController.listParticipants);
 router.get('/search', auth, requireStaffOrAdmin, participantController.searchParticipants);
+router.put('/restore-prize/:id', auth, requireAdmin, participantController.restorePrizeRight);
 router.put('/:id', auth, requireAdmin, participantController.updateParticipant);
 router.delete('/:id', auth, requireAdmin, participantController.deleteParticipant);
 
@@ -32,7 +35,18 @@ router.get('/export', auth, requireAdmin, participantController.exportParticipan
 
 router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
   try {
-    const data = await getReportData();
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const data = await getReportData(eventYear);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_EXPORT_REPORT_PDF',
+      purpose: 'admin_pdf_report',
+      resource: 'participants,donations',
+      eventYear,
+      recordCount: data.count || 0,
+      fields: ['participant.fields', 'participant.specialAssistance', 'donation.name', 'donation.amount'],
+      extra: { format: 'pdf' },
+    });
     const pdfBuffer = await generatePDF(data, req.user.username);
     
     res.set({
@@ -41,10 +55,8 @@ router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
     });
     res.send(pdfBuffer);
   } catch (err) {
-    serverError(res);
+    serverError(res, err);
   }
 });
-
-router.put('/restore-prize/:id', auth, requireAdmin, participantController.restorePrizeRight);
 
 module.exports = router;

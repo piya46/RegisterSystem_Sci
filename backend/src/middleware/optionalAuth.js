@@ -1,7 +1,6 @@
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/admin');
-const Session = require('../models/session');
-const { hashSessionToken } = require('../utils/sessionToken');
+const { findSessionByToken } = require('../utils/sessionLookup');
 
 module.exports = async function optionalAuth(req, res, next) {
   const bearer = req.headers.authorization?.startsWith('Bearer ')
@@ -15,20 +14,15 @@ module.exports = async function optionalAuth(req, res, next) {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (payload.role === 'kiosk_device' || payload.role === 'self_register_session') return next();
 
-    const tokenHash = hashSessionToken(token);
-    let session = await Session.findOne({ tokenHash }).select('+token +tokenHash');
+    const { session } = await findSessionByToken(token);
 
-    if (!session) {
-      session = await Session.findOne({ token }).select('+token +tokenHash');
-      if (session && !session.tokenHash) {
-        await Session.updateOne(
-          { _id: session._id },
-          { $set: { tokenHash }, $unset: { token: 1 } }
-        );
-      }
-    }
-
-    if (!session || session.revoked || (session.expiresAt && session.expiresAt < new Date())) {
+    const now = new Date();
+    if (
+      !session ||
+      session.revoked ||
+      (session.absoluteExpiresAt && session.absoluteExpiresAt < now) ||
+      (session.expiresAt && session.expiresAt < now)
+    ) {
       return next();
     }
 

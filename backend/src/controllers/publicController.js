@@ -4,10 +4,32 @@ const Participant = require('../models/participant');
 const Admin = require('../models/admin');
 const RegistrationPoint = require('../models/registrationPoint');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError } = require('../utils/httpResponses');
+const { applyEventYearFilter, eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { revealParticipantObject } = require('../utils/fieldEncryption');
 
 const TOKEN_ISSUER = 'psevent';
 const MAX_SELF_REGISTER_WINDOW_MS = 24 * 60 * 60 * 1000;
+const PUBLIC_CACHE_TTL_MS = Number(process.env.PUBLIC_CACHE_TTL_MS || 30000);
+const publicCache = new Map();
+
+function cacheKey(req, name, eventYear) {
+  return `${name}:${eventYear || 'current'}:${req.originalUrl || req.url}`;
+}
+
+function getCached(key) {
+  const entry = publicCache.get(key);
+  if (!entry || entry.expiresAt < Date.now()) {
+    publicCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCached(key, value) {
+  publicCache.set(key, { value, expiresAt: Date.now() + PUBLIC_CACHE_TTL_MS });
+}
 
 async function assertPointAccess(user, pointId, res) {
   const point = await RegistrationPoint.findById(pointId);
@@ -36,34 +58,70 @@ exports.generateKioskToken = async (req, res) => {
       { expiresIn: '12h', audience: 'kiosk-device', issuer: TOKEN_ISSUER }
     );
     res.json({ token });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+  } catch (err) { serverError(res, err); }
 };
 
 exports.getPublicReport = async (req, res) => {
   try {
-    const participants = await Participant.find({ isDeleted: false, status: 'checkedIn' }, 'fields.name fields.department registeredPoint checkedInAt tags').lean();
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const key = cacheKey(req, 'publicReport', eventYear);
+    const cached = getCached(key);
+    if (cached) return res.json(cached);
+
+    const filter = applyEventYearFilter({ isDeleted: false, status: 'checkedIn' }, eventYear);
+    const participants = (await Participant.find(filter, 'fields.name fields.fullName fields.fullname fields.department fields.dept registeredPoint checkedInAt tags').lean())
+      .map(revealParticipantObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PUBLIC_REPORT_MASKED',
+      purpose: 'public_masked_report',
+      resource: 'participants',
+      eventYear,
+      recordCount: participants.length,
+      fields: ['participant.fields.name'],
+      extra: { masked: true },
+    });
 
     const maskedData = participants.map(p => {
-      let maskedName = p.fields?.name ? p.fields.name.substring(0, 3) + '***' : 'Unknown';
+      const name = p.fields?.name || p.fields?.fullName || p.fields?.fullname || '';
+      let maskedName = name ? name.substring(0, 3) + '***' : 'Unknown';
       return {
         name: maskedName,
-        department: p.fields?.department || '',
+        department: p.fields?.department || p.fields?.dept || '',
         point: p.registeredPoint,
         checkedInAt: p.checkedInAt,
         tags: p.tags || []
       };
     });
 
-    res.json({ totalCheckedIn: maskedData.length, data: maskedData });
-  } catch (err) { res.status(500).json({ error: 'Server error' }); }
+    const payload = { totalCheckedIn: maskedData.length, data: maskedData };
+    setCached(key, payload);
+    res.json(payload);
+  } catch (err) { serverError(res, err); }
 };
 
 exports.getPublicDashboardStats = async (req, res) => {
   try {
-    const participants = await Participant.find(
-      { isDeleted: false, status: 'checkedIn' },
+    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const key = cacheKey(req, 'publicDashboard', eventYear);
+    const cached = getCached(key);
+    if (cached) return res.json(cached);
+
+    const filter = applyEventYearFilter({ isDeleted: false, status: 'checkedIn' }, eventYear);
+    const participants = (await Participant.find(
+      filter,
       'fields.dept fields.date_year followers'
-    ).lean();
+    ).lean()).map(revealParticipantObject);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PUBLIC_DASHBOARD',
+      purpose: 'public_dashboard_stats',
+      resource: 'participants',
+      eventYear,
+      recordCount: participants.length,
+      fields: ['participant.fields.dept', 'participant.fields.date_year'],
+      extra: { aggregateOnly: true },
+    });
 
     let totalCheckedIn = participants.length;
     let totalFollowers = 0;
@@ -78,16 +136,18 @@ exports.getPublicDashboardStats = async (req, res) => {
       yearCount[year] = (yearCount[year] || 0) + 1;
     });
 
-    res.json({
+    const payload = {
       totalCheckedIn,
       totalFollowers,
       totalAttendees: totalCheckedIn + totalFollowers,
       deptStats: Object.keys(deptCount).map(k => ({ name: k, count: deptCount[k] })).sort((a, b) => b.count - a.count),
       yearStats: Object.keys(yearCount).map(k => ({ name: k, count: yearCount[k] })).sort((a, b) => b.count - a.count),
       updatedAt: new Date()
-    });
+    };
+    setCached(key, payload);
+    res.json(payload);
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    serverError(res, err);
   }
 };
 
@@ -143,7 +203,7 @@ exports.generateSelfRegisterLink = async (req, res) => {
     });
     res.json({ token: masterToken });
   } catch (err) {
-    serverError(res, 'ไม่สามารถสร้างลิงก์ได้');
+    serverError(res, err);
   }
 };
 

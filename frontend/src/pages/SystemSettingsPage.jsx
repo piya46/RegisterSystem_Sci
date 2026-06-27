@@ -1,5 +1,5 @@
 // src/pages/SystemSettingsPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Button, Stack, TextField, Switch, 
   FormControlLabel, Snackbar, Alert, Divider, CircularProgress, Tabs, Tab, 
@@ -32,6 +32,7 @@ import {
   createParticipantField, updateParticipantField, deleteParticipantField, 
   listPackages, createPackage, updatePackage, deletePackage 
 } from "../utils/api";
+import EventYearSelect from "../components/EventYearSelect";
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", glass: "rgba(255, 255, 255, 0.85)", glassBorder: "rgba(255, 193, 7, 0.3)", text: "#4E342E", success: "#00C853", error: "#D32F2F" };
 const gradientAnimation = keyframes` 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } `;
@@ -54,10 +55,11 @@ export default function SystemSettingsPage() {
   const [settings, setSettings] = useState({
     eventName: "", enableRegister: true, maintenanceMode: false, contactEmail: "", welcomeMessage: "",
     preRegStartDate: "", preRegEndDate: "", kioskStartDate: "", kioskEndDate: "",
-    enablePickup: true, enableDelivery: true
+    enablePickup: true, enableDelivery: true, currentEventYear: String(new Date().getFullYear())
   });
   
   const [packages, setPackages] = useState([]);
+  const [packageEventYear, setPackageEventYear] = useState("");
   const [pkgDialog, setPkgDialog] = useState({ open: false, data: null });
   const [fields, setFields] = useState([]);
   const [fieldDialog, setFieldDialog] = useState({ open: false, data: null });
@@ -84,9 +86,11 @@ export default function SystemSettingsPage() {
             preRegEndDate: toLocalDatetimeInput(d.preRegEndDate),
             kioskStartDate: toLocalDatetimeInput(d.kioskStartDate),
             kioskEndDate: toLocalDatetimeInput(d.kioskEndDate),
+            currentEventYear: d.currentEventYear || String(new Date().getFullYear()),
             enablePickup: d.enablePickup ?? true,      
             enableDelivery: d.enableDelivery ?? true   
         });
+        setPackageEventYear(prev => prev || d.currentEventYear || String(new Date().getFullYear()));
       }
       setFields(resFields.data || []);
       setPackages(resPackages.data?.data || []);
@@ -120,9 +124,13 @@ export default function SystemSettingsPage() {
 
   const handleFieldSave = async (field) => { try { if (field._id) { await updateParticipantField(field._id, field); } else { await createParticipantField(field); } const res = await listParticipantFields(); setFields(res.data); setFieldDialog({ open: false, data: null }); setSnackbar({ open: true, message: "บันทึกฟิลด์สำเร็จ", severity: "success" }); } catch { setSnackbar({ open: true, message: "บันทึกฟิลด์ไม่สำเร็จ", severity: "error" }); } };
   const handleFieldDelete = async (id) => { if (!window.confirm("คุณแน่ใจหรือไม่ที่จะลบฟิลด์นี้? ข้อมูลของผู้ใช้อาจได้รับผลกระทบ")) return; try { await deleteParticipantField(id); const res = await listParticipantFields(); setFields(res.data); setSnackbar({ open: true, message: "ลบฟิลด์เรียบร้อย", severity: "success" }); } catch { setSnackbar({ open: true, message: "ลบฟิลด์ไม่สำเร็จ", severity: "error" }); } };
-  const loadPackages = async () => { const res = await listPackages(); setPackages(res.data?.data || []); };
-  const handleSavePackage = async (payload) => { try { if (payload._id) await updatePackage(payload._id, payload); else await createPackage(payload); setSnackbar({ open: true, message: "บันทึกแพ็กเกจสำเร็จ", severity: "success" }); setPkgDialog({ open: false, data: null }); loadPackages(); } catch { setSnackbar({ open: true, message: "บันทึกแพ็กเกจไม่สำเร็จ", severity: "error" }); } };
+  const loadPackages = useCallback(async () => { const res = await listPackages(packageEventYear ? { eventYear: packageEventYear } : undefined); setPackages(res.data?.data || []); }, [packageEventYear]);
+  const handleSavePackage = async (payload) => { try { const packagePayload = { ...payload, eventYear: payload.eventYear || packageEventYear || settings.currentEventYear }; if (packagePayload._id) await updatePackage(packagePayload._id, packagePayload); else await createPackage(packagePayload); setSnackbar({ open: true, message: "บันทึกแพ็กเกจสำเร็จ", severity: "success" }); setPkgDialog({ open: false, data: null }); loadPackages(); } catch { setSnackbar({ open: true, message: "บันทึกแพ็กเกจไม่สำเร็จ", severity: "error" }); } };
   const handleDeletePackage = async (id) => { if(!window.confirm("ต้องการลบแพ็กเกจนี้ใช่หรือไม่?")) return; try { await deletePackage(id); setSnackbar({ open: true, message: "ลบแพ็กเกจสำเร็จ", severity: "success" }); loadPackages(); } catch { setSnackbar({ open: true, message: "ลบแพ็กเกจไม่สำเร็จ", severity: "error" }); } };
+
+  useEffect(() => {
+    if (!fetching && user) loadPackages();
+  }, [fetching, loadPackages, user]);
 
   if (loading || fetching) return ( <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: Y.light }}><Stack spacing={2} alignItems="center"><CircularProgress sx={{ color: Y.main }} /><Typography color="text.secondary" fontWeight={600}>กำลังโหลดการตั้งค่าระบบ...</Typography></Stack></Box> );
 
@@ -154,6 +162,7 @@ export default function SystemSettingsPage() {
                           <Divider sx={{ mb: 4 }} />
                           <Stack spacing={4}>
                             <TextField label="ชื่องานอีเวนต์" name="eventName" value={settings.eventName} onChange={handleSettingsChange} fullWidth sx={inputStyle} />
+                            <TextField label="ปี/รอบกิจกรรมปัจจุบัน" name="currentEventYear" value={settings.currentEventYear || ""} onChange={handleSettingsChange} fullWidth helperText="ข้อมูลใหม่ เช่น ผู้เข้าร่วม แพ็กเกจ รางวัล และรายการสนับสนุน จะถูกผูกกับปีนี้" sx={inputStyle} />
                             <TextField label="อีเมลติดต่อ (สำหรับให้ผู้เข้าร่วมติดต่อ)" name="contactEmail" value={settings.contactEmail} onChange={handleSettingsChange} fullWidth InputProps={{ startAdornment: <InputAdornment position="start"><EmailIcon color="action"/></InputAdornment> }} sx={inputStyle} />
                             
                             <Box pt={1}>
@@ -238,7 +247,7 @@ export default function SystemSettingsPage() {
                 {/* Tab 2: Packages */}
                 {tab === 2 && (
                   <Box>
-                     <Box mb={4} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}><Box><Typography variant="h5" fontWeight="800" color={Y.text}>แพ็กเกจสนับสนุนและสต๊อก</Typography><Typography variant="body1" color="text.secondary">จัดการแพ็กเกจ ราคา และจำนวนไซส์เสื้อที่รองรับ</Typography></Box><PulseButton variant="contained" size="large" startIcon={<AddCircleOutlineIcon />} onClick={() => setPkgDialog({ open: true, data: null })} sx={{ bgcolor: Y.dark, color: '#fff', px: 3, ":hover": { bgcolor: '#000' } }}>เพิ่มแพ็กเกจใหม่</PulseButton></Box>
+                     <Box mb={4} display="flex" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={2}><Box><Typography variant="h5" fontWeight="800" color={Y.text}>แพ็กเกจสนับสนุนและสต๊อก</Typography><Typography variant="body1" color="text.secondary">จัดการแพ็กเกจ ราคา และจำนวนไซส์เสื้อที่รองรับ</Typography></Box><Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap><EventYearSelect value={packageEventYear} onChange={setPackageEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} /><PulseButton variant="contained" size="large" startIcon={<AddCircleOutlineIcon />} onClick={() => setPkgDialog({ open: true, data: null })} sx={{ bgcolor: Y.dark, color: '#fff', px: 3, ":hover": { bgcolor: '#000' } }}>เพิ่มแพ็กเกจใหม่</PulseButton></Stack></Box>
                     <Grid container spacing={3}>
                         {packages.map((pkg) => (
                             <Grid item xs={12} sm={6} md={4} lg={3} xl={3} key={pkg._id}>
@@ -265,7 +274,7 @@ export default function SystemSettingsPage() {
         </Fade>
       </Box>
       <FieldDialog open={fieldDialog.open} data={fieldDialog.data} onClose={() => setFieldDialog({ open: false, data: null })} onSave={handleFieldSave} />
-      <PackageDialog open={pkgDialog.open} data={pkgDialog.data} onClose={() => setPkgDialog({ open: false, data: null })} onSave={handleSavePackage} />
+      <PackageDialog open={pkgDialog.open} data={pkgDialog.data} eventYear={packageEventYear || settings.currentEventYear} onClose={() => setPkgDialog({ open: false, data: null })} onSave={handleSavePackage} />
       <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}><Alert severity={snackbar.severity} variant="filled" sx={{ borderRadius: '12px', fontWeight: 600, boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>{snackbar.message}</Alert></Snackbar>
     </Box>
   );
@@ -295,10 +304,10 @@ function FieldDialog({ open, data, onClose, onSave }) {
   );
 }
 
-function PackageDialog({ open, data, onClose, onSave }) {
+function PackageDialog({ open, data, eventYear, onClose, onSave }) {
     const [name, setName] = useState(""); const [price, setPrice] = useState(""); const [desc, setDesc] = useState(""); const [sizesStr, setSizesStr] = useState("S=100, M=100, L=100, XL=100");
     useEffect(() => { if (open) { setName(data?.name || ""); setPrice(data?.price || ""); setDesc(data?.description || ""); if (data?.items?.[0]?.sizes) setSizesStr(data.items[0].sizes.map(s => `${s.size}=${s.stock}`).join(", ")); else setSizesStr("S=100, M=100, L=100, XL=100"); } }, [data, open]);
-    const handleSubmit = (e) => { e.preventDefault(); const sizeArray = sizesStr.split(",").map(str => { const [sz, stk] = str.split("="); return { size: sz?.trim(), stock: parseInt(stk?.trim()) || 0, sold: 0 }; }).filter(s => s.size); onSave({ ...(data && { _id: data._id }), name, price: Number(price), description: desc, items: [{ itemName: "เสื้อ", sizes: sizeArray }], isActive: true }); };
+    const handleSubmit = (e) => { e.preventDefault(); const sizeArray = sizesStr.split(",").map(str => { const [sz, stk] = str.split("="); return { size: sz?.trim(), stock: parseInt(stk?.trim()) || 0, sold: 0 }; }).filter(s => s.size); onSave({ ...(data && { _id: data._id }), name, price: Number(price), description: desc, eventYear: data?.eventYear || eventYear, items: [{ itemName: "เสื้อ", sizes: sizeArray }], isActive: true }); };
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: '28px', p: 1 } }} TransitionComponent={Slide} TransitionProps={{ direction: "up" }}>
             <form onSubmit={handleSubmit}>
@@ -306,6 +315,7 @@ function PackageDialog({ open, data, onClose, onSave }) {
                 <DialogContent sx={{ px: { xs: 3, sm: 5 }, pb: 3 }}>
                     <Stack spacing={3} mt={1}>
                         <TextField label="ชื่อแพ็กเกจ" required fullWidth value={name} onChange={e => setName(e.target.value)} sx={inputStyle} />
+                        <TextField label="ปีงาน" fullWidth value={data?.eventYear || eventYear || ""} disabled sx={inputStyle} />
                         <TextField label="ราคา (บาท)" type="number" required fullWidth value={price} onChange={e => setPrice(e.target.value)} sx={inputStyle} InputProps={{ startAdornment: <InputAdornment position="start">฿</InputAdornment> }} />
                         <TextField label="รายละเอียดแพ็กเกจ" multiline rows={3} fullWidth value={desc} onChange={e => setDesc(e.target.value)} sx={inputStyle} />
                         <TextField label="ไซส์และจำนวนสต๊อก" required fullWidth value={sizesStr} onChange={e => setSizesStr(e.target.value)} sx={inputStyle} helperText="รูปแบบการพิมพ์: ไซส์=จำนวน คั่นด้วยลูกน้ำ (เช่น S=100, M=150, L=50)" />

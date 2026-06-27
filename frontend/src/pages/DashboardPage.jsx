@@ -1,5 +1,5 @@
 // frontend/src/pages/DashboardPage.jsx
-import React, { useEffect, useState, useRef, useMemo } from "react";
+import React, { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import useAuth from "../hooks/useAuth";
 import {
   AppBar, Toolbar, Box, Typography, Button, Avatar,
@@ -36,6 +36,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพ�
 
 import { Link } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
+import EventYearSelect from "../components/EventYearSelect";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
 import { downloadCsv } from "../utils/exportCsv";
@@ -149,6 +150,7 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
   const [donationStats, setDonationStats] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [eventYear, setEventYear] = useState('');
 
   const [withFollowers, setWithFollowers] = useState(true);
   const [refreshCountdown, setRefreshCountdown] = useState(60);
@@ -157,29 +159,31 @@ export default function DashboardPage() {
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  async function fetchSummary() {
+  const fetchSummary = useCallback(async () => {
     setLoadingSummary(true);
+    const params = eventYear ? { eventYear } : undefined;
     try {
-      const res = await getDashboardSummary();
+      const res = await getDashboardSummary(params);
       setSummary(res.data);
-      const donRes = await getDonationSummary();
+      const donRes = await getDonationSummary(params);
       setDonationStats(donRes.data);
     } catch (err) {
       console.error("Failed to fetch summary", err);
     }
     setLoadingSummary(false);
     setRefreshCountdown(60);
-  }
+  }, [eventYear]);
 
   const handleSharePublicDashboard = () => {
-    const link = `${window.location.origin}/public/dashboard`;
+    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
+    const link = `${window.location.origin}/public/dashboard${query}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: 'คัดลอกลิงก์ Live Dashboard สำเร็จ! นำไปส่งต่อได้เลย', severity: 'success' });
   };
 
   async function handleDownloadExcel() {
     try {
-      const res = await api.get("/participants", { params: { all: true } });
+      const res = await api.get("/participants", { params: { all: true, ...(eventYear ? { eventYear } : {}) } });
       const participants = Array.isArray(res.data) ? res.data : (res.data.data || []);
       if (participants.length === 0) { alert("ไม่พบข้อมูลสำหรับดาวน์โหลด"); return; }
 
@@ -224,7 +228,7 @@ export default function DashboardPage() {
       });
     }, 1000);
     return () => clearInterval(countdownRef.current);
-  }, []);
+  }, [fetchSummary]);
 
   const mainMenuFiltered = MAIN_MENU.filter(item => item.roles.some(r => roles.includes(r)));
   const manageMenuFiltered = MANAGE_MENU.filter(item => item.roles.some(r => roles.includes(r)));
@@ -332,6 +336,7 @@ export default function DashboardPage() {
             </Box>
 
             <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 }, flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
+              <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ minWidth: 150 }} />
 
               {/* 🌟 [เพิ่ม] ปุ่มเข้าหน้า Lucky Draw */}
               <Button

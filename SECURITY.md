@@ -68,6 +68,93 @@
 * **Bot Protection:** ใช้ **Cloudflare Turnstile** ในหน้า Login และ Pre-registration เพื่อป้องกันบอทและการโจมตีแบบ Spam
 * **Rate Limiting:** จำกัดจำนวน Request เพื่อป้องกัน Brute Force และ DDoS ในระดับ Application Layer
 * **Session Management:** ระบบสามารถ Revoke (ยกเลิก) Session ของผู้ใช้งานได้ทันทีหากพบความผิดปกติ
+* **CSRF Protection:** เมื่อใช้ cookie-based session ระบบใช้ signed double-submit CSRF token (`csrfToken` cookie + `X-CSRF-Token` header) สำหรับคำสั่งที่แก้ไขข้อมูล
+* **Field Encryption:** ข้อมูลอ่อนไหวของผู้เข้าร่วมและผู้สนับสนุนถูกเข้ารหัสระดับ field ด้วย AES-256-GCM เมื่อกำหนด `DATA_ENCRYPTION_KEY` หรือ `DATA_ENCRYPTION_KEYS`
+* **Encrypted Search Tokens:** การค้นหาชื่อ/เบอร์/อีเมลของผู้เข้าร่วมใช้ HMAC search token เพิ่มเติมจาก blind index เพื่อลดการ scan plaintext หลังเปิด field encryption
+* **Sensitive Access Audit:** การ export, report, dashboard recent records, prize winner reveal, resend ticket lookup และงาน key rotation จะถูกบันทึก audit log แบบ metadata-only โดยไม่ใส่ข้อมูลส่วนบุคคลจริงลงใน log
+* **Audit Retention:** `apilogs.createdAt` มี TTL index ค่าเริ่มต้น 365 วัน ปรับได้ด้วย `AUDIT_LOG_RETENTION_DAYS`
+
+ตัวแปรที่ควรตั้งใน production:
+
+```bash
+SESSION_TOKEN_HASH_SECRET=GENERATED_64_BYTE_HEX
+CSRF_SECRET=GENERATED_64_BYTE_HEX
+AUDIT_LOG_RETENTION_DAYS=365
+SENSITIVE_AUDIT_STRICT=true
+SESSION_IDLE_TIMEOUT=30m
+SESSION_REFRESH_THRESHOLD=5m
+SESSION_ABSOLUTE_TIMEOUT=12h
+```
+
+Session policy ใช้ sliding session: หากผู้ใช้ยัง active frontend จะเรียก `/api/sessions/refresh` ก่อนหมดอายุ แต่ session จะไม่ต่ออายุเกิน `SESSION_ABSOLUTE_TIMEOUT`
+
+---
+
+## Field Encryption Key Rotation
+
+ระบบรองรับ key ring ผ่านตัวแปร `DATA_ENCRYPTION_KEYS` และใช้ `DATA_ENCRYPTION_KEY_ID` เป็น active key สำหรับข้อมูลใหม่
+
+ตัวอย่างรูปแบบ key ring:
+
+```bash
+DATA_ENCRYPTION_KEYS='{"v1":"OLD_64_HEX_KEY","v2":"NEW_64_HEX_KEY"}'
+DATA_ENCRYPTION_KEY_ID=v2
+DATA_BLIND_INDEX_SECRET='STABLE_64_HEX_SECRET'
+FIELD_ENCRYPTION_ENABLED=true
+```
+
+ขั้นตอน rotation ที่แนะนำ:
+
+1. สำรอง MongoDB ก่อนทุกครั้ง
+2. เพิ่ม key ใหม่เข้า `DATA_ENCRYPTION_KEYS` โดยยังเก็บ key เก่าไว้
+3. เปลี่ยน `DATA_ENCRYPTION_KEY_ID` เป็น key ใหม่ เช่น `v2`
+4. deploy backend ให้สามารถถอดรหัสได้ทั้ง key เก่าและ key ใหม่
+5. dry-run เพื่อตรวจจำนวน record ที่จะถูก rotate:
+
+```bash
+npm --prefix backend run rotate:field-encryption
+```
+
+6. apply rotation:
+
+```bash
+APPLY=true npm --prefix backend run rotate:field-encryption
+```
+
+7. ตรวจ audit log action `SENSITIVE_KEY_ROTATION_APPLY`
+8. หลังตรวจสอบข้อมูลเรียบร้อยแล้ว จึงค่อยถอด key เก่าออกจาก `DATA_ENCRYPTION_KEYS`
+
+ข้อควรระวัง: `DATA_BLIND_INDEX_SECRET` ต้องคงเดิมหากต้องการให้การค้นหาเบอร์โทร/อีเมลเดิมยังทำงานได้ การ rotate ค่านี้ต้องวางแผน re-index แยกต่างหาก
+
+หลังเปิด encryption กับระบบที่มีข้อมูลเดิม ให้รัน backfill เพื่อเติม `eventYear`, blind index และ search token:
+
+```bash
+npm --prefix backend run backfill:privacy-year
+```
+
+---
+
+## E2EE Position
+
+สถานะปัจจุบันคือ **server-side field encryption** ไม่ใช่ E2EE แท้ เพราะ backend ยังต้องถอดรหัสเพื่อทำ report, export, resend ticket, LINE notification และ dashboard บางส่วน
+
+ถ้าต้องการ E2EE แบบสมบูรณ์ ต้องปรับสถาปัตยกรรมเป็น:
+
+1. เข้ารหัส/ถอดรหัสเฉพาะใน browser หรือ client ที่ถือ key เท่านั้น
+2. backend ห้ามถือ private key หรือ data encryption key สำหรับข้อมูลส่วนบุคคล
+3. export/report/PDF ต้องย้ายไปทำฝั่ง client หลังจากผู้ดูแลปลดล็อก key
+4. การค้นหาต้องใช้ client-generated blind index/search token
+5. email/LINE ที่ต้องใช้ชื่อหรืออีเมลจริงต้องเปลี่ยน flow เพราะ backend จะอ่านข้อมูลนั้นไม่ได้
+
+ห้ามประกาศว่าเป็น E2EE สมบูรณ์หาก backend ยังมี key ที่ใช้ decrypt ข้อมูลส่วนบุคคลได้
+
+สามารถเปิด enforcement guard ได้ด้วย:
+
+```bash
+E2EE_STRICT_MODE=true
+```
+
+เมื่อเปิดค่านี้ backend จะปฏิเสธ server-side decrypt ทั้งหมด ดังนั้น endpoint ที่ยังต้อง export/report/email/LINE ด้วย plaintext จะล้มเหลวตามเจตนา จนกว่าจะย้าย flow เหล่านั้นไป decrypt ฝั่ง client
 
 ---
 

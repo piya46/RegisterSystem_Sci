@@ -1,19 +1,50 @@
 const Prize = require('../models/prize');
 const Participant = require('../models/participant');
+const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
+const { revealParticipantObject } = require('../utils/fieldEncryption');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
-const PRIZE_FIELDS = ['name', 'totalQuantity', 'image'];
+const PRIZE_FIELDS = ['name', 'totalQuantity', 'image', 'eventYear'];
+
+function revealWinnerParticipant(winner) {
+  if (!winner?.participantId || typeof winner.participantId !== 'object') return winner;
+  return {
+    ...winner,
+    participantId: revealParticipantObject(winner.participantId),
+  };
+}
+
+function revealPrize(prize) {
+  const obj = typeof prize.toObject === 'function' ? prize.toObject() : { ...prize };
+  obj.winners = (obj.winners || []).map(revealWinnerParticipant);
+  return obj;
+}
 
 exports.listPrizes = async (req, res) => {
   try {
-    const prizes = await Prize.find().populate('winners.participantId', 'fields.name registeredPoint').sort({ createdAt: -1 });
-    res.json(prizes);
-  } catch (err) { serverError(res); }
+    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
+    const prizes = await Prize.find(applyEventYearFilter({}, eventYear))
+      .populate('winners.participantId', 'fields.name fields.department fields.dept registeredPoint')
+      .sort({ createdAt: -1 });
+    const safePrizes = prizes.map(revealPrize);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PRIZE_WINNERS',
+      purpose: 'admin_prize_winner_list',
+      resource: 'prizes.participants',
+      eventYear,
+      recordCount: safePrizes.reduce((sum, prize) => sum + (prize.winners?.length || 0), 0),
+      fields: ['participant.fields.name', 'participant.fields.department'],
+    });
+    res.json(safePrizes);
+  } catch (err) { serverError(res, err); }
 };
 
 exports.listPublicPrizes = async (req, res) => {
   try {
-    const prizes = await Prize.find()
+    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
+    const prizes = await Prize.find(applyEventYearFilter({}, eventYear))
       .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint')
       .sort({ createdAt: -1 })
       .lean();
@@ -24,7 +55,7 @@ exports.listPublicPrizes = async (req, res) => {
       return cleanName.length <= 3 ? `${cleanName[0]}***` : `${cleanName.slice(0, 3)}***`;
     };
 
-    const safePrizes = prizes.map((prize) => ({
+    const safePrizes = prizes.map(revealPrize).map((prize) => ({
       _id: prize._id,
       name: prize.name,
       totalQuantity: prize.totalQuantity,
@@ -35,10 +66,20 @@ exports.listPublicPrizes = async (req, res) => {
         department: winner.participantId?.fields?.department || winner.participantId?.fields?.dept || ''
       }))
     }));
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PUBLIC_PRIZE_WINNERS_MASKED',
+      purpose: 'public_prize_winner_list',
+      resource: 'prizes.participants',
+      eventYear,
+      recordCount: safePrizes.reduce((sum, prize) => sum + (prize.winners?.length || 0), 0),
+      fields: ['participant.fields.name'],
+      extra: { masked: true },
+    });
 
     res.json(safePrizes);
   } catch (err) {
-    serverError(res);
+    serverError(res, err);
   }
 };
 
@@ -53,17 +94,18 @@ exports.createPrize = async (req, res) => {
       name: payload.name,
       totalQuantity,
       remainingQuantity: totalQuantity,
-      image: payload.image || null
+      image: payload.image || null,
+      eventYear: normalizeEventYear(payload.eventYear || await getCurrentEventYear())
     });
     res.json(prize);
-  } catch (err) { serverError(res); }
+  } catch (err) { serverError(res, err); }
 };
 
 exports.deletePrize = async (req, res) => {
   try {
     await Prize.findByIdAndDelete(req.params.id);
     res.json({ message: 'Deleted' });
-  } catch (err) { serverError(res); }
+  } catch (err) { serverError(res, err); }
 };
 
 // สุ่มผู้โชคดี (Lucky Draw)
@@ -75,7 +117,8 @@ exports.drawPrize = async (req, res) => {
     if (prize.remainingQuantity <= 0) return res.status(400).json({ error: 'ของรางวัลหมดแล้ว' });
 
     // ดึงคนที่ชนะไปแล้วออกมาทั้งหมด (กันได้ซ้ำ)
-    const allPrizes = await Prize.find();
+    const prizeEventYear = normalizeEventYear(prize.eventYear || await getCurrentEventYear());
+    const allPrizes = await Prize.find({ eventYear: prizeEventYear });
     let wonIds = [];
     allPrizes.forEach(p => {
         p.winners.forEach(w => wonIds.push(w.participantId));
@@ -83,7 +126,7 @@ exports.drawPrize = async (req, res) => {
 
     // 🌟 สุ่มคน Check-in ที่ยังไม่ได้รางวัล และ "ไม่เคยสละสิทธิ์"
     const randomWinner = await Participant.aggregate([
-      { $match: { status: 'checkedIn', isDeleted: false, isForfeited: { $ne: true }, _id: { $nin: wonIds } } },
+      { $match: { status: 'checkedIn', isDeleted: false, eventYear: prizeEventYear, isForfeited: { $ne: true }, _id: { $nin: wonIds } } },
       { $sample: { size: 1 } }
     ]);
 
@@ -91,7 +134,18 @@ exports.drawPrize = async (req, res) => {
       return res.status(400).json({ error: 'ไม่พบผู้ที่มีสิทธิ์รับรางวัล (หรือทุกคนได้รางวัลไปหมดแล้ว)' });
     }
 
-    const winnerId = randomWinner[0]._id;
+    const winner = revealParticipantObject(randomWinner[0]);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_PRIZE_DRAW_WINNER',
+      purpose: 'admin_prize_draw',
+      resource: 'participants',
+      eventYear: prizeEventYear,
+      recordCount: 1,
+      fields: ['participant.fields.name', 'participant.fields.department'],
+      extra: { prizeId: String(prize._id) },
+    });
+    const winnerId = winner._id;
     prize.remainingQuantity -= 1;
     prize.winners.push({ participantId: winnerId });
     await prize.save();
@@ -100,12 +154,12 @@ exports.drawPrize = async (req, res) => {
         message: 'Draw success',
         winner: { 
             _id: randomWinner[0]._id, // 🌟 เพิ่ม _id ส่งกลับไปให้ Frontend เอาไว้อ้างอิงตอนสละสิทธิ์
-            name: randomWinner[0].fields.name, 
-            department: randomWinner[0].fields.department || '' 
+            name: winner.fields.name,
+            department: winner.fields.department || winner.fields.dept || ''
         },
         prize
     });
-  } catch (err) { serverError(res); }
+  } catch (err) { serverError(res, err); }
 };
 
 exports.cancelWinner = async (req, res) => {
@@ -153,6 +207,6 @@ exports.cancelWinner = async (req, res) => {
     }
 
   } catch (err) {
-    serverError(res, "ไม่สามารถยกเลิกสิทธิ์ได้");
+    serverError(res, err);
   }
 };

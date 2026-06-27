@@ -10,24 +10,34 @@ const ApiLog = require('../models/apilog');
  *   - error: (optional) error message หรือ stack
  */
 module.exports = function auditLog({
-  req,
+  req = null,
   action,
   detail = '',
   status = 200,
-  error = ''
+  error = '',
+  user = 'System',
+  userId = null,
+  method = 'SYSTEM',
+  url = '',
+  strict = false
 }) {
-  ApiLog.create({
-    user: req.user ? req.user.username : 'Anonymous',
-    userId: req.user ? String(req.user._id) : null,
-    method: req.method,
-    url: req.path,
+  const actor = req?.user || null;
+  const write = ApiLog.create({
+    user: actor ? actor.username : user,
+    userId: actor ? String(actor._id) : userId,
+    method: req?.method || method,
+    url: req?.originalUrl || req?.path || url,
     status,
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
+    ip: req?.ip || '',
+    userAgent: req?.headers?.['user-agent'] || '',
     action,
     detail,
     error
-  }).catch(err => {
+  });
+
+  if (strict) return write;
+
+  return write.catch(err => {
     // ไม่ throw เพื่อกัน process หลักล่ม
     console.error('AuditLog error:', err);
   });

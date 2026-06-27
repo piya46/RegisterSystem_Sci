@@ -6,6 +6,13 @@ const api = axios.create({
   withCredentials: true 
 });
 
+function readCookie(name) {
+  return document.cookie
+    .split('; ')
+    .map((value) => value.split('='))
+    .find(([key]) => key === name)?.slice(1).join('=') || '';
+}
+
 const SCOPED_TOKEN_ENDPOINTS = [
   '/auth/me',
   '/participants/register-onsite',
@@ -20,6 +27,11 @@ api.interceptors.request.use(config => {
   const shouldAttachScopedToken = SCOPED_TOKEN_ENDPOINTS.some((endpoint) => url.startsWith(endpoint));
   if (kioskToken && shouldAttachScopedToken) {
     config.headers.Authorization = `Bearer ${kioskToken}`;
+  }
+  const method = String(config.method || 'get').toUpperCase();
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+    const csrfToken = readCookie('csrfToken');
+    if (csrfToken) config.headers['X-CSRF-Token'] = decodeURIComponent(csrfToken);
   }
   return config;
 });
@@ -50,19 +62,20 @@ export const getCronLogs = () => api.get('/admins/cron-logs');
 export const listSessions = () => api.get('/sessions');
 export const deleteSessionById = (id) => api.delete(`/sessions/${id}`);
 export const deleteSessionByUserId = (userId) => api.delete(`/sessions/user/${userId}`);
+export const refreshSession = () => api.post('/sessions/refresh');
 export const revokeSession = (id) => api.post(`/sessions/revoke/${id}`);
 export const revokeAllSessionByUser = (userId) => api.post(`/sessions/revoke-all/${userId}`);
 
 export const createParticipant = (data) => api.post('/participants/public', data);
 export const createParticipantByStaff = (data) => api.post('/participants/register-onsite', data);
-export const listParticipants = () => api.get('/participants');
+export const listParticipants = (params) => api.get('/participants', { params });
 export const updateParticipant = (id, data) => api.put(`/participants/${id}`, data);
 export const deleteParticipant = (id) => api.delete(`/participants/${id}`);
 export const checkinByQr = (data) => api.post('/participants/checkin-by-qr', data);
 export const resendTicket = (data) => api.post('/participants/resend-ticket', data);
 export const searchParticipants = (params) => api.get('/participants/search', { params });
 export const registerOnsiteByKiosk = (data) => api.post('/participants/register-onsite', data);
-export const downloadPdfReport = () => api.get('/participants/download-report-pdf', { responseType: 'blob' });
+export const downloadPdfReport = (params) => api.get('/participants/download-report-pdf', { params, responseType: 'blob' });
 
 export const listRegistrationPoints = () => api.get('/registration-points');
 export const listEnabledRegistrationPoints = () => api.get('/registration-points/enabled');
@@ -77,24 +90,25 @@ export const deleteParticipantField = (id) => api.delete(`/participant-fields/${
 
 export const getDashboardStats = () => api.get('/dashboard/stats');
 export const getCheckinSummary = (params) => api.get('/dashboard/checkin-summary', { params });
-export const getDashboardSummary = () => api.get('/dashboard/summary');
+export const getDashboardSummary = (params) => api.get('/dashboard/summary', { params });
 export const createDonation = (data) => api.post('/donations', data);
-export const getDonationSummary = () => api.get('/donations/summary');
+export const getDonationSummary = (params) => api.get('/donations/summary', { params });
 export const updateDonation = (id, data) => api.put(`/donations/${id}`, data);
 export const deleteDonation = (id) => api.delete(`/donations/${id}`);
 
 export const getSystemSettings = () => api.get('/settings');
 export const updateSystemSettings = (data) => api.put('/settings', data);
-export const listPackages = () => api.get('/packages');
+export const getEventYears = () => api.get('/settings/event-years');
+export const listPackages = (params) => api.get('/packages', { params });
 export const createPackage = (data) => api.post('/packages', data);
 export const updatePackage = (id, data) => api.put(`/packages/${id}`, data);
 export const deletePackage = (id) => api.delete(`/packages/${id}`);
 
 export const generateKioskToken = (pointId) => api.post('/public/kiosk-token', { pointId });
-export const getPublicReportData = () => api.get('/public/report');
-export const getPublicDashboardStats = () => api.get('/public/dashboard');
+export const getPublicReportData = (params) => api.get('/public/report', { params });
+export const getPublicDashboardStats = (params) => api.get('/public/dashboard', { params });
 
-export const listPrizes = () => api.get('/prizes');
+export const listPrizes = (params) => api.get('/prizes', { params });
 export const createPrize = (data) => api.post('/prizes', data);
 export const deletePrize = (id) => api.delete(`/prizes/${id}`);
 export const drawPrize = (prizeId) => api.post(`/prizes/draw/${prizeId}`);
@@ -104,7 +118,7 @@ export const cancelPrizeWinner = (prizeId, winnerId) => api.post('/prizes/cancel
 export const generateSelfRegisterLink = (data) => api.post('/public/self-register-link', data);
 export const requestShortSession = (masterToken) => api.post('/public/request-short-session', { masterToken });
 
-export const getPublicPrizes = () => api.get('/public/prizes');
+export const getPublicPrizes = (params) => api.get('/public/prizes', { params });
 export const restorePrizeRight = (id) => api.put(`/participants/restore-prize/${id}`);
 
 

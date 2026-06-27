@@ -1,5 +1,5 @@
 // frontend/src/pages/AdminParticipantsPage.jsx
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, TextField, Button, IconButton, Tooltip, CircularProgress,
@@ -35,6 +35,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
+import EventYearSelect from '../components/EventYearSelect';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
@@ -61,6 +62,7 @@ export default function AdminParticipantsPage() {
   const navigate = useNavigate();
 
   const [activeTab, setActiveTab] = useState(0);
+  const [eventYear, setEventYear] = useState('');
 
   // States: Participants
   const [participants, setParticipants] = useState([]);
@@ -96,29 +98,31 @@ export default function AdminParticipantsPage() {
   const [openAddPrize, setOpenAddPrize] = useState(false);
   const [newPrize, setNewPrize] = useState({ name: '', totalQuantity: 1 });
 
-  useEffect(() => {
-    fetchParticipants();
-    fetchPrizes();
-  }, []);
-
   // Functions: Participants
-  const fetchParticipants = async () => {
+  const fetchParticipants = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await listParticipants();
+      const eventYearParams = eventYear ? { eventYear } : undefined;
+      const res = await listParticipants(eventYearParams);
       setParticipants(res.data || res);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
     setLoading(false);
-  };
+  }, [eventYear]);
 
-  const fetchPrizes = async () => {
+  const fetchPrizes = useCallback(async () => {
     setPrizeLoading(true);
     try {
-      const res = await listPrizes();
+      const eventYearParams = eventYear ? { eventYear } : undefined;
+      const res = await listPrizes(eventYearParams);
       setPrizes(res.data);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
     setPrizeLoading(false);
-  };
+  }, [eventYear]);
+
+  useEffect(() => {
+    fetchParticipants();
+    fetchPrizes();
+  }, [fetchParticipants, fetchPrizes]);
 
   const uniqueDepts = Array.from(new Set(participants.map(p => p.fields.dept).filter(Boolean))).sort();
   const uniqueYears = Array.from(new Set(participants.map(p => p.fields.date_year).filter(Boolean))).sort();
@@ -260,18 +264,20 @@ export default function AdminParticipantsPage() {
   const handleDownloadPdf = async () => {
     if(!window.confirm("ต้องการดาวน์โหลด PDF รายงานสรุปผลหรือไม่?")) return;
     try {
-        const res = await downloadPdfReport();
+        const eventYearParams = eventYear ? { eventYear } : undefined;
+        const res = await downloadPdfReport(eventYearParams);
         const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
         link.href = url;
-        link.setAttribute('download', `Report_${new Date().toISOString().slice(0,10)}.pdf`);
+        link.setAttribute('download', `Report_${eventYear || 'current'}_${new Date().toISOString().slice(0,10)}.pdf`);
         document.body.appendChild(link);
         link.click(); link.remove();
     } catch { alert("ดาวน์โหลดล้มเหลว"); }
   };
 
   const handleSharePublicReport = () => {
-    const link = `${window.location.origin}/public/report`;
+    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
+    const link = `${window.location.origin}/public/report${query}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: 'คัดลอกลิงก์รายงาน (Public) สำเร็จ', severity: 'success' });
   };
@@ -280,7 +286,7 @@ export default function AdminParticipantsPage() {
   const handleAddPrize = async () => {
     if (!newPrize.name || newPrize.totalQuantity < 1) return;
     try {
-      await createPrize({ ...newPrize, remainingQuantity: newPrize.totalQuantity });
+      await createPrize({ ...newPrize, eventYear: eventYear || undefined, remainingQuantity: newPrize.totalQuantity });
       setOpenAddPrize(false); setNewPrize({ name: '', totalQuantity: 1 });
       setSnackbar({ open: true, message: 'เพิ่มของรางวัลแล้ว', severity: 'success' });
       fetchPrizes();
@@ -333,6 +339,7 @@ export default function AdminParticipantsPage() {
            <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
         <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
+            <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
         </Stack>

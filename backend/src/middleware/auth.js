@@ -1,9 +1,9 @@
 // backend/src/middleware/auth.js
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/admin');
-const Session = require('../models/session');
-const { hashSessionToken } = require('../utils/sessionToken');
 const { clearAuthCookie } = require('../utils/authCookie');
+const { clearCsrfCookie } = require('../utils/csrf');
+const { findSessionByToken } = require('../utils/sessionLookup');
 
 const TOKEN_ISSUER = 'psevent';
 
@@ -50,40 +50,44 @@ module.exports = async function (req, res, next) {
       return next();
     }
 
-    const tokenHash = hashSessionToken(token);
-    let session = await Session.findOne({ tokenHash }).select('+token +tokenHash');
-    if (!session) {
-      session = await Session.findOne({ token }).select('+token +tokenHash');
-      if (session && !session.tokenHash) {
-        await Session.updateOne(
-          { _id: session._id },
-          { $set: { tokenHash }, $unset: { token: 1 } }
-        );
-        session.tokenHash = tokenHash;
-        session.token = undefined;
-      }
-    }
+    const { session } = await findSessionByToken(token);
     if (!session) {
       clearAuthCookie(res);
+      clearCsrfCookie(res);
       return res.status(401).json({ error: 'Session ไม่ถูกต้อง' });
     }
 
     if (session.revoked) {
-      await Session.deleteOne({ _id: session._id });
+      session.revoked = true;
+      await session.save();
       clearAuthCookie(res);
+      clearCsrfCookie(res);
       return res.status(401).json({ error: 'Session ถูกยกเลิก' });
     }
 
-    if (session.expiresAt && session.expiresAt < new Date()) {
-      await Session.deleteOne({ _id: session._id });
+    const now = new Date();
+    if (session.absoluteExpiresAt && session.absoluteExpiresAt < now) {
+      session.revoked = true;
+      await session.save();
       clearAuthCookie(res);
+      clearCsrfCookie(res);
+      return res.status(401).json({ error: 'Session หมดอายุสูงสุดแล้ว กรุณาเข้าสู่ระบบใหม่' });
+    }
+
+    if (session.expiresAt && session.expiresAt < now) {
+      session.revoked = true;
+      await session.save();
+      clearAuthCookie(res);
+      clearCsrfCookie(res);
       return res.status(401).json({ error: 'Session หมดอายุ' });
     }
 
     const user = await Admin.findById(payload.id);
     if (!user) {
-      await Session.deleteOne({ _id: session._id });
+      session.revoked = true;
+      await session.save();
       clearAuthCookie(res);
+      clearCsrfCookie(res);
       return res.status(401).json({ error: 'ไม่พบ User' });
     }
 
@@ -94,6 +98,7 @@ module.exports = async function (req, res, next) {
     next();
   } catch (err) {
     clearAuthCookie(res);
+    clearCsrfCookie(res);
     res.status(401).json({ error: 'Token หมดอายุหรือไม่ถูกต้อง' });
   }
 };

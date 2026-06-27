@@ -6,8 +6,8 @@ const donationSchema = new mongoose.Schema({
     ref: 'User',
     required: false 
   },
-  firstName: { type: String, required: true },
-  lastName: { type: String, required: true },
+  firstName: { type: mongoose.Schema.Types.Mixed, required: true },
+  lastName: { type: mongoose.Schema.Types.Mixed, required: true },
   amount: { type: Number, required: true, min: 1 }, 
   transferDateTime: { type: Date, required: true }, 
   
@@ -22,8 +22,8 @@ const donationSchema = new mongoose.Schema({
   size: { type: String, default: "" },       
 
   // [เพิ่มใหม่] สำหรับการจัดการสลิปและสถานที่รับ/จัดส่ง
-  slipUrl: { type: String, default: "" },
-  address: { type: String, default: "" },
+  slipUrl: { type: mongoose.Schema.Types.Mixed, default: "" },
+  address: { type: mongoose.Schema.Types.Mixed, default: "" },
   pickupMethod: { 
     type: String, 
     enum: ['DELIVERY', 'PICKUP', ''], 
@@ -31,6 +31,7 @@ const donationSchema = new mongoose.Schema({
   },
   pickupLocation: { type: String, default: "" },
 
+  eventYear: { type: String, default: '', index: true },
   createdAt: { type: Date, default: Date.now }
 });
 
