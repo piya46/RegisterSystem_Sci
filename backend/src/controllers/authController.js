@@ -12,6 +12,7 @@ const { OAuth2Client } = require('google-auth-library');
 const { hashSessionToken } = require('../utils/sessionToken');
 const logger = require('../utils/logger');
 const { serverError } = require('../utils/httpResponses');
+const { authCookieOptions } = require('../utils/authCookie');
 const client = new OAuth2Client(process.env.LOGIN_CLIENT_ID);
 const INVALID_LOGIN_MESSAGE = 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง';
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync('invalid-password-placeholder', Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
@@ -72,12 +73,7 @@ exports.login = async (req, res) => {
         });
 
         // ✅ สร้าง HttpOnly Cookie สำหรับเก็บ Token
-        res.cookie('token', token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: expiresInMs
-        });
+        res.cookie('token', token, authCookieOptions({ maxAge: expiresInMs }));
 
         res.json({
             success: true, // ✅ ไม่ต้องส่ง token ไปใน JSON แล้ว
@@ -186,12 +182,7 @@ exports.googleLogin = async (req, res) => {
         auditLog({ req, action: 'LOGIN_GOOGLE', detail: 'Login success via Google' });
 
         // ✅ สร้าง HttpOnly Cookie สำหรับ Google Login
-        res.cookie('token', jwtToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: expiresInMs
-        });
+        res.cookie('token', jwtToken, authCookieOptions({ maxAge: expiresInMs }));
 
         res.json({
             success: true, // ✅ ไม่ต้องส่ง token กลับไปแล้ว

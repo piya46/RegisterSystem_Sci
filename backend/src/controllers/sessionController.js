@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const isAdmin = require('../helpers/isAdmin');
 const auditLog = require('../helpers/auditLog');
 const { hashSessionToken } = require('../utils/sessionToken');
+const { clearAuthCookie } = require('../utils/authCookie');
 
 
 // Helper: เช็ค admin และ log ถ้าโดนบล็อก
@@ -91,7 +92,7 @@ exports.logout = async (req, res) => {
       { $set: { revoked: true, tokenHash }, $unset: { token: 1 } }
     );
   }
-  res.clearCookie('token');
+  clearAuthCookie(res);
   logger.info(`[Session][${req.user?.username}] LOGOUT`);
   auditLog({ req, action: 'LOGOUT', detail: 'User logged out' });
   res.json({ message: 'Logged out' });

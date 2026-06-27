@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const Admin = require('../models/admin');
 const Session = require('../models/session');
 const { hashSessionToken } = require('../utils/sessionToken');
+const { clearAuthCookie } = require('../utils/authCookie');
 
 const TOKEN_ISSUER = 'psevent';
 
@@ -63,26 +64,26 @@ module.exports = async function (req, res, next) {
       }
     }
     if (!session) {
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ error: 'Session ไม่ถูกต้อง' });
     }
 
     if (session.revoked) {
       await Session.deleteOne({ _id: session._id });
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ error: 'Session ถูกยกเลิก' });
     }
 
     if (session.expiresAt && session.expiresAt < new Date()) {
       await Session.deleteOne({ _id: session._id });
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ error: 'Session หมดอายุ' });
     }
 
     const user = await Admin.findById(payload.id);
     if (!user) {
       await Session.deleteOne({ _id: session._id });
-      res.clearCookie('token');
+      clearAuthCookie(res);
       return res.status(401).json({ error: 'ไม่พบ User' });
     }
 
@@ -92,7 +93,7 @@ module.exports = async function (req, res, next) {
     req.session = session; 
     next();
   } catch (err) {
-    res.clearCookie('token');
+    clearAuthCookie(res);
     res.status(401).json({ error: 'Token หมดอายุหรือไม่ถูกต้อง' });
   }
 };
