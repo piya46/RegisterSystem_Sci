@@ -23,6 +23,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import { useNavigate, useParams } from "react-router-dom";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import BusinessIcon from "@mui/icons-material/Business";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
@@ -32,6 +33,10 @@ import PublishedWithChangesIcon from "@mui/icons-material/PublishedWithChanges";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import PublicIcon from "@mui/icons-material/Public";
+import LockOpenIcon from "@mui/icons-material/LockOpen";
+import LockIcon from "@mui/icons-material/Lock";
+import ArchiveIcon from "@mui/icons-material/Archive";
 import {
   activateEvent,
   cloneEventSettings,
@@ -40,11 +45,16 @@ import {
   createOrganization,
   getEventCatalog,
   getLegacyMigrationPreview,
+  publishEvent,
   runLegacyEventMigration,
+  updateEvent,
   updateEventLayout,
+  updateEventStatus,
 } from "../utils/api";
+import useAuth from "../hooks/useAuth";
 
 const layoutKeys = [
+  { value: "landingPage", label: "หน้า Landing" },
   { value: "registrationForm", label: "แบบฟอร์มลงทะเบียน" },
   { value: "dashboard", label: "หน้าสรุปผล" },
   { value: "ticket", label: "บัตร/อีเมลยืนยัน" },
@@ -59,6 +69,10 @@ const linkingModeLabels = {
 
 const statusLabels = {
   draft: "ร่าง",
+  published: "เผยแพร่",
+  registration_open: "เปิดลงทะเบียน",
+  registration_closed: "ปิดลงทะเบียน",
+  event_day: "วันจัดงาน",
   active: "ใช้งาน",
   archived: "เก็บย้อนหลัง",
 };
@@ -71,6 +85,22 @@ const datasetLabels = {
 };
 
 const defaultJson = {
+  landingPage: {
+    blocks: [
+      {
+        id: "hero",
+        type: "hero",
+        enabled: true,
+        title: "",
+        subtitle: "",
+        body: "",
+        imageUrl: "",
+        logoUrl: "",
+        primaryActionLabel: "ลงทะเบียน",
+        primaryActionUrl: "",
+      },
+    ],
+  },
   registrationForm: { sections: [], fields: [] },
   dashboard: { widgets: [] },
   ticket: { blocks: [] },
@@ -89,7 +119,12 @@ function prettyJson(value) {
   return JSON.stringify(value || {}, null, 2);
 }
 
-export default function EventPlatformPage() {
+export default function EventPlatformPage({ section = "portal" }) {
+  const navigate = useNavigate();
+  const { eventId: routeEventId } = useParams();
+  const { user } = useAuth();
+  const roles = Array.isArray(user?.role) ? user.role : [user?.role].filter(Boolean);
+  const canRunMigration = roles.includes("superadmin") || roles.includes("admin");
   const [catalog, setCatalog] = useState({ organizations: [], series: [], events: [], settings: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -110,9 +145,21 @@ export default function EventPlatformPage() {
   });
 
   const [layoutEventId, setLayoutEventId] = useState("");
-  const [layoutKey, setLayoutKey] = useState("registrationForm");
-  const [layoutJson, setLayoutJson] = useState(prettyJson(defaultJson.registrationForm));
+  const [layoutKey, setLayoutKey] = useState("landingPage");
+  const [layoutJson, setLayoutJson] = useState(prettyJson(defaultJson.landingPage));
   const [layoutError, setLayoutError] = useState("");
+  const [eventDetailForm, setEventDetailForm] = useState({
+    status: "draft",
+    logoUrl: "",
+    coverImageUrl: "",
+    primaryColor: "#f7b500",
+    secondaryColor: "#114b5f",
+    accentColor: "#22a06b",
+    enableRegister: true,
+    maintenanceMode: false,
+    welcomeMessage: "",
+    contactEmail: "",
+  });
 
   const activeEventId = getId(catalog.settings?.currentEventId);
   const activeEvent = useMemo(
@@ -134,6 +181,22 @@ export default function EventPlatformPage() {
     [catalog.series, eventForm.organizationId]
   );
 
+  const layoutEvent = useMemo(
+    () => catalog.events.find((item) => getId(item) === layoutEventId) || null,
+    [catalog.events, layoutEventId]
+  );
+
+  const showPortal = section === "portal";
+  const showMigration = section === "migration";
+  const showSettings = section === "settings";
+  const showLayouts = section === "layouts";
+  const sectionTitle = {
+    portal: "จัดการกิจกรรม",
+    migration: "Migration ข้อมูลเดิม",
+    settings: "ตั้งค่ากิจกรรม",
+    layouts: "Layout Builder",
+  }[section] || "จัดการกิจกรรม";
+
   const migrationTotals = useMemo(() => {
     const totals = { years: 0, unmapped: 0, eventsToCreate: 0 };
     (migrationPreview?.years || []).forEach((year) => {
@@ -151,7 +214,7 @@ export default function EventPlatformPage() {
     try {
       const [catalogRes, migrationRes] = await Promise.all([
         getEventCatalog(),
-        getLegacyMigrationPreview(),
+        canRunMigration ? getLegacyMigrationPreview() : Promise.resolve({ data: { data: null } }),
       ]);
       const data = catalogRes.data?.data || {};
       setCatalog({
@@ -166,7 +229,7 @@ export default function EventPlatformPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canRunMigration]);
 
   useEffect(() => {
     loadCatalog();
@@ -182,10 +245,12 @@ export default function EventPlatformPage() {
     if (firstSeriesId) {
       setEventForm((prev) => ({ ...prev, seriesId: prev.seriesId || firstSeriesId }));
     }
-    if (catalog.events.length > 0) {
+    if (routeEventId && catalog.events.some((event) => getId(event) === routeEventId)) {
+      setLayoutEventId(routeEventId);
+    } else if (catalog.events.length > 0) {
       setLayoutEventId((prev) => prev || activeEventId || getId(catalog.events[0]));
     }
-  }, [activeEventId, catalog.events, catalog.organizations, catalog.series]);
+  }, [activeEventId, catalog.events, catalog.organizations, catalog.series, routeEventId]);
 
   useEffect(() => {
     const event = catalog.events.find((item) => getId(item) === layoutEventId);
@@ -193,6 +258,22 @@ export default function EventPlatformPage() {
     setLayoutJson(prettyJson(config));
     setLayoutError("");
   }, [catalog.events, layoutEventId, layoutKey]);
+
+  useEffect(() => {
+    if (!layoutEvent) return;
+    setEventDetailForm({
+      status: layoutEvent.status || "draft",
+      logoUrl: layoutEvent.branding?.logoUrl || "",
+      coverImageUrl: layoutEvent.branding?.coverImageUrl || "",
+      primaryColor: layoutEvent.branding?.primaryColor || "#f7b500",
+      secondaryColor: layoutEvent.branding?.secondaryColor || "#114b5f",
+      accentColor: layoutEvent.branding?.accentColor || "#22a06b",
+      enableRegister: layoutEvent.config?.enableRegister !== false,
+      maintenanceMode: layoutEvent.config?.maintenanceMode === true,
+      welcomeMessage: layoutEvent.config?.welcomeMessage || "",
+      contactEmail: layoutEvent.config?.contactEmail || "",
+    });
+  }, [layoutEvent]);
 
   async function runAction(action, successText) {
     setSaving(true);
@@ -226,6 +307,72 @@ export default function EventPlatformPage() {
     () => activateEvent(eventId),
     "ตั้งเป็นกิจกรรมปัจจุบันสำเร็จ"
   );
+
+  const handlePublishEvent = (eventId) => runAction(
+    () => publishEvent(eventId),
+    "เผยแพร่หน้า Landing สำเร็จ"
+  );
+
+  const handleStatusChange = (eventId, status) => runAction(
+    () => updateEventStatus(eventId, status),
+    `เปลี่ยนสถานะเป็น ${statusLabels[status] || status} สำเร็จ`
+  );
+
+  const handleSaveEventDetail = () => {
+    if (!layoutEventId) return;
+    runAction(
+      () => updateEvent(layoutEventId, {
+        branding: {
+          logoUrl: eventDetailForm.logoUrl,
+          coverImageUrl: eventDetailForm.coverImageUrl,
+          primaryColor: eventDetailForm.primaryColor,
+          secondaryColor: eventDetailForm.secondaryColor,
+          accentColor: eventDetailForm.accentColor,
+        },
+        config: {
+          enableRegister: eventDetailForm.enableRegister,
+          maintenanceMode: eventDetailForm.maintenanceMode,
+          welcomeMessage: eventDetailForm.welcomeMessage,
+          contactEmail: eventDetailForm.contactEmail,
+        },
+      }),
+      "บันทึกข้อมูลหน้า public สำเร็จ"
+    );
+  };
+
+  const handleCopyPublicLink = async (event) => {
+    const path = event.publicLinks?.landingPath || `/e/${event.slug}`;
+    const url = `${window.location.origin}${path}`;
+    await navigator.clipboard.writeText(url);
+    setMessage({ open: true, severity: "success", text: "คัดลอกลิงก์กิจกรรมแล้ว" });
+  };
+
+  const addLayoutBlock = (type) => {
+    try {
+      const parsed = JSON.parse(layoutJson || "{}");
+      const currentBlocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
+      const id = `${type}-${Date.now()}`;
+      const blockMap = {
+        hero: {
+          id,
+          type: "hero",
+          enabled: true,
+          title: layoutEvent?.name || "ชื่อกิจกรรม",
+          subtitle: "ข้อความแนะนำกิจกรรม",
+          primaryActionLabel: "ลงทะเบียน",
+          primaryActionUrl: layoutEvent ? `/e/${layoutEvent.slug}/register` : "",
+        },
+        richText: { id, type: "richText", enabled: true, title: "หัวข้อใหม่", body: "รายละเอียด" },
+        schedule: { id, type: "schedule", enabled: true, title: "กำหนดการ", items: [{ time: "17:00", title: "เริ่มงาน", description: "" }] },
+        faq: { id, type: "faq", enabled: true, title: "คำถามที่พบบ่อย", items: [{ question: "ต้องเตรียมอะไรบ้าง", answer: "กรุณาแสดง QR Code หน้างาน" }] },
+        cta: { id, type: "cta", enabled: true, title: "พร้อมเข้าร่วมกิจกรรม", buttonLabel: "ลงทะเบียน", buttonUrl: layoutEvent ? `/e/${layoutEvent.slug}/register` : "" },
+      };
+      setLayoutJson(prettyJson({ ...parsed, blocks: [...currentBlocks, blockMap[type]] }));
+      setLayoutError("");
+    } catch {
+      setLayoutError("แก้ JSON ให้ถูกต้องก่อนเพิ่ม block");
+    }
+  };
 
   const handleCloneSettings = () => {
     if (!eventForm.cloneFromEventId || !layoutEventId) {
@@ -289,13 +436,23 @@ export default function EventPlatformPage() {
           <Box>
             <Stack direction="row" spacing={1} alignItems="center">
               <EventAvailableIcon color="warning" />
-              <Typography variant="h4" fontWeight={900} color="primary.dark">จัดการกิจกรรม</Typography>
+              <Typography variant="h4" fontWeight={900} color="primary.dark">{sectionTitle}</Typography>
             </Stack>
             <Typography variant="body2" color="text.secondary" fontWeight={600}>
               กิจกรรมปัจจุบัน: {activeEvent?.name || catalog.settings?.eventName || "-"} / ปี {catalog.settings?.currentEventYear || "-"}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap">
+            <Button variant={showPortal ? "contained" : "outlined"} onClick={() => navigate("/admin/events")}>รายการกิจกรรม</Button>
+            {canRunMigration && (
+              <Button variant={showMigration ? "contained" : "outlined"} onClick={() => navigate("/admin/events/migration")}>Migration</Button>
+            )}
+            {layoutEventId && (
+              <>
+                <Button variant={showSettings ? "contained" : "outlined"} onClick={() => navigate(`/admin/events/${layoutEventId}/settings`)}>ตั้งค่ากิจกรรม</Button>
+                <Button variant={showLayouts ? "contained" : "outlined"} onClick={() => navigate(`/admin/events/${layoutEventId}/layouts`)}>Layout</Button>
+              </>
+            )}
             <Chip label={`${catalog.organizations.length} หน่วยงาน`} color="default" />
             <Chip label={`${catalog.series.length} ชุดกิจกรรม`} color="info" variant="outlined" />
             <Chip label={`${catalog.events.length} รอบกิจกรรม`} color="warning" variant="outlined" />
@@ -308,6 +465,7 @@ export default function EventPlatformPage() {
         </Alert>
 
         <Grid container spacing={3}>
+          {showMigration && (
           <Grid item xs={12}>
             <Card sx={{ borderRadius: 2 }}>
               <CardContent>
@@ -389,7 +547,10 @@ export default function EventPlatformPage() {
               </CardContent>
             </Card>
           </Grid>
+          )}
 
+          {showPortal && (
+          <>
           <Grid item xs={12} lg={8}>
             <Card sx={{ borderRadius: 2 }}>
               <CardContent>
@@ -436,15 +597,78 @@ export default function EventPlatformPage() {
                               </Typography>
                             </TableCell>
                             <TableCell align="right">
-                              <Button
-                                size="small"
-                                variant={isActive ? "outlined" : "contained"}
-                                disabled={saving || isActive}
-                                startIcon={<PublishedWithChangesIcon />}
-                                onClick={() => handleActivateEvent(eventId)}
-                              >
-                                ตั้งเป็นปัจจุบัน
-                              </Button>
+                              <Stack direction="row" spacing={0.75} justifyContent="flex-end" flexWrap="wrap">
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => navigate(`/admin/events/${eventId}/settings`)}
+                                >
+                                  ตั้งค่า
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  onClick={() => navigate(`/admin/events/${eventId}/layouts`)}
+                                >
+                                  Layout
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<ContentCopyIcon />}
+                                  onClick={() => handleCopyPublicLink(event)}
+                                >
+                                  ลิงก์
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  startIcon={<PublicIcon />}
+                                  disabled={saving}
+                                  onClick={() => handlePublishEvent(eventId)}
+                                >
+                                  Publish
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="success"
+                                  startIcon={<LockOpenIcon />}
+                                  disabled={saving}
+                                  onClick={() => handleStatusChange(eventId, "registration_open")}
+                                >
+                                  เปิดรับ
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  startIcon={<LockIcon />}
+                                  disabled={saving}
+                                  onClick={() => handleStatusChange(eventId, "registration_closed")}
+                                >
+                                  ปิดรับ
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant={isActive ? "outlined" : "contained"}
+                                  disabled={saving || isActive}
+                                  startIcon={<PublishedWithChangesIcon />}
+                                  onClick={() => handleActivateEvent(eventId)}
+                                >
+                                  ปัจจุบัน
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="outlined"
+                                  color="inherit"
+                                  startIcon={<ArchiveIcon />}
+                                  disabled={saving}
+                                  onClick={() => handleStatusChange(eventId, "archived")}
+                                >
+                                  เก็บ
+                                </Button>
+                              </Stack>
                             </TableCell>
                           </TableRow>
                         );
@@ -526,14 +750,69 @@ export default function EventPlatformPage() {
               </CardContent>
             </Card>
           </Grid>
+          </>
+          )}
 
-          <Grid item xs={12} md={7}>
+          {(showSettings || showLayouts) && (
+          <Grid item xs={12}>
             <Card sx={{ borderRadius: 2 }}>
               <CardContent>
+                {showSettings && (
+                <Box mb={3}>
+                  <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} mb={2}>
+                    <Box>
+                      <Typography variant="h6" fontWeight={900}>หน้ากิจกรรมสาธารณะ</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        ตั้งค่าโลโก้ ภาพปก สี และข้อความของกิจกรรมที่เลือก ใช้กับลิงก์ /e/slug
+                      </Typography>
+                    </Box>
+                    <Button startIcon={<SaveIcon />} variant="outlined" onClick={handleSaveEventDetail} disabled={saving || !layoutEventId}>
+                      บันทึกข้อมูลหน้า public
+                    </Button>
+                  </Stack>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={12} md={6}>
+                      <TextField size="small" fullWidth label="URL โลโก้งาน" value={eventDetailForm.logoUrl} onChange={(e) => setEventDetailForm({ ...eventDetailForm, logoUrl: e.target.value })} />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField size="small" fullWidth label="URL ภาพปก" value={eventDetailForm.coverImageUrl} onChange={(e) => setEventDetailForm({ ...eventDetailForm, coverImageUrl: e.target.value })} />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField size="small" fullWidth type="color" label="สีหลัก" value={eventDetailForm.primaryColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, primaryColor: e.target.value })} InputLabelProps={{ shrink: true }} />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField size="small" fullWidth type="color" label="สีรอง" value={eventDetailForm.secondaryColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, secondaryColor: e.target.value })} InputLabelProps={{ shrink: true }} />
+                    </Grid>
+                    <Grid item xs={12} md={4}>
+                      <TextField size="small" fullWidth type="color" label="สีเน้น" value={eventDetailForm.accentColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, accentColor: e.target.value })} InputLabelProps={{ shrink: true }} />
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField select size="small" fullWidth label="เปิดรับลงทะเบียนใน config" value={eventDetailForm.enableRegister ? "yes" : "no"} onChange={(e) => setEventDetailForm({ ...eventDetailForm, enableRegister: e.target.value === "yes" })}>
+                        <MenuItem value="yes">เปิด</MenuItem>
+                        <MenuItem value="no">ปิด</MenuItem>
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12} md={6}>
+                      <TextField select size="small" fullWidth label="โหมดปิดปรับปรุง" value={eventDetailForm.maintenanceMode ? "yes" : "no"} onChange={(e) => setEventDetailForm({ ...eventDetailForm, maintenanceMode: e.target.value === "yes" })}>
+                        <MenuItem value="no">ไม่ปิดปรับปรุง</MenuItem>
+                        <MenuItem value="yes">ปิดปรับปรุง</MenuItem>
+                      </TextField>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField size="small" fullWidth label="ข้อความต้อนรับ/คำอธิบายสั้น" value={eventDetailForm.welcomeMessage} onChange={(e) => setEventDetailForm({ ...eventDetailForm, welcomeMessage: e.target.value })} />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField size="small" fullWidth label="อีเมลติดต่อ" value={eventDetailForm.contactEmail} onChange={(e) => setEventDetailForm({ ...eventDetailForm, contactEmail: e.target.value })} />
+                    </Grid>
+                  </Grid>
+                </Box>
+                )}
+                {showLayouts && (
+                <>
                 <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} mb={2}>
                   <Box>
                     <Typography variant="h6" fontWeight={900}>เลย์เอาท์และแม่แบบ</Typography>
-                    <Typography variant="caption" color="text.secondary">สำหรับผู้ดูแลขั้นสูง: บันทึกเป็น JSON และ version จะเพิ่มอัตโนมัติทุกครั้ง</Typography>
+                    <Typography variant="caption" color="text.secondary">แก้แบบ block-based ผ่านปุ่มลัด หรือปรับ JSON ที่ระบบจะตรวจ schema ให้ก่อนบันทึก</Typography>
                   </Box>
                   <Button startIcon={<ContentCopyIcon />} onClick={handleCloneSettings} disabled={saving || !eventForm.cloneFromEventId || !layoutEventId}>
                     คัดลอกไปยังรอบที่เลือก
@@ -547,6 +826,15 @@ export default function EventPlatformPage() {
                     {layoutKeys.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
                   </TextField>
                 </Stack>
+                {layoutKey === "landingPage" && (
+                  <Stack direction="row" spacing={1} flexWrap="wrap" mb={2}>
+                    <Button size="small" variant="outlined" onClick={() => addLayoutBlock("hero")}>เพิ่ม Hero</Button>
+                    <Button size="small" variant="outlined" onClick={() => addLayoutBlock("richText")}>เพิ่มข้อความ</Button>
+                    <Button size="small" variant="outlined" onClick={() => addLayoutBlock("schedule")}>เพิ่มกำหนดการ</Button>
+                    <Button size="small" variant="outlined" onClick={() => addLayoutBlock("faq")}>เพิ่ม FAQ</Button>
+                    <Button size="small" variant="outlined" onClick={() => addLayoutBlock("cta")}>เพิ่มปุ่ม CTA</Button>
+                  </Stack>
+                )}
                 <TextField
                   value={layoutJson}
                   onChange={(e) => setLayoutJson(e.target.value)}
@@ -561,9 +849,12 @@ export default function EventPlatformPage() {
                 <Button startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />} variant="contained" onClick={handleSaveLayout} disabled={saving || !layoutEventId}>
                   บันทึกเลย์เอาท์
                 </Button>
+                </>
+                )}
               </CardContent>
             </Card>
           </Grid>
+          )}
         </Grid>
 
         <Snackbar open={message.open} autoHideDuration={4000} onClose={() => setMessage((prev) => ({ ...prev, open: false }))}>

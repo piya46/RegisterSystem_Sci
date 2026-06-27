@@ -17,14 +17,18 @@ import AddBoxIcon from '@mui/icons-material/AddBox';
 import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
 import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import EventYearSelect from '../components/EventYearSelect';
+import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 export default function DonationListPage() {
+  const location = useLocation();
+  const urlEventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [eventYear, setEventYear] = useState('');
+  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
+  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
   
   const [openDialog, setOpenDialog] = useState(false);
   const [formData, setFormData] = useState({});
@@ -32,17 +36,27 @@ export default function DonationListPage() {
 
   const navigate = useNavigate();
 
+  useEffect(() => {
+    setEventYear(urlEventContext.eventYear || '');
+    setEventId(urlEventContext.eventId || '');
+  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+
+  const eventParams = useMemo(
+    () => eventContextToParams({ eventId, eventYear }),
+    [eventId, eventYear]
+  );
+
   const fetchDonations = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getDonationSummary(eventYear ? { eventYear } : undefined);
+      const res = await getDonationSummary(Object.keys(eventParams).length ? eventParams : undefined);
       setDonations(res.data?.transactions || []);
     } catch (err) {
       console.error("Failed to fetch donations", err);
     } finally {
       setLoading(false);
     }
-  }, [eventYear]);
+  }, [eventParams]);
 
   useEffect(() => { fetchDonations(); }, [fetchDonations]);
 
@@ -69,7 +83,7 @@ export default function DonationListPage() {
       setFormData(donation);
     } else {
       setIsEditing(false);
-      setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY', eventYear: eventYear || undefined });
+      setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY', ...eventParams });
     }
     setOpenDialog(true);
   };
@@ -121,14 +135,14 @@ export default function DonationListPage() {
     <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
       <Box sx={{ maxWidth: 1300, mx: "auto" }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" spacing={2} sx={{ mb: 3 }}>
-          <IconButton onClick={() => navigate('/dashboard')} sx={{ bgcolor: '#fff' }}><ArrowBackIcon /></IconButton>
+          <IconButton onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ bgcolor: '#fff' }}><ArrowBackIcon /></IconButton>
           <Box sx={{ flex: 1 }}>
             <Typography variant="h5" fontWeight="bold" sx={{ color: '#2e7d32', display: 'flex', alignItems: 'center', gap: 1 }}>
               <VolunteerActivismIcon /> จัดการรายชื่อผู้สนับสนุน
             </Typography>
             <Typography variant="body2" color="text.secondary">เพิ่ม ลบ อัปเดต และตรวจสอบสลิป</Typography>
           </Box>
-          <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+          <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
           <Button variant="contained" color="primary" startIcon={<AddBoxIcon />} onClick={() => handleOpenDialog()} sx={{ borderRadius: 2 }}>เพิ่มรายการใหม่</Button>
           <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export CSV</Button>
         </Stack>

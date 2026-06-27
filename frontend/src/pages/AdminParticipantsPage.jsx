@@ -9,7 +9,7 @@ import {
   Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -36,6 +36,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
 import EventYearSelect from '../components/EventYearSelect';
+import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
 
@@ -60,9 +61,12 @@ const StatusChip = styled(Chip)(({ status }) => {
 
 export default function AdminParticipantsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
 
   const [activeTab, setActiveTab] = useState(0);
-  const [eventYear, setEventYear] = useState('');
+  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
+  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
 
   // States: Participants
   const [participants, setParticipants] = useState([]);
@@ -98,26 +102,34 @@ export default function AdminParticipantsPage() {
   const [openAddPrize, setOpenAddPrize] = useState(false);
   const [newPrize, setNewPrize] = useState({ name: '', totalQuantity: 1 });
 
+  useEffect(() => {
+    setEventYear(urlEventContext.eventYear || '');
+    setEventId(urlEventContext.eventId || '');
+  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+
+  const eventParams = React.useMemo(
+    () => eventContextToParams({ eventId, eventYear }),
+    [eventId, eventYear]
+  );
+
   // Functions: Participants
   const fetchParticipants = useCallback(async () => {
     setLoading(true);
     try {
-      const eventYearParams = eventYear ? { eventYear } : undefined;
-      const res = await listParticipants(eventYearParams);
+      const res = await listParticipants(Object.keys(eventParams).length ? eventParams : undefined);
       setParticipants(res.data || res);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
     setLoading(false);
-  }, [eventYear]);
+  }, [eventParams]);
 
   const fetchPrizes = useCallback(async () => {
     setPrizeLoading(true);
     try {
-      const eventYearParams = eventYear ? { eventYear } : undefined;
-      const res = await listPrizes(eventYearParams);
+      const res = await listPrizes(Object.keys(eventParams).length ? eventParams : undefined);
       setPrizes(res.data);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
     setPrizeLoading(false);
-  }, [eventYear]);
+  }, [eventParams]);
 
   useEffect(() => {
     fetchParticipants();
@@ -264,8 +276,7 @@ export default function AdminParticipantsPage() {
   const handleDownloadPdf = async () => {
     if(!window.confirm("ต้องการดาวน์โหลด PDF รายงานสรุปผลหรือไม่?")) return;
     try {
-        const eventYearParams = eventYear ? { eventYear } : undefined;
-        const res = await downloadPdfReport(eventYearParams);
+        const res = await downloadPdfReport(Object.keys(eventParams).length ? eventParams : undefined);
         const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
         link.href = url;
@@ -276,8 +287,7 @@ export default function AdminParticipantsPage() {
   };
 
   const handleSharePublicReport = () => {
-    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
-    const link = `${window.location.origin}/public/report${query}`;
+    const link = `${window.location.origin}${appendQuery('/public/report', eventParams)}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: 'คัดลอกลิงก์รายงาน (Public) สำเร็จ', severity: 'success' });
   };
@@ -286,7 +296,7 @@ export default function AdminParticipantsPage() {
   const handleAddPrize = async () => {
     if (!newPrize.name || newPrize.totalQuantity < 1) return;
     try {
-      await createPrize({ ...newPrize, eventYear: eventYear || undefined, remainingQuantity: newPrize.totalQuantity });
+      await createPrize({ ...newPrize, ...eventParams, remainingQuantity: newPrize.totalQuantity });
       setOpenAddPrize(false); setNewPrize({ name: '', totalQuantity: 1 });
       setSnackbar({ open: true, message: 'เพิ่มของรางวัลแล้ว', severity: 'success' });
       fetchPrizes();
@@ -339,8 +349,8 @@ export default function AdminParticipantsPage() {
            <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
         <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-            <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
-            <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
+            <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+            <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
         </Stack>
       </Stack>

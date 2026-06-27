@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
 import { Box, Typography } from "@mui/material";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
@@ -27,15 +27,24 @@ import PublicDashboardPage from "./pages/PublicDashboardPage";
 import SelfRegisterPage from "./pages/SelfRegisterPage";
 import PublicLuckyDrawPage from "./pages/PublicLuckyDrawPage"; // 🌟 [เพิ่มนำเข้า]
 import EventPlatformPage from "./pages/EventPlatformPage";
+import EventWorkspacePage from "./pages/EventWorkspacePage";
 
-export default function App() {
+const withShell = (roles, page) => (
+  <ProtectedRoute roles={roles} shell>{page}</ProtectedRoute>
+);
+
+function AppFrame() {
+  const { pathname } = useLocation();
+  const showFooter = ["/privacy-policy", "/terms-of-service"].includes(pathname);
+
   return (
-    <Router>
-      <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <Box sx={{ flex: 1 }}>
-          <Routes>
+    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Box sx={{ flex: 1 }}>
+        <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/" element={<PreRegistrationPage />} />
+            <Route path="/e/:eventSlug" element={<PreRegistrationPage mode="landing" />} />
+            <Route path="/e/:eventSlug/register" element={<PreRegistrationPage />} />
             <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
             <Route path="/terms-of-service" element={<TermsPage />} />
 
@@ -45,34 +54,48 @@ export default function App() {
             <Route path="/kiosk/join" element={<KioskJoinPage />} />
             <Route path="/self-register" element={<SelfRegisterPage />} />
 
-            <Route path="/dashboard" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"]}><DashboardPage /></ProtectedRoute>} />
-            <Route path="/profile" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"]}><ProfilePage /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute roles={["admin"]}><SystemSettingsPage /></ProtectedRoute>} />
-            <Route path="/admin" element={<ProtectedRoute roles={["admin"]}><AdminPage /></ProtectedRoute>} />
-            <Route path="/registration-points" element={<ProtectedRoute roles={["admin"]}><RegistrationPointPage /></ProtectedRoute>} />
-            <Route path="/admin/events" element={<ProtectedRoute roles={["admin", "org_admin", "event_admin", "event_manager"]}><EventPlatformPage /></ProtectedRoute>} />
-            <Route path="/admin/lucky-draw" element={<ProtectedRoute roles={["admin"]}><LuckyDrawPage /></ProtectedRoute>} />
+            <Route path="/dashboard" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <DashboardPage embedded />)} />
+            <Route path="/workspace" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
+            <Route path="/workspace/events/:eventId" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
+            <Route path="/profile" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <ProfilePage />)} />
+            <Route path="/settings" element={withShell(["admin"], <SystemSettingsPage />)} />
+            <Route path="/admin" element={withShell(["admin"], <AdminPage />)} />
+            <Route path="/registration-points" element={withShell(["admin"], <RegistrationPointPage />)} />
+            <Route path="/admin/events" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="portal" />)} />
+            <Route path="/admin/events/migration" element={withShell(["admin"], <EventPlatformPage section="migration" />)} />
+            <Route path="/admin/events/:eventId/settings" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="settings" />)} />
+            <Route path="/admin/events/:eventId/layouts" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="layouts" />)} />
+            <Route path="/admin/lucky-draw" element={withShell(["admin"], <LuckyDrawPage />)} />
 
-            <Route path="/staff" element={<ProtectedRoute roles={["admin", "staff"]}><CheckinStaffPage /></ProtectedRoute>} />
+            <Route path="/staff" element={withShell(["admin", "staff"], <CheckinStaffPage />)} />
             <Route path="/kiosk" element={<ProtectedRoute roles={["kiosk", "admin", "staff"]}><KioskPage /></ProtectedRoute>} />
-            <Route path="/select-point" element={<ProtectedRoute roles={["kiosk", "staff", "admin"]}><SelectPointPage /></ProtectedRoute>} />
-            <Route path="/admin/participants" element={<ProtectedRoute roles={["admin"]}><AdminParticipantsPage /></ProtectedRoute>} />
-            <Route path="/admin/donations" element={<ProtectedRoute roles={["admin"]}><DonationListPage /></ProtectedRoute>} />
-            <Route path="/staff/select-point" element={<ProtectedRoute roles={["admin", "staff"]}><SelectPointPage mode="staff" /></ProtectedRoute>} />
-            <Route path="/admin/cron-status" element={<ProtectedRoute roles={["admin"]}><CronStatusPage /></ProtectedRoute>} />
-            <Route path="/admin/sessions" element={<ProtectedRoute roles={["admin"]}><SessionManagerPage /></ProtectedRoute>} />
+            <Route path="/select-point" element={withShell(["kiosk", "staff", "admin"], <SelectPointPage />)} />
+            <Route path="/admin/participants" element={withShell(["admin"], <AdminParticipantsPage />)} />
+            <Route path="/admin/donations" element={withShell(["admin"], <DonationListPage />)} />
+            <Route path="/staff/select-point" element={withShell(["admin", "staff"], <SelectPointPage mode="staff" />)} />
+            <Route path="/admin/cron-status" element={withShell(["admin"], <CronStatusPage />)} />
+            <Route path="/admin/sessions" element={withShell(["admin"], <SessionManagerPage />)} />
 
             <Route path="/unauthorized" element={<Box p={5} textAlign="center"><Typography variant="h5">คุณไม่มีสิทธิ์เข้าถึงหน้านี้</Typography></Box>} />
             <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        </Box>
+        </Routes>
+      </Box>
 
+      {showFooter && (
         <Box component="footer" sx={{ textAlign: 'center', py: 2, bgcolor: '#f5f5f5', borderTop: '1px solid #e0e0e0' }}>
           <Typography variant="body2" color="text.secondary" fontWeight="500">
             &copy; copyright 2026 PSTDEV
           </Typography>
         </Box>
-      </Box>
+      )}
+    </Box>
+  );
+}
+
+export default function App() {
+  return (
+    <Router>
+      <AppFrame />
     </Router>
   );
 }

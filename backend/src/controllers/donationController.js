@@ -7,7 +7,7 @@ const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const verifyTurnstile = require('../utils/verifyTurnstile');
 const isAdmin = require('../helpers/isAdmin');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { eventScopeFromRequest, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
 const { protectDonationPayload, revealDonationObject } = require('../utils/fieldEncryption');
 
 const DONATION_FIELDS = [
@@ -61,7 +61,7 @@ exports.createDonation = async (req, res) => {
     const numericAmount = Number(amount);
     const transferDate = new Date(transferDateTime);
     const packageSelected = isPackage === true || isPackage === 'true';
-    const eventContext = await getCurrentEventContext();
+    const eventContext = await getEventContextFromRequest(req, { requirePublic: !isAdminSession(req) });
     const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
 
     if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
@@ -173,8 +173,9 @@ exports.createDonation = async (req, res) => {
 
 exports.getDonationSummary = async (req, res) => {
   try {
-    const eventYear = await eventYearOrCurrentFromRequest(req);
-    const donations = (await Donation.find(applyEventYearFilter({}, eventYear)).sort({ createdAt: -1 }))
+    const eventScope = await eventScopeFromRequest(req);
+    const { eventYear, filter } = eventScope;
+    const donations = (await Donation.find(filter).sort({ createdAt: -1 }))
       .map(revealDonationObject);
     await auditSensitiveAccess({
       req,

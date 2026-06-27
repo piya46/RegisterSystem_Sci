@@ -41,12 +41,13 @@ import WheelchairPickupIcon from '@mui/icons-material/WheelchairPickup';
 // Libraries
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
-import { listParticipantFields, createParticipant, createDonation, getSystemSettings, listPackages } from "../utils/api";
+import { listParticipantFields, createParticipant, createDonation, getSystemSettings, listPackages, getPublicEvent } from "../utils/api";
 import { getTurnstileToken } from "../utils/turnstile";
 import dayjs from "dayjs";
 import Turnstile from "../components/Turnstile";
 import Confetti from 'react-confetti';
 import { motion as Motion } from 'framer-motion';
+import { useParams } from "react-router-dom";
 
 // --- Configuration Constants ---
 const ASSISTANCE_TAGS = [
@@ -99,7 +100,155 @@ const SizeChart = () => (
   </TableContainer>
 );
 
-export default function PreRegistrationPage() {
+const LandingBlocks = ({ event, blocks = [] }) => {
+  const branding = event?.branding || {};
+  const visibleBlocks = (blocks || []).filter((block) => block.enabled !== false);
+  const registrationUrl = event?.publicLinks?.registrationPath || `/e/${event?.slug}/register`;
+
+  if (visibleBlocks.length === 0) {
+    visibleBlocks.push({
+      id: "default-hero",
+      type: "hero",
+      title: event?.name || "กิจกรรม",
+      subtitle: event?.config?.welcomeMessage || "",
+      primaryActionLabel: "ลงทะเบียน",
+      primaryActionUrl: registrationUrl,
+    });
+  }
+
+  return (
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f7f9fb" }}>
+      {visibleBlocks.map((block, index) => {
+        if (block.type === "hero") {
+          const imageUrl = block.imageUrl || branding.coverImageUrl;
+          return (
+            <Box
+              key={block.id || index}
+              sx={{
+                minHeight: { xs: "82vh", md: "78vh" },
+                display: "flex",
+                alignItems: "center",
+                color: "#fff",
+                position: "relative",
+                overflow: "hidden",
+                bgcolor: branding.secondaryColor || "#114b5f",
+                backgroundImage: imageUrl
+                  ? `linear-gradient(90deg, rgba(8,28,41,.86), rgba(8,28,41,.45)), url(${imageUrl})`
+                  : `linear-gradient(135deg, ${branding.secondaryColor || "#114b5f"}, ${branding.primaryColor || "#f7b500"})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+              }}
+            >
+              <Container maxWidth="lg">
+                <Stack spacing={3} sx={{ maxWidth: 760 }}>
+                  {(block.logoUrl || branding.logoUrl) && (
+                    <Avatar
+                      src={block.logoUrl || branding.logoUrl}
+                      alt={event?.name}
+                      sx={{ width: 92, height: 92, bgcolor: "#fff", border: "3px solid rgba(255,255,255,.75)" }}
+                    />
+                  )}
+                  <Box>
+                    <Typography variant="overline" sx={{ fontWeight: 900, color: branding.primaryColor || "#ffd24d", letterSpacing: 0 }}>
+                      {event?.eventYear ? `กิจกรรมปี ${event.eventYear}` : "Event"}
+                    </Typography>
+                    <Typography variant="h2" sx={{ fontWeight: 950, lineHeight: 1.05, fontSize: { xs: 40, md: 68 }, letterSpacing: 0 }}>
+                      {block.title || event?.name}
+                    </Typography>
+                  </Box>
+                  {(block.subtitle || block.body) && (
+                    <Typography variant="h6" sx={{ maxWidth: 680, lineHeight: 1.75, color: "rgba(255,255,255,.9)" }}>
+                      {block.subtitle || block.body}
+                    </Typography>
+                  )}
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Button
+                      component="a"
+                      href={block.primaryActionUrl || registrationUrl}
+                      variant="contained"
+                      size="large"
+                      sx={{ bgcolor: branding.primaryColor || "#f7b500", color: "#1f1a00", fontWeight: 900, px: 4 }}
+                    >
+                      {block.primaryActionLabel || "ลงทะเบียน"}
+                    </Button>
+                    {block.secondaryActionLabel && block.secondaryActionUrl && (
+                      <Button component="a" href={block.secondaryActionUrl} variant="outlined" size="large" sx={{ color: "#fff", borderColor: "rgba(255,255,255,.65)" }}>
+                        {block.secondaryActionLabel}
+                      </Button>
+                    )}
+                  </Stack>
+                </Stack>
+              </Container>
+            </Box>
+          );
+        }
+
+        if (block.type === "schedule") {
+          return (
+            <Container key={block.id || index} maxWidth="md" sx={{ py: 7 }}>
+              <Typography variant="h4" fontWeight={900} mb={1}>{block.title || "กำหนดการ"}</Typography>
+              {block.subtitle && <Typography color="text.secondary" mb={3}>{block.subtitle}</Typography>}
+              <Stack spacing={1.5}>
+                {(block.items || []).map((item, itemIndex) => (
+                  <Paper key={`${block.id}-${itemIndex}`} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Typography fontWeight={900} color="primary.main">{item.time}</Typography>
+                    <Typography fontWeight={800}>{item.title}</Typography>
+                    {item.description && <Typography color="text.secondary">{item.description}</Typography>}
+                  </Paper>
+                ))}
+              </Stack>
+            </Container>
+          );
+        }
+
+        if (block.type === "faq") {
+          return (
+            <Container key={block.id || index} maxWidth="md" sx={{ py: 7 }}>
+              <Typography variant="h4" fontWeight={900} mb={3}>{block.title || "คำถามที่พบบ่อย"}</Typography>
+              <Stack spacing={1.5}>
+                {(block.items || []).map((item, itemIndex) => (
+                  <Paper key={`${block.id}-${itemIndex}`} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                    <Typography fontWeight={900}>{item.question}</Typography>
+                    <Typography color="text.secondary">{item.answer}</Typography>
+                  </Paper>
+                ))}
+              </Stack>
+            </Container>
+          );
+        }
+
+        if (block.type === "cta") {
+          return (
+            <Box key={block.id || index} sx={{ bgcolor: "#fff", py: 6 }}>
+              <Container maxWidth="md">
+                <Paper variant="outlined" sx={{ p: { xs: 3, md: 5 }, borderRadius: 3, textAlign: "center" }}>
+                  <Typography variant="h4" fontWeight={900}>{block.title || "พร้อมเข้าร่วมกิจกรรมแล้วใช่ไหม"}</Typography>
+                  {block.body && <Typography color="text.secondary" sx={{ mt: 1, mb: 3 }}>{block.body}</Typography>}
+                  <Button component="a" href={block.buttonUrl || registrationUrl} variant="contained" size="large">
+                    {block.buttonLabel || "ลงทะเบียน"}
+                  </Button>
+                </Paper>
+              </Container>
+            </Box>
+          );
+        }
+
+        if (block.type === "divider") return <Divider key={block.id || index} />;
+
+        return (
+          <Container key={block.id || index} maxWidth="md" sx={{ py: 7 }}>
+            <Typography variant="h4" fontWeight={900} mb={1}>{block.title}</Typography>
+            {block.subtitle && <Typography color="text.secondary" mb={2}>{block.subtitle}</Typography>}
+            {block.body && <Typography sx={{ whiteSpace: "pre-line", lineHeight: 1.8 }}>{block.body}</Typography>}
+          </Container>
+        );
+      })}
+    </Box>
+  );
+};
+
+export default function PreRegistrationPage({ mode = "register" }) {
+  const { eventSlug } = useParams();
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
   const [loading, setLoading] = useState(false);
@@ -110,6 +259,7 @@ export default function PreRegistrationPage() {
   const [systemStatus, setSystemStatus] = useState({ isOpen: true, message: "" });
   const [availablePackages, setAvailablePackages] = useState([]);
   const [availableSizes, setAvailableSizes] = useState([]);
+  const [eventInfo, setEventInfo] = useState(null);
 
   // 🌟 เพิ่ม State รับค่า เปิด-ปิด การรับสินค้า
   const [pickupOptions, setPickupOptions] = useState({ pickup: true, delivery: true });
@@ -149,8 +299,20 @@ export default function PreRegistrationPage() {
   useEffect(() => {
     const loadInitData = async () => {
       try {
-        const resSet = await getSystemSettings();
-        const set = resSet.data?.data;
+        let set = null;
+        if (eventSlug) {
+          const eventRes = await getPublicEvent(eventSlug);
+          const event = eventRes.data?.data || null;
+          setEventInfo(event);
+          set = event?.config || null;
+          if (mode !== "landing" && event && !["registration_open", "active"].includes(event.status)) {
+            setSystemStatus({ isOpen: false, message: "กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน" });
+          }
+        } else {
+          const resSet = await getSystemSettings();
+          set = resSet.data?.data;
+        }
+
         if (set) {
           const now = new Date();
           const start = set.preRegStartDate ? new Date(set.preRegStartDate) : null;
@@ -177,16 +339,17 @@ export default function PreRegistrationPage() {
         const resFields = await listParticipantFields();
         setFields(resFields.data || []);
 
-        const resPkgs = await listPackages();
+        const resPkgs = await listPackages(eventSlug ? { eventSlug } : undefined);
         setAvailablePackages(resPkgs.data?.data || []);
       } catch (err) {
         console.error(err);
+        setSystemStatus({ isOpen: false, message: err.response?.data?.message || "ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดให้ใช้งาน" });
       } finally {
         setFetchingFields(false);
       }
     };
     loadInitData();
-  }, []);
+  }, [eventSlug, mode]);
 
   const fieldGroups = useMemo(() => {
     const all = (fields || []).filter(f => f?.enabled !== false).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
@@ -315,7 +478,16 @@ export default function PreRegistrationPage() {
         if (!requireAddress) { finalForm['usr_add'] = "-"; finalForm['usr_add_post'] = "-"; }
         const combinedAssistance = [...selectedAssistTags, specialAssistance.trim()].filter(Boolean).join(", ");
 
-        const payload = { ...finalForm, followers: count, cfToken, consent: finalConsent, specialAssistance: combinedAssistance, isPackage: wantPackage };
+        const payload = {
+          ...finalForm,
+          followers: count,
+          cfToken,
+          consent: finalConsent,
+          specialAssistance: combinedAssistance,
+          isPackage: wantPackage,
+          eventSlug,
+          eventYear: eventInfo?.eventYear,
+        };
         const participant = await createParticipant(payload);
 
         if (wantToDonate && donationAmount && parseFloat(donationAmount) > 0) {
@@ -332,7 +504,9 @@ export default function PreRegistrationPage() {
                   userId: null, firstName, lastName, amount: parseFloat(donationAmount), transferDateTime,
                   source: "PRE_REGISTER", isPackage: wantPackage, packageType: packageType,
                   size: wantPackage ? packageSize : "", pickupMethod: pickupMethod, address: addressText,
-                  cfToken: donationCfToken
+                  cfToken: donationCfToken,
+                  eventSlug,
+                  eventYear: eventInfo?.eventYear,
                 });
               } catch {
                 // Registration succeeded; donation can be followed up separately by staff.
@@ -370,6 +544,8 @@ export default function PreRegistrationPage() {
     specialAssistance,
     wantPackage,
     wantToDonate,
+    eventInfo,
+    eventSlug,
   ]);
 
   const savePng = async () => { if (ticketRef.current) { const canvas = await html2canvas(ticketRef.current, { scale: 2, useCORS: true }); const link = document.createElement("a"); link.href = canvas.toDataURL("image/png"); link.download = "E-Ticket.png"; link.click(); }};
@@ -382,6 +558,26 @@ export default function PreRegistrationPage() {
   };
 
   function pickField(participant, keys) { const f = participant?.fields || {}; for (const k of keys) { if (f[k] != null && String(f[k]).trim() !== "") return f[k]; } return "-"; }
+
+  if (mode === "landing" && fetchingFields) {
+    return (
+      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f7f9fb" }}>
+        <Stack alignItems="center" spacing={2}>
+          <CircularProgress color="warning" />
+          <Typography fontWeight={800} color="text.secondary">กำลังโหลดหน้ากิจกรรม...</Typography>
+        </Stack>
+      </Box>
+    );
+  }
+
+  if (mode === "landing" && eventInfo) {
+    return (
+      <LandingBlocks
+        event={eventInfo}
+        blocks={eventInfo.layouts?.landingPage?.config?.blocks || []}
+      />
+    );
+  }
 
   // ==========================================
   // UI - System Closed
@@ -472,12 +668,12 @@ export default function PreRegistrationPage() {
         <Motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)" }}>
             <Stack direction="row" spacing={2} alignItems="center" justifyContent="center">
-                <Avatar src="/logo.svg" alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
+                <Avatar src={eventInfo?.branding?.logoUrl || "/logo.svg"} alt="Logo" sx={{ width: 100, height: 100, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
                 <Box>
                 <Typography variant="h6" fontWeight={900} color="primary" sx={{ letterSpacing: .5, lineHeight: 1.3 }}>
-                    ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า <br />
-                    "เสือเหลืองคืนถิ่น" <br />
-                    Atoms In Ground Stage 109
+                    {eventInfo?.name ? `ลงทะเบียนล่วงหน้า: ${eventInfo.name}` : "ลงทะเบียนล่วงหน้าเพื่อเข้าร่วมงานคืนเหย้า"} <br />
+                    {eventInfo?.config?.welcomeMessage || '"เสือเหลืองคืนถิ่น"'} <br />
+                    {eventInfo?.eventYear ? `ปี ${eventInfo.eventYear}` : "Atoms In Ground Stage 109"}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 1, lineHeight: 1.5 }}>
                     <strong>สถานที่จัดงาน:</strong> ภายในคณะวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย <br />

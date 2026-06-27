@@ -103,6 +103,7 @@ export const getCurrentEvent = () => api.get('/events/current');
 export const getEventCatalog = () => api.get('/events/catalog');
 export const getLegacyMigrationPreview = () => api.get('/events/migration-preview');
 export const runLegacyEventMigration = (dryRun = false) => api.post('/events/migrate-legacy', { dryRun });
+export const getPublicEvent = (slug) => api.get(`/public/events/${encodeURIComponent(slug)}`);
 export const createOrganization = (data) => api.post('/events/organizations', data);
 export const updateOrganization = (id, data) => api.put(`/events/organizations/${id}`, data);
 export const createEventSeries = (data) => api.post('/events/series', data);
@@ -110,6 +111,8 @@ export const updateEventSeries = (id, data) => api.put(`/events/series/${id}`, d
 export const createEvent = (data) => api.post('/events', data);
 export const updateEvent = (id, data) => api.put(`/events/${id}`, data);
 export const activateEvent = (id) => api.post(`/events/${id}/activate`);
+export const publishEvent = (id, note = '') => api.post(`/events/${id}/publish`, { note });
+export const updateEventStatus = (id, status) => api.post(`/events/${id}/status`, { status });
 export const updateEventLayout = (id, layoutKey, config) => api.put(`/events/${id}/layouts/${layoutKey}`, { config });
 export const cloneEventSettings = (sourceEventId, targetEventId) => api.post('/events/clone-settings', { sourceEventId, targetEventId });
 export const listPackages = (params) => api.get('/packages', { params });

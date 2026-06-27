@@ -18,7 +18,7 @@ const {
   protectParticipantFields,
   revealParticipantObject,
 } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventScopeFromRequest, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
 const { isAdminLike } = require('../utils/permissions');
 
 function contextRefsForYear(context, eventYear) {
@@ -28,6 +28,11 @@ function contextRefsForYear(context, eventYear) {
     seriesId: context.seriesId,
     eventId: context.eventId,
   };
+}
+
+function participantEventFilter(context, eventYear) {
+  if (context?.eventId) return { eventId: context.eventId };
+  return { eventYear: normalizeEventYear(eventYear) };
 }
 
 function checkAdmin(req, res) {
@@ -42,12 +47,15 @@ function checkAdmin(req, res) {
 exports.createParticipant = async (req, res) => {
   /* โค้ดเดิมคงไว้ ไม่มีการเปลี่ยนแปลง */
   try {
-    const setting = await SystemSetting.findOne();
-    if (setting) {
-      if (!setting.enableRegister) return res.status(403).json({ error: 'ระบบปิดรับการลงทะเบียนชั่วคราว' });
-      const now = new Date();
-      if (setting.preRegStartDate && now < new Date(setting.preRegStartDate)) return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดรับลงทะเบียน' });
-      if (setting.preRegEndDate && now > new Date(setting.preRegEndDate)) return res.status(403).json({ error: 'หมดเวลาลงทะเบียนล่วงหน้าแล้ว' });
+    const eventContext = await getEventContextFromRequest(req, { requirePublic: true, requireRegistrationOpen: true });
+    if (!eventContext.event) {
+      const setting = await SystemSetting.findOne();
+      if (setting) {
+        if (!setting.enableRegister) return res.status(403).json({ error: 'ระบบปิดรับการลงทะเบียนชั่วคราว' });
+        const now = new Date();
+        if (setting.preRegStartDate && now < new Date(setting.preRegStartDate)) return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดรับลงทะเบียน' });
+        if (setting.preRegEndDate && now > new Date(setting.preRegEndDate)) return res.status(403).json({ error: 'หมดเวลาลงทะเบียนล่วงหน้าแล้ว' });
+      }
     }
 
     const { cfToken } = req.body;
@@ -89,12 +97,11 @@ exports.createParticipant = async (req, res) => {
       if (!isNaN(yearVal) && yearVal < 2400) return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
     }
 
-    const eventContext = await getCurrentEventContext();
     const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventYear });
+      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventId: eventContext.eventId, eventYear });
       if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียนไปแล้ว' });
     }
 
@@ -126,6 +133,7 @@ exports.createParticipant = async (req, res) => {
     res.json(revealParticipantObject(participant));
   } catch (err) {
     auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT_ERROR', detail: err.message, status: 500 });
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     serverError(res, err);
   }
 };
@@ -181,12 +189,12 @@ exports.createParticipantByStaff = async (req, res) => {
       if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
-    const eventContext = await getCurrentEventContext();
+    const eventContext = await getEventContextFromRequest(req);
     const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventYear });
+      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventId: eventContext.eventId, eventYear });
       if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียน/เช็คอิน ไปแล้ว' });
     }
 
@@ -237,13 +245,13 @@ exports.registerOnsite = async (req, res) => {
       return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
     }
 
-    const eventContext = await getCurrentEventContext();
+    const eventContext = await getEventContextFromRequest(req);
     const eventYear = normalizeEventYear(requestedEventYear || eventContext.eventYear || await getCurrentEventYear());
 
     // ตรวจสอบข้อมูลซ้ำ
     const existing = await Participant.findOne({
       $and: [
-        { isDeleted: false, eventYear },
+        { isDeleted: false, ...participantEventFilter(eventContext, eventYear) },
         {
           $or: [
             participantFieldMatch('email', fields.email),
@@ -299,8 +307,8 @@ exports.registerOnsite = async (req, res) => {
 exports.listParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const eventYear = await eventYearOrCurrentFromRequest(req);
-    const filter = applyEventYearFilter({ isDeleted: false }, eventYear);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const { eventYear, filter } = eventScope;
     const participants = await Participant.find(filter).sort({ createdAt: -1 }).select('+secureIndex');
     const safeParticipants = participants.map(revealParticipantObject);
     await auditSensitiveAccess({
@@ -391,8 +399,9 @@ exports.checkinByQr = async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }
 
-    const eventYear = await eventYearOrCurrentFromRequest(req);
-    const participant = await Participant.findOne(applyEventYearFilter({ qrCode, isDeleted: false }, eventYear));
+    const eventScope = await eventScopeFromRequest(req, { qrCode, isDeleted: false });
+    const { eventYear, filter } = eventScope;
+    const participant = await Participant.findOne(filter);
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
     if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
@@ -433,10 +442,11 @@ exports.resendTicket = async (req, res) => {
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
   const phoneRegex = /^0[689]\d{8}$/;
   if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-  const eventYear = await eventYearOrCurrentFromRequest(req);
+  const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+  const { eventYear } = eventScope;
   const participant = await Participant.findOne({
     $and: [
-      applyEventYearFilter({ isDeleted: false }, eventYear),
+      eventScope.filter,
       participantFieldMatch('phone', phone),
     ],
   }).select('+secureIndex');
@@ -468,8 +478,9 @@ exports.resendTicket = async (req, res) => {
 exports.searchParticipants = async (req, res) => {
   try {
     const { phone, name, email, qrCode, q } = req.query;
-    const eventYear = await eventYearOrCurrentFromRequest(req);
-    let filter = applyEventYearFilter({ isDeleted: false }, eventYear);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const { eventYear } = eventScope;
+    let filter = eventScope.filter;
     if (q) {
       const secureSearchTokens = participantSearchTokensForQuery(q);
       const directResults = await Participant.find({
@@ -567,8 +578,9 @@ exports.exportParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
     const { status } = req.query;
-    const eventYear = await eventYearOrCurrentFromRequest(req);
-    const find = applyEventYearFilter({ isDeleted: false }, eventYear);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const { eventYear } = eventScope;
+    const find = eventScope.filter;
     if (status) find.status = status;
 
     const participants = (await Participant.find(find).populate('registeredBy', 'username fullName email').select('+secureIndex')).map(revealParticipantObject);

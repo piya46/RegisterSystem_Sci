@@ -8,10 +8,11 @@ import CampaignIcon from '@mui/icons-material/Campaign';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareIcon from '@mui/icons-material/IosShare';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { listPrizes, drawPrize, cancelPrizeWinner } from '../utils/api';
 import EventYearSelect from '../components/EventYearSelect';
+import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 // 🌟 ธีมสีเหลืองเสือเหลืองคืนถิ่น (Yellow & Dark Brown)
 const THEME = {
@@ -29,9 +30,12 @@ const DUMMY_NAMES = [
 
 export default function LuckyDrawPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
   const [prizes, setPrizes] = useState([]);
   const [selectedPrize, setSelectedPrize] = useState('');
-  const [eventYear, setEventYear] = useState('');
+  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
+  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
 
   // States สำหรับการสุ่ม
   const [isDrawing, setIsDrawing] = useState(false);
@@ -47,6 +51,16 @@ export default function LuckyDrawPage() {
   const intervalRef = useRef(null);
   const timerRef = useRef(null);
 
+  useEffect(() => {
+    setEventYear(urlEventContext.eventYear || '');
+    setEventId(urlEventContext.eventId || '');
+  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+
+  const eventParams = React.useMemo(
+    () => eventContextToParams({ eventId, eventYear }),
+    [eventId, eventYear]
+  );
+
   // นาฬิกาปัจจุบัน
   useEffect(() => {
     const clock = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -56,12 +70,12 @@ export default function LuckyDrawPage() {
   // 🌟 ฟังก์ชันโหลดข้อมูลของรางวัล
   const fetchPrizes = useCallback(async () => {
     try {
-      const res = await listPrizes(eventYear ? { eventYear } : undefined);
+      const res = await listPrizes(Object.keys(eventParams).length ? eventParams : undefined);
       setPrizes(res.data);
     } catch (err) {
       console.error("Auto-refresh error:", err);
     }
-  }, [eventYear]);
+  }, [eventParams]);
 
   // 🌟 ระบบ Auto-Refresh ข้อมูลทุกๆ 10 วินาที
   useEffect(() => {
@@ -174,8 +188,7 @@ export default function LuckyDrawPage() {
 
   // 🌟 ฟังก์ชันจัดการ Share หน้า Public
   const handleSharePublic = () => {
-    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
-    const link = `${window.location.origin}/public/lucky-draw${query}`;
+    const link = `${window.location.origin}${appendQuery('/public/lucky-draw', eventParams)}`;
     navigator.clipboard.writeText(link);
     alert('คัดลอกลิงก์ Live สำหรับหน้าจอแสดงผลสำเร็จ!');
   };
@@ -190,7 +203,7 @@ export default function LuckyDrawPage() {
 
       {/* Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
-        <Button variant="contained" startIcon={<ArrowBackIcon />} onClick={() => navigate('/dashboard')} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.text, '&:hover': { bgcolor: '#FFECB3' } }}>
+        <Button variant="contained" startIcon={<ArrowBackIcon />} onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.text, '&:hover': { bgcolor: '#FFECB3' } }}>
           Dashboard
         </Button>
         <Stack alignItems="flex-end">
@@ -202,7 +215,7 @@ export default function LuckyDrawPage() {
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1} alignItems="center">
-          <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+          <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
           <Button variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublic} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.accent, borderColor: THEME.accent, borderWidth: 2, '&:hover': { bgcolor: '#FFFDE7', borderWidth: 2 } }}>
             แชร์จอแสดงผล (Public)
           </Button>

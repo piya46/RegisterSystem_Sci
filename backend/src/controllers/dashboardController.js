@@ -2,12 +2,13 @@ const Participant = require('../models/participant');
 const Admin = require('../models/admin');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { eventScopeFromRequest } = require('../utils/eventYear');
 const { serverError } = require('../utils/httpResponses');
 
 exports.getDashboardSummary = async (req, res) => {
   try {
-    const baseFilter = applyEventYearFilter({ isDeleted: false }, await eventYearOrCurrentFromRequest(req));
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const baseFilter = eventScope.filter;
     // -------- สถิติโดยรวม (รายการ/participant) --------
     const [totalRegistered, checkedIn, cancelled, onlineRegistered, onsiteRegistered] = await Promise.all([
       Participant.countDocuments(baseFilter),
@@ -384,7 +385,7 @@ exports.getDashboardSummary = async (req, res) => {
       action: 'SENSITIVE_DECRYPT_DASHBOARD_RECENTS',
       purpose: 'admin_dashboard_recent_checkins',
       resource: 'participants',
-      eventYear: baseFilter.eventYear,
+      eventYear: eventScope.eventYear,
       recordCount: lastCheckedIn.length,
       fields: ['participant.fields.name'],
     });
@@ -412,6 +413,9 @@ exports.getDashboardSummary = async (req, res) => {
     };
 
     res.json({
+      eventId: eventScope.eventId,
+      eventYear: eventScope.eventYear,
+
       // base counters
       totalRegistered,
       checkedIn,

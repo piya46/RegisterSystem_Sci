@@ -35,12 +35,13 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพิ่ม] ไอคอนถ้วยรางวัลสำหรับ Lucky Draw
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import EventYearSelect from "../components/EventYearSelect";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
 import { downloadCsv } from "../utils/exportCsv";
+import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip } from "recharts";
 
@@ -102,9 +103,10 @@ const StatCard = ({ title, value, subtext, icon, color1, color2, textColor = "#f
 );
 
 const MAIN_MENU = [
-  { label: "Dashboard", icon: <DashboardIcon />, path: "/dashboard", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"] },
-  { label: "Check-in (Staff)", icon: <QrCodeIcon />, path: "/staff", roles: ["staff", "admin"] },
-  { label: "Kiosk Onsite", icon: <StoreIcon />, path: "/kiosk", roles: ["kiosk", "admin", "staff"] }
+  { label: "เลือกกิจกรรม", icon: <EventAvailableIcon />, path: "/workspace", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"] },
+  { label: "ภาพรวม", icon: <DashboardIcon />, path: "/dashboard", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"] },
+  { label: "เช็คอินหน้างาน", icon: <QrCodeIcon />, path: "/staff", roles: ["staff", "admin"] },
+  { label: "เครื่องลงทะเบียน", icon: <StoreIcon />, path: "/kiosk", roles: ["kiosk", "admin", "staff"] }
 ];
 
 const MANAGE_MENU = [
@@ -141,8 +143,10 @@ const getTheme = (mode = "light") =>
 
 function getInitial(name) { if (!name) return "?"; return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
 
-export default function DashboardPage() {
+export default function DashboardPage({ embedded = false }) {
   const { user, logout } = useAuth();
+  const location = useLocation();
+  const urlEventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
   const roles = Array.isArray(user?.role) ? user.role : [user?.role];
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [darkMode] = React.useState(false);
@@ -152,7 +156,8 @@ export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
   const [donationStats, setDonationStats] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
-  const [eventYear, setEventYear] = useState('');
+  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
+  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
 
   const [withFollowers, setWithFollowers] = useState(true);
   const [refreshCountdown, setRefreshCountdown] = useState(60);
@@ -161,9 +166,19 @@ export default function DashboardPage() {
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
+  useEffect(() => {
+    setEventYear(urlEventContext.eventYear || '');
+    setEventId(urlEventContext.eventId || '');
+  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+
+  const eventParams = useMemo(
+    () => eventContextToParams({ eventId, eventYear }),
+    [eventId, eventYear]
+  );
+
   const fetchSummary = useCallback(async () => {
     setLoadingSummary(true);
-    const params = eventYear ? { eventYear } : undefined;
+    const params = Object.keys(eventParams).length ? eventParams : undefined;
     try {
       const res = await getDashboardSummary(params);
       setSummary(res.data);
@@ -174,18 +189,17 @@ export default function DashboardPage() {
     }
     setLoadingSummary(false);
     setRefreshCountdown(60);
-  }, [eventYear]);
+  }, [eventParams]);
 
   const handleSharePublicDashboard = () => {
-    const query = eventYear ? `?eventYear=${encodeURIComponent(eventYear)}` : '';
-    const link = `${window.location.origin}/public/dashboard${query}`;
+    const link = `${window.location.origin}${appendQuery('/public/dashboard', eventParams)}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: 'คัดลอกลิงก์ Live Dashboard สำเร็จ! นำไปส่งต่อได้เลย', severity: 'success' });
   };
 
   async function handleDownloadExcel() {
     try {
-      const res = await api.get("/participants", { params: { all: true, ...(eventYear ? { eventYear } : {}) } });
+      const res = await api.get("/participants", { params: { all: true, ...eventParams } });
       const participants = Array.isArray(res.data) ? res.data : (res.data.data || []);
       if (participants.length === 0) { alert("ไม่พบข้อมูลสำหรับดาวน์โหลด"); return; }
 
@@ -284,6 +298,7 @@ export default function DashboardPage() {
     <ThemeProvider theme={getTheme(darkMode ? "dark" : "light")}>
       <CssBaseline />
       <Box sx={{ minHeight: "100vh", pb: 6 }}>
+        {!embedded && (
         <AppBar position="sticky">
           <Toolbar sx={{ px: { xs: 1, md: 3 }, minHeight: 70, display: "flex", alignItems: "center", gap: 1 }}>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mr: 1 }}>
@@ -325,8 +340,9 @@ export default function DashboardPage() {
             </Stack>
           </Toolbar>
         </AppBar>
+        )}
 
-        <Container maxWidth="xl" sx={{ mt: 4, mb: 5 }}>
+        <Container maxWidth="xl" sx={{ mt: embedded ? 3 : 4, mb: 5 }}>
           <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" alignItems="flex-start" sx={{ mb: 4 }}>
             <Box>
               <Typography variant="h4" fontWeight={900} sx={{ background: "linear-gradient(45deg, #FFC107, #FF6F00)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", mb: 0.5 }}>
@@ -335,16 +351,19 @@ export default function DashboardPage() {
               <Stack direction="row" alignItems="center" spacing={1}>
                 <AccessTimeIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                 <Typography variant="body2" color="text.secondary" fontWeight={500}>อัปเดตล่าสุด: {new Date().toLocaleTimeString('th-TH')}</Typography>
+                {(eventId || eventYear) && (
+                  <Chip size="small" color={eventId ? "warning" : "default"} label={eventId ? `Event ID: ${eventId.slice(-6)}` : `ปี ${eventYear}`} />
+                )}
               </Stack>
             </Box>
 
             <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 }, flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
-              <EventYearSelect value={eventYear} onChange={setEventYear} sx={{ minWidth: 150 }} />
+              <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ minWidth: 150 }} />
 
               {/* 🌟 [เพิ่ม] ปุ่มเข้าหน้า Lucky Draw */}
               <Button
                 component={Link}
-                to="/admin/lucky-draw"
+                to={appendQuery("/admin/lucky-draw", eventParams)}
                 size="small"
                 variant="contained"
                 startIcon={<EmojiEventsIcon />}
@@ -446,7 +465,7 @@ export default function DashboardPage() {
                           <Typography variant="subtitle1" fontWeight={800} display="flex" alignItems="center" gap={1}>
                             <ReceiptLongIcon color="action" /> รายการโอนล่าสุด
                           </Typography>
-                          <Button component={Link} to="/admin/donations" size="small" endIcon={<ArrowForwardIcon />}>ดูทั้งหมด</Button>
+                          <Button component={Link} to={appendQuery("/admin/donations", eventParams)} size="small" endIcon={<ArrowForwardIcon />}>ดูทั้งหมด</Button>
                         </Box>
                         <TableContainer>
                           <Table size="small">

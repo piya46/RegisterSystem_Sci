@@ -15,6 +15,7 @@ import HistoryIcon from "@mui/icons-material/History";
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { QRCodeSVG } from 'qrcode.react';
+import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 const THEME = {
   gradientBg: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #ffe082 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)",
@@ -36,6 +37,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   const location = useLocation();
 
   const params = new URLSearchParams(location.search);
+  const eventParams = eventContextToParams(eventContextFromSearch(location.search));
   const targetPath = propRedirectTo || params.get("redirectTo") || (window.location.pathname.includes("staff") ? "/staff" : "/kiosk");
 
   useEffect(() => {
@@ -60,7 +62,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     e.preventDefault();
     if (!selectedPoint) return;
     localStorage.setItem("lastPoint", selectedPoint);
-    navigate(`${targetPath}?point=${selectedPoint}`);
+    navigate(appendQuery(targetPath, { ...eventParams, point: selectedPoint }));
   };
 
   const handleShareKiosk = async () => {
@@ -94,7 +96,7 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
         validFrom: new Date(validFrom).toISOString(),
         validUntil: new Date(validUntil).toISOString()
       });
-      setGeneratedLink(`${window.location.origin}/self-register#token=${encodeURIComponent(res.data.token)}`);
+      setGeneratedLink(`${window.location.origin}${appendQuery('/self-register', eventParams)}#token=${encodeURIComponent(res.data.token)}`);
     } catch (err) {
       alert(err.response?.data?.error || "เกิดข้อผิดพลาดในการสร้างลิงก์");
     }

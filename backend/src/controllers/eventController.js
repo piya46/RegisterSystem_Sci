@@ -10,6 +10,15 @@ const Package = require('../models/Package');
 const auditLog = require('../helpers/auditLog');
 const { normalizeEventYear, defaultEventYear } = require('../utils/eventYear');
 const { pickAllowed, serverError } = require('../utils/httpResponses');
+const {
+  LAYOUT_KEYS,
+  clampShortText,
+  isPublicEventStatus,
+  sanitizeBranding,
+  sanitizeLayoutConfig,
+  sanitizePublicLinks,
+} = require('../utils/eventLayout');
+const { hasRole, isAdminLike, isSuperadmin } = require('../utils/permissions');
 
 const ORGANIZATION_FIELDS = ['name', 'slug', 'description', 'status', 'securityPolicy', 'metadata'];
 const SERIES_FIELDS = ['organizationId', 'name', 'slug', 'description', 'status', 'defaultLinkingMode', 'metadata'];
@@ -26,6 +35,9 @@ const EVENT_FIELDS = [
   'linkingMode',
   'linkedEventIds',
   'config',
+  'branding',
+  'publicLinks',
+  'publication',
   'templates',
 ];
 const SETTINGS_CONFIG_FIELDS = [
@@ -40,7 +52,6 @@ const SETTINGS_CONFIG_FIELDS = [
   'kioskStartDate',
   'kioskEndDate',
 ];
-const LAYOUT_KEYS = ['registrationForm', 'dashboard', 'ticket', 'report'];
 const LEGACY_DATASETS = [
   { key: 'participants', label: 'ผู้เข้าร่วม', model: Participant },
   { key: 'donations', label: 'รายการสนับสนุน', model: Donation },
@@ -61,6 +72,33 @@ function toSlug(value, fallback = 'item') {
 function cleanObjectIdList(values = []) {
   if (!Array.isArray(values)) return [];
   return [...new Set(values.map(String).filter((value) => mongoose.Types.ObjectId.isValid(value)))];
+}
+
+function idList(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .map((value) => String(value))
+    .filter(Boolean);
+}
+
+function canAccessOrganization(user, organizationId) {
+  if (isSuperadmin(user) || hasRole(user, 'admin')) return true;
+  const organizationIds = idList(user?.organizationIds);
+  return organizationIds.includes(String(organizationId));
+}
+
+function canAccessEvent(user, event) {
+  if (isSuperadmin(user) || hasRole(user, 'admin')) return true;
+  if (!event) return false;
+  const eventIds = idList(user?.eventIds);
+  if (eventIds.includes(String(event._id))) return true;
+  if (hasRole(user, 'org_admin')) return canAccessOrganization(user, event.organizationId);
+  return false;
+}
+
+function requireEventScope(req, res, event) {
+  if (canAccessEvent(req.user, event)) return true;
+  res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์จัดการกิจกรรมนี้' });
+  return false;
 }
 
 function missingEventYearFilter() {
@@ -436,7 +474,72 @@ function prepareEventPayload(body) {
   if (payload.eventYear !== undefined) payload.eventYear = normalizeEventYear(payload.eventYear);
   if (!payload.slug) payload.slug = toSlug(`${payload.name || 'event'}-${payload.eventYear || defaultEventYear()}`, 'event');
   if (payload.linkedEventIds !== undefined) payload.linkedEventIds = cleanObjectIdList(payload.linkedEventIds);
+  if (payload.branding !== undefined) payload.branding = sanitizeBranding(payload.branding);
+  if (payload.publicLinks !== undefined) payload.publicLinks = sanitizePublicLinks(payload.publicLinks);
+  if (payload.publication !== undefined) {
+    payload.publication = {
+      consentVersion: clampShortText(payload.publication?.consentVersion),
+      requireConsent: payload.publication?.requireConsent !== false,
+    };
+  }
+  if (payload.config !== undefined) payload.config = settingsToEventConfig(payload.config);
   return payload;
+}
+
+function publicEventPayload(event) {
+  const landingPath = event.publicLinks?.landingPath || `/e/${event.slug}`;
+  const registrationPath = event.publicLinks?.registrationPath || `/e/${event.slug}/register`;
+  const checkinPath = event.publicLinks?.checkinPath || `/e/${event.slug}/checkin`;
+  const reportPath = event.publicLinks?.reportPath || `/e/${event.slug}/report`;
+  return {
+    _id: event._id,
+    organizationId: event.organizationId,
+    seriesId: event.seriesId,
+    name: event.name,
+    slug: event.slug,
+    eventYear: event.eventYear,
+    status: event.status,
+    startsAt: event.startsAt,
+    endsAt: event.endsAt,
+    timezone: event.timezone,
+    branding: event.branding || {},
+    config: {
+      enableRegister: event.config?.enableRegister !== false,
+      maintenanceMode: event.config?.maintenanceMode === true,
+      contactEmail: event.config?.contactEmail || '',
+      welcomeMessage: event.config?.welcomeMessage || '',
+      preRegStartDate: event.config?.preRegStartDate || null,
+      preRegEndDate: event.config?.preRegEndDate || null,
+      enablePickup: event.config?.enablePickup !== false,
+      enableDelivery: event.config?.enableDelivery !== false,
+    },
+    publication: {
+      publishedAt: event.publication?.publishedAt || null,
+      consentVersion: event.publication?.consentVersion || '',
+      requireConsent: event.publication?.requireConsent !== false,
+    },
+    publicLinks: { landingPath, registrationPath, checkinPath, reportPath },
+    layouts: {
+      landingPage: event.layouts?.landingPage || { version: 1, config: { blocks: [] } },
+      registrationForm: event.layouts?.registrationForm || { version: 1, config: { sections: [], fields: [] } },
+    },
+  };
+}
+
+function addVersionHistory(event, { kind, snapshot, userId, note = '' }) {
+  const current = event.layouts?.[kind]?.version || event.versionHistory?.filter((item) => item.kind === kind).length + 1 || 1;
+  event.versionHistory = [
+    {
+      kind,
+      version: Number(current),
+      snapshot,
+      note: clampShortText(note),
+      publishedBy: userId || null,
+      publishedAt: new Date(),
+    },
+    ...(event.versionHistory || []),
+  ].slice(0, 30);
+  event.markModified('versionHistory');
 }
 
 exports.ensureDefaultCatalog = ensureDefaultCatalog;
@@ -452,14 +555,40 @@ exports.getCurrentEvent = async (req, res) => {
   }
 };
 
+exports.getPublicEventBySlug = async (req, res) => {
+  try {
+    const slug = toSlug(req.params.slug, '');
+    const event = await Event.findOne({ slug }).lean();
+    if (!event || !isPublicEventStatus(event.status)) {
+      return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดเผยแพร่' });
+    }
+
+    res.json({ success: true, data: publicEventPayload(event) });
+  } catch (error) {
+    serverError(res, error);
+  }
+};
+
 exports.getCatalog = async (req, res) => {
   try {
     const { settings } = await ensureDefaultCatalog();
-    const [organizations, series, rawEvents] = await Promise.all([
+    const [allOrganizations, allSeries, allEvents] = await Promise.all([
       Organization.find().sort({ name: 1 }),
       EventSeries.find().sort({ name: 1 }),
       Event.find().sort({ eventYear: -1, createdAt: -1 }),
     ]);
+    const rawEvents = isAdminLike(req.user)
+      ? allEvents
+      : allEvents.filter((event) => canAccessEvent(req.user, event));
+    const visibleOrganizationIds = new Set(rawEvents.map((event) => String(event.organizationId)));
+    idList(req.user?.organizationIds).forEach((id) => visibleOrganizationIds.add(id));
+    const visibleSeriesIds = new Set(rawEvents.map((event) => String(event.seriesId)));
+    const organizations = isAdminLike(req.user)
+      ? allOrganizations
+      : allOrganizations.filter((organization) => visibleOrganizationIds.has(String(organization._id)));
+    const series = isAdminLike(req.user)
+      ? allSeries
+      : allSeries.filter((item) => visibleSeriesIds.has(String(item._id)) || visibleOrganizationIds.has(String(item.organizationId)));
     const events = await enrichEvents(rawEvents);
     res.json({
       success: true,
@@ -477,6 +606,9 @@ exports.getCatalog = async (req, res) => {
 
 exports.getMigrationPreview = async (req, res) => {
   try {
+    if (!isAdminLike(req.user)) {
+      return res.status(403).json({ success: false, message: 'เฉพาะ Superadmin/Admin เท่านั้นที่ตรวจ migration ข้อมูลเดิมได้' });
+    }
     const preview = await getLegacyMigrationPreview();
     res.json({ success: true, data: preview });
   } catch (error) {
@@ -486,6 +618,9 @@ exports.getMigrationPreview = async (req, res) => {
 
 exports.runLegacyMigration = async (req, res) => {
   try {
+    if (!isAdminLike(req.user)) {
+      return res.status(403).json({ success: false, message: 'เฉพาะ Superadmin/Admin เท่านั้นที่รัน migration ข้อมูลเดิมได้' });
+    }
     const dryRun = req.body?.dryRun === true;
     const result = await migrateLegacyEventData({ dryRun });
     auditLog({
@@ -507,6 +642,9 @@ exports.runLegacyMigration = async (req, res) => {
 
 exports.createOrganization = async (req, res) => {
   try {
+    if (!isAdminLike(req.user)) {
+      return res.status(403).json({ success: false, message: 'เฉพาะ Superadmin/Admin เท่านั้นที่สร้างหน่วยงานใหม่ได้' });
+    }
     const payload = prepareOrganizationPayload(req.body);
     const organization = await Organization.create(payload);
     auditLog({ req, action: 'CREATE_ORGANIZATION', detail: `Created organization ${organization._id}` });
@@ -522,6 +660,11 @@ exports.createOrganization = async (req, res) => {
 exports.updateOrganization = async (req, res) => {
   try {
     const payload = prepareOrganizationPayload(req.body);
+    const current = await Organization.findById(req.params.id);
+    if (!current) return res.status(404).json({ success: false, message: 'ไม่พบองค์กร' });
+    if (!isAdminLike(req.user) && !canAccessOrganization(req.user, current._id)) {
+      return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์จัดการหน่วยงานนี้' });
+    }
     const organization = await Organization.findByIdAndUpdate(
       req.params.id,
       { $set: payload },
@@ -541,6 +684,9 @@ exports.updateOrganization = async (req, res) => {
 exports.createSeries = async (req, res) => {
   try {
     const payload = prepareSeriesPayload(req.body);
+    if (!canAccessOrganization(req.user, payload.organizationId)) {
+      return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์สร้างชุดกิจกรรมในหน่วยงานนี้' });
+    }
     const series = await EventSeries.create(payload);
     auditLog({ req, action: 'CREATE_EVENT_SERIES', detail: `Created event series ${series._id}` });
     res.status(201).json({ success: true, data: series });
@@ -555,6 +701,11 @@ exports.createSeries = async (req, res) => {
 exports.updateSeries = async (req, res) => {
   try {
     const payload = prepareSeriesPayload(req.body);
+    const current = await EventSeries.findById(req.params.id);
+    if (!current) return res.status(404).json({ success: false, message: 'ไม่พบซีรีส์กิจกรรม' });
+    if (!canAccessOrganization(req.user, current.organizationId)) {
+      return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์จัดการชุดกิจกรรมนี้' });
+    }
     const series = await EventSeries.findByIdAndUpdate(
       req.params.id,
       { $set: payload },
@@ -574,11 +725,17 @@ exports.updateSeries = async (req, res) => {
 exports.createEvent = async (req, res) => {
   try {
     const payload = prepareEventPayload(req.body);
+    if (!canAccessOrganization(req.user, payload.organizationId)) {
+      return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์สร้างกิจกรรมในหน่วยงานนี้' });
+    }
     const sourceEventId = req.body.cloneFromEventId;
 
     if (sourceEventId) {
       const sourceEvent = await Event.findById(sourceEventId);
       if (sourceEvent) {
+        if (!canAccessEvent(req.user, sourceEvent)) {
+          return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์คัดลอกจากกิจกรรมต้นทางนี้' });
+        }
         payload.config = payload.config || sourceEvent.config;
         payload.layouts = sourceEvent.layouts;
         payload.templates = sourceEvent.templates;
@@ -599,6 +756,10 @@ exports.createEvent = async (req, res) => {
 exports.updateEvent = async (req, res) => {
   try {
     const payload = prepareEventPayload(req.body);
+    delete payload.status;
+    const current = await Event.findById(req.params.id);
+    if (!current) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, current)) return;
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { $set: payload },
@@ -619,8 +780,9 @@ exports.activateEvent = async (req, res) => {
   try {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
 
-    event.status = 'active';
+    if (event.status === 'draft') event.status = 'published';
     event.activatedAt = new Date();
     await event.save();
 
@@ -635,6 +797,84 @@ exports.activateEvent = async (req, res) => {
   }
 };
 
+exports.updateEventStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['draft', 'published', 'registration_open', 'registration_closed', 'event_day', 'archived'].includes(status)) {
+      return res.status(400).json({ success: false, message: 'สถานะกิจกรรมไม่ถูกต้อง' });
+    }
+
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
+
+    event.status = status;
+    if (status === 'published' && !event.publication?.publishedAt) {
+      event.publication.publishedAt = new Date();
+      event.publication.publishedBy = req.user?._id || null;
+    }
+    if (status === 'registration_open') event.publication.registrationOpenedAt = new Date();
+    if (status === 'registration_closed') event.publication.registrationClosedAt = new Date();
+    if (status === 'archived') event.archivedAt = new Date();
+
+    addVersionHistory(event, {
+      kind: 'event',
+      snapshot: publicEventPayload(event),
+      userId: req.user?._id,
+      note: `status=${status}`,
+    });
+    event.markModified('publication');
+    await event.save();
+
+    auditLog({ req, action: 'UPDATE_EVENT_STATUS', detail: `Updated event ${event._id} status=${status}` });
+    res.json({ success: true, data: event, message: 'อัปเดตสถานะกิจกรรมสำเร็จ' });
+  } catch (error) {
+    serverError(res, error);
+  }
+};
+
+exports.publishEvent = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
+
+    event.layouts = event.layouts || {};
+    event.layouts.landingPage = event.layouts.landingPage || { version: 1, config: { blocks: [] } };
+    event.layouts.registrationForm = event.layouts.registrationForm || { version: 1, config: { sections: [], fields: [] } };
+    event.publication = event.publication || {};
+    const landingConfig = sanitizeLayoutConfig('landingPage', event.layouts?.landingPage?.config || {});
+    const registrationConfig = sanitizeLayoutConfig('registrationForm', event.layouts?.registrationForm?.config || {});
+    event.layouts.landingPage.config = landingConfig;
+    event.layouts.registrationForm.config = registrationConfig;
+    event.status = event.status === 'draft' ? 'published' : event.status;
+    event.publication.publishedAt = new Date();
+    event.publication.publishedBy = req.user?._id || null;
+    event.publicLinks = sanitizePublicLinks({
+      landingPath: `/e/${event.slug}`,
+      registrationPath: `/e/${event.slug}/register`,
+      checkinPath: `/e/${event.slug}/checkin`,
+      reportPath: `/e/${event.slug}/report`,
+      ...(event.publicLinks || {}),
+    });
+    addVersionHistory(event, {
+      kind: 'landingPage',
+      snapshot: publicEventPayload(event),
+      userId: req.user?._id,
+      note: clampShortText(req.body?.note || 'publish'),
+    });
+    event.markModified('layouts');
+    event.markModified('publication');
+    event.markModified('publicLinks');
+    await event.save();
+
+    auditLog({ req, action: 'PUBLISH_EVENT', detail: `Published event ${event._id}` });
+    res.json({ success: true, data: event, message: 'เผยแพร่กิจกรรมสำเร็จ' });
+  } catch (error) {
+    serverError(res, error);
+  }
+};
+
 exports.updateLayout = async (req, res) => {
   try {
     const { layoutKey } = req.params;
@@ -644,14 +884,22 @@ exports.updateLayout = async (req, res) => {
 
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
 
+    event.layouts = event.layouts || {};
     const current = event.layouts?.[layoutKey] || { version: 0 };
     event.layouts[layoutKey] = {
       version: Number(current.version || 0) + 1,
       updatedBy: req.user?._id || null,
       updatedAt: new Date(),
-      config: req.body?.config || {},
+      config: sanitizeLayoutConfig(layoutKey, req.body?.config || {}),
     };
+    addVersionHistory(event, {
+      kind: layoutKey,
+      snapshot: event.layouts[layoutKey].config,
+      userId: req.user?._id,
+      note: req.body?.note || 'layout update',
+    });
     event.markModified(`layouts.${layoutKey}`);
     await event.save();
 
@@ -672,6 +920,7 @@ exports.cloneSettings = async (req, res) => {
     if (!sourceEvent || !targetEvent) {
       return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรมต้นทางหรือปลายทาง' });
     }
+    if (!requireEventScope(req, res, sourceEvent) || !requireEventScope(req, res, targetEvent)) return;
 
     targetEvent.config = sourceEvent.config;
     targetEvent.layouts = sourceEvent.layouts;

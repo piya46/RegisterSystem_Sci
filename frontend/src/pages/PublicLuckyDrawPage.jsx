@@ -5,6 +5,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import { getPublicPrizes } from '../utils/api';
+import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 const THEME = {
     bg: "radial-gradient(circle at 50% 50%, #FFFDE7 0%, #FFC107 100%)",
@@ -16,7 +17,10 @@ const THEME = {
 export default function PublicLuckyDrawPage() {
     const [prizes, setPrizes] = useState([]);
     const [currentTime, setCurrentTime] = useState(new Date());
-    const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
+    const eventParams = React.useMemo(
+        () => eventContextToParams(eventContextFromSearch(window.location.search)),
+        []
+    );
 
     useEffect(() => {
         const clock = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -25,12 +29,12 @@ export default function PublicLuckyDrawPage() {
 
     const fetchPrizes = useCallback(async () => {
         try {
-            const res = await getPublicPrizes(eventYear ? { eventYear } : undefined);
+            const res = await getPublicPrizes(Object.keys(eventParams).length ? eventParams : undefined);
             setPrizes(res.data);
         } catch (err) {
             console.error("Auto-refresh error:", err);
         }
-    }, [eventYear]);
+    }, [eventParams]);
 
     useEffect(() => {
         fetchPrizes();

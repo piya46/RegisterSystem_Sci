@@ -6,9 +6,10 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import useAuth from "../hooks/useAuth";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import { uploadAvatar } from "../utils/api";
+import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 export default function ProfilePage() {
   const { user, updateUser } = useAuth();
@@ -18,6 +19,8 @@ export default function ProfilePage() {
   
   const [snackbar, setSnackbar] = useState({ open: false, success: true, msg: "" });
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventParams = eventContextToParams(eventContextFromSearch(location.search));
 
   const avatarUrl = preview ? preview : getAvatarUrl(user);
   const shortName = (user?.fullName || user?.username || "USER").slice(0, 2).toUpperCase();
@@ -59,31 +62,31 @@ export default function ProfilePage() {
   };
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#fff6fa", pt: 5, pb: 5 }}>
+    <Box sx={{ minHeight: "calc(100vh - 68px)", bgcolor: "#f6f8fb", pt: 4, pb: 5, px: 2 }}>
       <Paper
-        elevation={0}
+        variant="outlined"
         sx={{
           maxWidth: 440,
           mx: "auto",
           p: { xs: 3, sm: 4 },
-          mt: 2,
-          borderRadius: 6,
-          boxShadow: "0 10px 40px -10px rgba(255,192,203,0.3)",
-          border: "1px solid rgba(255, 229, 236, 0.8)"
+          mt: 1,
+          borderRadius: 2,
+          boxShadow: "0 12px 32px rgba(16,24,40,0.06)",
+          borderColor: "#e4e7ec"
         }}
       >
         <Button
           startIcon={<ArrowBackIcon />}
           sx={{ 
             mb: 2, 
-            color: "#d81b60",
-            fontWeight: 600,
+            color: "#7a5200",
+            fontWeight: 800,
             borderRadius: 2,
-            "&:hover": { bgcolor: "rgba(216, 27, 96, 0.08)" }
+            "&:hover": { bgcolor: "#fff8e1" }
           }}
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(appendQuery("/workspace", eventParams))}
         >
-          กลับ Dashboard
+          กลับหน้าเลือกกิจกรรม
         </Button>
 
         <Stack direction="column" alignItems="center" spacing={2.5}>
@@ -95,10 +98,10 @@ export default function ProfilePage() {
                 width: 120,
                 height: 120,
                 border: "4px solid #fff",
-                boxShadow: "0 0 0 3px #f06292",
+                boxShadow: "0 0 0 3px #f6b700",
                 fontSize: 40,
-                bgcolor: "#fce4ec",
-                color: "#d81b60",
+                bgcolor: "#fff8e1",
+                color: "#7a5200",
                 fontWeight: "bold"
               }}
             >
@@ -118,12 +121,12 @@ export default function ProfilePage() {
                 height: 40,
                 p: 0,
                 bgcolor: "#fff",
-                border: "1px solid #f48fb1",
+                border: "1px solid #f6b700",
                 boxShadow: "0 3px 10px rgba(0,0,0,0.1)",
-                "&:hover": { bgcolor: "#f8bbd0" }
+                "&:hover": { bgcolor: "#fff8e1" }
               }}
             >
-              <PhotoCamera sx={{ color: "#ec407a", fontSize: 20 }} />
+              <PhotoCamera sx={{ color: "#7a5200", fontSize: 20 }} />
               <input hidden accept="image/*" type="file" onChange={handleFileChange} />
             </Button>
           </Box>
@@ -134,13 +137,16 @@ export default function ProfilePage() {
               <Button
                 onClick={handleUpload}
                 variant="contained"
-                color="secondary"
                 disabled={uploading}
                 fullWidth
                 sx={{ 
-                  borderRadius: 3, 
+                  borderRadius: 2,
                   py: 1,
-                  boxShadow: "0 4px 12px rgba(236, 64, 122, 0.3)" 
+                  bgcolor: "#f6b700",
+                  color: "#332400",
+                  fontWeight: 900,
+                  boxShadow: "0 8px 18px rgba(246,183,0,0.25)",
+                  "&:hover": { bgcolor: "#d9a000" }
                 }}
               >
                 {uploading ? <CircularProgress size={24} color="inherit" /> : "ยืนยันการเปลี่ยนรูป"}
@@ -152,12 +158,12 @@ export default function ProfilePage() {
           <Divider sx={{ width: "100%", borderColor: "rgba(0,0,0,0.06)" }} />
 
           <Stack spacing={1} alignItems="center" sx={{ width: '100%' }}>
-            <Typography variant="h5" color="primary.main" fontWeight={800} sx={{ letterSpacing: 0.5 }}>
+            <Typography variant="h5" color="#263238" fontWeight={900} sx={{ letterSpacing: 0 }}>
               {user?.fullName || user?.username || "Unknown User"}
             </Typography>
             
-            <Box sx={{ bgcolor: "#fff0f6", px: 2, py: 0.5, borderRadius: 2 }}>
-              <Typography variant="body2" color="secondary.main" fontWeight={600}>
+            <Box sx={{ bgcolor: "#fff8e1", px: 2, py: 0.5, borderRadius: 2, border: "1px solid #fde68a" }}>
+              <Typography variant="body2" color="#7a5200" fontWeight={800}>
                 @{user?.username}
               </Typography>
             </Box>

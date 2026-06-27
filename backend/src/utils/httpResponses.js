@@ -6,6 +6,9 @@ function serverError(res, errorOrMessage = 'Server error') {
         code: errorOrMessage.code,
       });
     }
+    if (errorOrMessage.statusCode && errorOrMessage.statusCode < 500) {
+      return res.status(errorOrMessage.statusCode).json({ error: errorOrMessage.message || 'Bad request' });
+    }
     return res.status(500).json({ error: 'Server error' });
   }
   const message = errorOrMessage;

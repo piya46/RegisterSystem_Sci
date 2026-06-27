@@ -5,7 +5,9 @@ const publicController = require('../controllers/publicController');
 const auth = require('../middleware/auth');
 const requireStaffOrAdmin = require('../middleware/requireStaffOrAdmin');
 const prizeController = require('../controllers/prizeController');
+const eventController = require('../controllers/eventController');
 
+router.get('/events/:slug', eventController.getPublicEventBySlug);
 router.get('/report', publicController.getPublicReport);
 router.get('/dashboard', publicController.getPublicDashboardStats);
 router.post('/kiosk-token', auth, requireStaffOrAdmin, publicController.generateKioskToken);

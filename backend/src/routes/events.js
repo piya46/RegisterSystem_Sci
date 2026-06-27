@@ -20,6 +20,8 @@ router.put('/series/:id', requirePermission('event:manage'), controller.updateSe
 router.post('/', requirePermission('event:manage'), controller.createEvent);
 router.put('/:id', requirePermission('event:manage'), controller.updateEvent);
 router.post('/:id/activate', requirePermission('event:manage'), controller.activateEvent);
+router.post('/:id/publish', requirePermission('layout:manage'), controller.publishEvent);
+router.post('/:id/status', requirePermission('event:manage'), controller.updateEventStatus);
 router.put('/:id/layouts/:layoutKey', requirePermission('layout:manage'), controller.updateLayout);
 router.post('/clone-settings', requirePermission('layout:manage'), controller.cloneSettings);
 

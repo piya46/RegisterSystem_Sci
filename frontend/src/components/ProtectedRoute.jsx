@@ -4,8 +4,9 @@ import { Navigate, useLocation } from "react-router-dom";
 import useAuth from "../hooks/useAuth";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import ChangePasswordDialog from "./ChangePasswordDialog";
+import ManagementShell from "./ManagementShell";
 
-export default function ProtectedRoute({ children, roles }) {
+export default function ProtectedRoute({ children, roles, shell = false }) {
   const { user, loading, updateUser } = useAuth();
   const location = useLocation(); // [NEW] ดึงตำแหน่งปัจจุบัน
 
@@ -45,10 +46,12 @@ export default function ProtectedRoute({ children, roles }) {
     }
   }
 
+  const content = shell ? <ManagementShell>{children}</ManagementShell> : children;
+
   if (user.mustChangePassword) {
     return (
       <>
-        {children}
+        {content}
         <ChangePasswordDialog
           open
           required
@@ -59,5 +62,5 @@ export default function ProtectedRoute({ children, roles }) {
     );
   }
 
-  return children;
+  return content;
 }

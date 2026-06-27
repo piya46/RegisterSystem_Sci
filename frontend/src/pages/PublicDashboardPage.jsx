@@ -9,6 +9,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import SchoolIcon from '@mui/icons-material/School';
 import { getPublicDashboardStats } from '../utils/api';
+import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 // 🌟 ธีมเสือเหลืองคืนถิ่น (Bright Yellow & Dark Brown)
 const THEME = {
@@ -24,18 +25,21 @@ export default function PublicDashboardPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentTime, setCurrentTime] = useState(new Date());
-  const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
+  const eventParams = React.useMemo(
+    () => eventContextToParams(eventContextFromSearch(window.location.search)),
+    []
+  );
 
   const fetchStats = useCallback(async () => {
     try {
-      const res = await getPublicDashboardStats(eventYear ? { eventYear } : undefined);
+      const res = await getPublicDashboardStats(Object.keys(eventParams).length ? eventParams : undefined);
       setStats(res.data);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  }, [eventYear]);
+  }, [eventParams]);
 
   useEffect(() => {
     fetchStats();

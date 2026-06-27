@@ -71,7 +71,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!loading && user) {
-      navigate("/dashboard");
+      navigate("/workspace");
     }
   }, [user, loading, navigate]);
 
@@ -149,7 +149,7 @@ export default function LoginPage() {
     setError(null);
     try {
         await api.googleLogin(credentialResponse.credential);
-        window.location.href = "/dashboard";
+        window.location.href = "/workspace";
     } catch (err) {
         setPendingLogin(false);
         const msg = err.response?.data?.message || "Google Login Failed";

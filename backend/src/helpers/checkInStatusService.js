@@ -12,7 +12,8 @@ const { normalizeEventYear } = require('../utils/eventYear');
 async function isParticipantCheckedIn(criteria) {
   const found = await Participant.findOne({
     ...participantFieldMatch(criteria.field, criteria.value),
-    ...(criteria.eventYear ? { eventYear: normalizeEventYear(criteria.eventYear) } : {}),
+    ...(criteria.eventId ? { eventId: criteria.eventId } : {}),
+    ...(!criteria.eventId && criteria.eventYear ? { eventYear: normalizeEventYear(criteria.eventYear) } : {}),
     // status: 'checkedIn',
     isDeleted: false
   });
@@ -21,7 +22,8 @@ async function isParticipantCheckedIn(criteria) {
 async function isParticipantregister(criteria) {
   const found = await Participant.findOne({
     ...participantFieldMatch(criteria.field, criteria.value),
-    ...(criteria.eventYear ? { eventYear: normalizeEventYear(criteria.eventYear) } : {}),
+    ...(criteria.eventId ? { eventId: criteria.eventId } : {}),
+    ...(!criteria.eventId && criteria.eventYear ? { eventYear: normalizeEventYear(criteria.eventYear) } : {}),
     status: '"registered',
     isDeleted: false
   });

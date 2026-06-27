@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Typography, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Chip, Stack } from '@mui/material';
 import { getPublicReportData } from '../utils/api';
+import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E" };
 
@@ -9,12 +10,15 @@ export default function PublicReportPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const eventYear = new URLSearchParams(window.location.search).get('eventYear') || '';
+  const eventParams = React.useMemo(
+    () => eventContextToParams(eventContextFromSearch(window.location.search)),
+    []
+  );
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await getPublicReportData(eventYear ? { eventYear } : undefined);
+        const res = await getPublicReportData(Object.keys(eventParams).length ? eventParams : undefined);
         setData(res.data.data || []);
         setTotal(res.data.totalCheckedIn || 0);
       } catch {
@@ -24,7 +28,7 @@ export default function PublicReportPage() {
       }
     };
     fetchData();
-  }, [eventYear]);
+  }, [eventParams]);
 
   const formatTime = (dateString) => {
     if (!dateString) return '-';

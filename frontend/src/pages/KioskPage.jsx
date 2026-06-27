@@ -31,6 +31,7 @@ import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listPart
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Turnstile from "../components/Turnstile";
 import useAuth from "../hooks/useAuth"; 
+import { eventContextToParams } from "../utils/eventContext";
 
 const IDLE_TIMEOUT_MS = 60000; 
 
@@ -63,6 +64,13 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [kioskMode, setKioskMode] = useState(false);
+  const eventParams = useMemo(
+    () => eventContextToParams({
+      eventId: searchParams.get("eventId") || "",
+      eventYear: searchParams.get("eventYear") || "",
+    }),
+    [searchParams]
+  );
   
   const selectedPoint = forcePointId || searchParams.get("point") || (user?.authScope === 'kiosk_device' ? user?.registrationPoint : null);
 
@@ -247,7 +255,8 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
             followers: count, 
             cfToken, 
             consent: finalConsent, 
-            registrationPoint: selectedPoint 
+            registrationPoint: selectedPoint,
+            ...eventParams
         });
         
         setResult(res.data?.participant || res.data || res);
@@ -262,7 +271,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
       } finally { setLoading(false); setPendingSubmit(false); setCfToken(""); }
     };
     go();
-  }, [cfToken, pendingSubmit, selectedPoint, isSelfRegisterMode, followersCount, form, membershipOption]);
+  }, [cfToken, pendingSubmit, selectedPoint, isSelfRegisterMode, followersCount, form, membershipOption, eventParams]);
 
   const confirmExitKiosk = async () => {
     setVerifyingExit(true); setExitError("");

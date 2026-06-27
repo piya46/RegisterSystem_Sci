@@ -42,12 +42,6 @@ const Y = {
 };
 
 /* ---------- Animations & Styles ---------- */
-const gradientAnimation = keyframes`
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-`;
-
 const spin = keyframes`
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
@@ -198,11 +192,9 @@ export default function AdminPage() {
 
   return (
     <Box sx={{
-      minHeight: "100vh",
-      background: "linear-gradient(-45deg, #FFECB3, #FFF8E1, #FFD54F, #FFF3E0)",
-      backgroundSize: "400% 400%",
-      animation: `${gradientAnimation} 15s ease infinite`,
-      py: { xs: 3, md: 5 }, px: 2
+      minHeight: "calc(100vh - 68px)",
+      background: "#f6f8fb",
+      py: { xs: 3, md: 4 }, px: 2
     }}>
       <Box sx={{ maxWidth: 1100, mx: "auto" }}>
 
@@ -213,9 +205,9 @@ export default function AdminPage() {
               <Button
                 startIcon={<ArrowBackIcon />}
                 onClick={() => navigate("/dashboard")}
-                sx={{ color: Y.text, fontWeight: 700, borderRadius: 3, "&:hover": { bgcolor: "rgba(255,255,255,0.5)" } }}
+                sx={{ color: Y.text, fontWeight: 800, borderRadius: 2, "&:hover": { bgcolor: "#fff8e1" } }}
               >
-                Back
+                ภาพรวม
               </Button>
               <Typography variant="h4" fontWeight={800} sx={{ color: Y.text }}>
                 System Admins

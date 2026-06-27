@@ -4,7 +4,7 @@ const mongoose = require('mongoose');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { eventScopeFromRequest, getEventContextFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
 
 const PRIZE_FIELDS = ['name', 'totalQuantity', 'image', 'eventYear'];
 
@@ -44,8 +44,9 @@ function revealPrize(prize) {
 
 exports.listPrizes = async (req, res) => {
   try {
-    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
-    const prizes = await Prize.find(applyEventYearFilter({}, eventYear))
+    const eventScope = await eventScopeFromRequest(req);
+    const { eventYear, filter } = eventScope;
+    const prizes = await Prize.find(filter)
       .populate('winners.participantId', 'fields.name fields.department fields.dept registeredPoint')
       .sort({ createdAt: -1 });
     const safePrizes = prizes.map(revealPrize);
@@ -64,8 +65,9 @@ exports.listPrizes = async (req, res) => {
 
 exports.listPublicPrizes = async (req, res) => {
   try {
-    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
-    const prizes = await Prize.find(applyEventYearFilter({}, eventYear))
+    const eventScope = await eventScopeFromRequest(req, {}, { requirePublic: true });
+    const { eventYear, filter } = eventScope;
+    const prizes = await Prize.find(filter)
       .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint')
       .sort({ createdAt: -1 })
       .lean();
@@ -111,7 +113,7 @@ exports.createPrize = async (req, res) => {
     if (!payload.name || !Number.isFinite(totalQuantity) || totalQuantity < 1) {
       return res.status(400).json({ error: 'กรุณาระบุชื่อและจำนวนรางวัลให้ถูกต้อง' });
     }
-    const eventContext = await getCurrentEventContext();
+    const eventContext = await getEventContextFromRequest(req);
     const eventYear = normalizeEventYear(payload.eventYear || eventContext.eventYear || await getCurrentEventYear());
     const prize = await Prize.create({
       name: payload.name,

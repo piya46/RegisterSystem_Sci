@@ -1,7 +1,7 @@
 const Package = require('../models/Package');
 const auditLog = require('../helpers/auditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
 
 const PACKAGE_FIELDS = [
   'name',
@@ -27,10 +27,12 @@ function contextRefsForYear(context, eventYear) {
 // ดึงแพ็กเกจทั้งหมด (ใช้ได้ทั้ง User และ Admin)
 exports.getAllPackages = async (req, res) => {
   try {
-    const eventYear = eventYearFromRequest(req) || await getCurrentEventYear();
+    const eventContext = await getEventContextFromRequest(req, { requirePublic: Boolean(req.query?.eventSlug || req.query?.eventId) });
+    const eventYear = eventYearFromRequest(req) || eventContext.eventYear || await getCurrentEventYear();
     const packages = await Package.find(applyEventYearFilter({ isActive: true }, eventYear));
     res.json({ success: true, data: packages });
   } catch (error) {
+    if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
     serverError(res);
   }
 };

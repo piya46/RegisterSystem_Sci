@@ -6,7 +6,7 @@ const RegistrationPoint = require('../models/registrationPoint');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { eventScopeFromRequest } = require('../utils/eventYear');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
 
 const TOKEN_ISSUER = 'psevent';
@@ -63,12 +63,12 @@ exports.generateKioskToken = async (req, res) => {
 
 exports.getPublicReport = async (req, res) => {
   try {
-    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false, status: 'checkedIn' }, { requirePublic: true });
+    const { eventYear, filter } = eventScope;
     const key = cacheKey(req, 'publicReport', eventYear);
     const cached = getCached(key);
     if (cached) return res.json(cached);
 
-    const filter = applyEventYearFilter({ isDeleted: false, status: 'checkedIn' }, eventYear);
     const participants = (await Participant.find(filter, 'fields.name fields.fullName fields.fullname fields.department fields.dept registeredPoint checkedInAt tags').lean())
       .map(revealParticipantObject);
     await auditSensitiveAccess({
@@ -102,12 +102,12 @@ exports.getPublicReport = async (req, res) => {
 
 exports.getPublicDashboardStats = async (req, res) => {
   try {
-    const eventYear = await eventYearOrCurrentFromRequest(req);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false, status: 'checkedIn' }, { requirePublic: true });
+    const { eventYear, filter } = eventScope;
     const key = cacheKey(req, 'publicDashboard', eventYear);
     const cached = getCached(key);
     if (cached) return res.json(cached);
 
-    const filter = applyEventYearFilter({ isDeleted: false, status: 'checkedIn' }, eventYear);
     const participants = (await Participant.find(
       filter,
       'fields.dept fields.date_year followers'

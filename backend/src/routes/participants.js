@@ -9,7 +9,7 @@ const participantController = require('../controllers/participantController');
 const { getReportData } = require('../services/reportService');
 const { generatePDF } = require('../utils/pdfGenerator');
 const { serverError } = require('../utils/httpResponses');
-const { eventYearOrCurrentFromRequest } = require('../utils/eventYear');
+const { eventScopeFromRequest } = require('../utils/eventYear');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 
 // 1. ลงทะเบียนล่วงหน้า (public ไม่ต้องล็อกอิน)
@@ -36,8 +36,9 @@ router.get('/export', auth, requireAdmin, participantController.exportParticipan
 router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
   let eventYear = null;
   try {
-    eventYear = await eventYearOrCurrentFromRequest(req);
-    const data = await getReportData(eventYear);
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    eventYear = eventScope.eventYear;
+    const data = await getReportData(eventYear, eventScope.eventId);
     await auditSensitiveAccess({
       req,
       action: 'SENSITIVE_EXPORT_REPORT_PDF',

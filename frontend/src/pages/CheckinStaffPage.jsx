@@ -25,6 +25,7 @@ import useAuth from "../hooks/useAuth";
 import QrScanner from "../components/QrScanner";
 import FollowersDialog from "../components/FollowersDialog";
 import { useNavigate, useLocation } from "react-router-dom";
+import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 /* ===================== Config & Translation ===================== */
 const FIELD_LABELS = {
@@ -86,6 +87,8 @@ export default function CheckinStaffPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const eventParams = React.useMemo(() => eventContextToParams(urlEventContext), [urlEventContext]);
 
   // State
   const [search, setSearch] = useState("");
@@ -124,13 +127,13 @@ export default function CheckinStaffPage() {
     const params = new URLSearchParams(location.search);
     const pointId = params.get("point") || localStorage.getItem("selectedPointId") || "";
     if (!pointId) {
-      navigate("/staff/select-point");
+      navigate(appendQuery("/staff/select-point", eventParams));
       return;
     }
     setRegistrationPoint(pointId);
     const found = pointList.find(p => p._id === pointId || p.id === pointId);
     setRegistrationPointName(found?.name || pointId);
-  }, [location, pointList, navigate]);
+  }, [eventParams, location, pointList, navigate]);
 
   // ฟังก์ชันนี้ถูกเรียกเมื่อกดปุ่มย้อนกลับ (ปิดกล้อง)
   const resetAll = () => {
@@ -166,7 +169,7 @@ export default function CheckinStaffPage() {
     setLoading(true);
     setParticipants([]);
     try {
-      const res = await searchParticipants({ q: search });
+      const res = await searchParticipants({ q: search, ...eventParams });
       const enriched = (res.data || []).map(p => ({
         ...p,
         registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
@@ -196,7 +199,7 @@ export default function CheckinStaffPage() {
     setLoading(true);
 
     try {
-      const res = await searchParticipants({ q: qrText });
+      const res = await searchParticipants({ q: qrText, ...eventParams });
       const enriched = (res.data || []).map(p => ({
         ...p,
         registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
@@ -236,7 +239,7 @@ export default function CheckinStaffPage() {
   const handleCheckin = async (id, qrCode, followers = 0) => {
     setCheckingIn(id);
     try {
-      const res = await checkinByQr({ participantId: id, qrCode, registrationPoint, followers });
+      const res = await checkinByQr({ participantId: id, qrCode, registrationPoint, followers, ...eventParams });
       setSnackbar({ open: true, msg: "เช็คอินเข้างานสำเร็จ!", success: true });
       
       setParticipants(prev =>
@@ -328,7 +331,7 @@ export default function CheckinStaffPage() {
 
                {/* ปุ่มกลับหน้าหลัก (Dashboard) */}
                <Tooltip title="กลับหน้าแผงควบคุมหลัก">
-                 <IconButton onClick={() => navigate("/dashboard")} sx={{ bgcolor: 'rgba(0,0,0,0.04)' }}>
+                 <IconButton onClick={() => navigate(appendQuery("/dashboard", eventParams))} sx={{ bgcolor: 'rgba(0,0,0,0.04)' }}>
                     <ArrowBackIcon />
                  </IconButton>
                </Tooltip>
