@@ -45,6 +45,11 @@ const SETTINGS_CONFIG_FIELDS = [
   'maintenanceMode',
   'enablePickup',
   'enableDelivery',
+  'enabledFeatures',
+  'allowRegistrationReuse',
+  'registrationReuseMode',
+  'registrationReuseRequiresOtp',
+  'registrationReuseEventIds',
   'contactEmail',
   'welcomeMessage',
   'preRegStartDate',
@@ -52,6 +57,30 @@ const SETTINGS_CONFIG_FIELDS = [
   'kioskStartDate',
   'kioskEndDate',
 ];
+const FEATURE_DEFAULTS = {
+  registration: true,
+  checkin: true,
+  dashboard: true,
+  publicReport: true,
+  donations: false,
+  packages: false,
+  luckyDraw: false,
+};
+const LEGACY_FEATURE_DEFAULTS = {
+  registration: true,
+  checkin: true,
+  dashboard: true,
+  publicReport: true,
+  donations: true,
+  packages: true,
+  luckyDraw: true,
+};
+
+function featuresForEvent(event) {
+  return event?.config?.enabledFeatures
+    ? { ...FEATURE_DEFAULTS, ...event.config.enabledFeatures }
+    : LEGACY_FEATURE_DEFAULTS;
+}
 const LEGACY_DATASETS = [
   { key: 'participants', label: 'ผู้เข้าร่วม', model: Participant },
   { key: 'donations', label: 'รายการสนับสนุน', model: Donation },
@@ -122,10 +151,44 @@ function migrationBackfillYear(settings) {
 }
 
 function settingsToEventConfig(settings) {
-  return SETTINGS_CONFIG_FIELDS.reduce((acc, field) => {
+  const config = SETTINGS_CONFIG_FIELDS.reduce((acc, field) => {
     if (settings?.[field] !== undefined) acc[field] = settings[field];
     return acc;
   }, {});
+  if (config.enabledFeatures !== undefined) {
+    config.enabledFeatures = {
+      ...FEATURE_DEFAULTS,
+      ...Object.fromEntries(
+        Object.keys(FEATURE_DEFAULTS).map((key) => [key, config.enabledFeatures?.[key] === true])
+      ),
+    };
+    if (config.enabledFeatures.registration === false) config.enableRegister = false;
+  }
+  if (config.allowRegistrationReuse !== undefined) config.allowRegistrationReuse = config.allowRegistrationReuse === true;
+  if (config.registrationReuseRequiresOtp !== undefined) config.registrationReuseRequiresOtp = true;
+  if (config.registrationReuseMode !== undefined && !['series-linked', 'manual-linked'].includes(config.registrationReuseMode)) {
+    config.registrationReuseMode = 'series-linked';
+  }
+  if (config.registrationReuseEventIds !== undefined) {
+    config.registrationReuseEventIds = cleanObjectIdList(config.registrationReuseEventIds);
+  }
+  return config;
+}
+
+async function countRowsByEventIds(eventIds = []) {
+  const objectIds = eventIds.filter((id) => mongoose.Types.ObjectId.isValid(String(id)));
+  const result = {};
+  await Promise.all(LEGACY_DATASETS.map(async ({ key, model }) => {
+    const rows = await model.aggregate([
+      { $match: { eventId: { $in: objectIds } } },
+      { $group: { _id: '$eventId', count: { $sum: 1 } } },
+    ]);
+    result[key] = rows.reduce((acc, row) => {
+      acc[String(row._id)] = row.count;
+      return acc;
+    }, {});
+  }));
+  return result;
 }
 
 function eventConfigToSettings(event) {
@@ -245,18 +308,31 @@ async function ensureDefaultCatalog() {
 
 async function enrichEvents(events) {
   const years = events.map((event) => normalizeEventYear(event.eventYear)).filter(Boolean);
-  const countsByDataset = await countLegacyRowsByYear(years);
+  const eventIds = events.map((event) => event._id).filter(Boolean);
+  const settings = await getSettingsReadOnly();
+  const backfillYear = migrationBackfillYear(settings);
+  const [eventCountsByDataset, unmappedCountsByYear] = await Promise.all([
+    countRowsByEventIds(eventIds),
+    countUnmappedRowsByYear(years, backfillYear),
+  ]);
 
   return events.map((event) => {
     const year = normalizeEventYear(event.eventYear);
+    const eventId = String(event._id);
     const plain = event.toObject ? event.toObject() : event;
     return {
       ...plain,
+      eventDataCounts: {
+        participants: eventCountsByDataset.participants?.[eventId] || 0,
+        donations: eventCountsByDataset.donations?.[eventId] || 0,
+        prizes: eventCountsByDataset.prizes?.[eventId] || 0,
+        packages: eventCountsByDataset.packages?.[eventId] || 0,
+      },
       legacyDataCounts: {
-        participants: countsByDataset.participants?.[year] || 0,
-        donations: countsByDataset.donations?.[year] || 0,
-        prizes: countsByDataset.prizes?.[year] || 0,
-        packages: countsByDataset.packages?.[year] || 0,
+        participants: unmappedCountsByYear.participants?.[year] || 0,
+        donations: unmappedCountsByYear.donations?.[year] || 0,
+        prizes: unmappedCountsByYear.prizes?.[year] || 0,
+        packages: unmappedCountsByYear.packages?.[year] || 0,
       },
     };
   });
@@ -473,6 +549,9 @@ function prepareEventPayload(body) {
   const payload = pickAllowed(body, EVENT_FIELDS);
   if (payload.eventYear !== undefined) payload.eventYear = normalizeEventYear(payload.eventYear);
   if (!payload.slug) payload.slug = toSlug(`${payload.name || 'event'}-${payload.eventYear || defaultEventYear()}`, 'event');
+  if (payload.slug && payload.eventYear && !String(payload.slug).includes(String(payload.eventYear))) {
+    payload.slug = toSlug(`${payload.slug}-${payload.eventYear}`, `event-${payload.eventYear}`);
+  }
   if (payload.linkedEventIds !== undefined) payload.linkedEventIds = cleanObjectIdList(payload.linkedEventIds);
   if (payload.branding !== undefined) payload.branding = sanitizeBranding(payload.branding);
   if (payload.publicLinks !== undefined) payload.publicLinks = sanitizePublicLinks(payload.publicLinks);
@@ -512,6 +591,12 @@ function publicEventPayload(event) {
       preRegEndDate: event.config?.preRegEndDate || null,
       enablePickup: event.config?.enablePickup !== false,
       enableDelivery: event.config?.enableDelivery !== false,
+      enabledFeatures: featuresForEvent(event),
+      allowRegistrationReuse: event.config?.allowRegistrationReuse === true,
+      registrationReuseMode: ['manual-linked', 'series-linked'].includes(event.config?.registrationReuseMode)
+        ? event.config.registrationReuseMode
+        : 'series-linked',
+      registrationReuseRequiresOtp: true,
     },
     publication: {
       publishedAt: event.publication?.publishedAt || null,
@@ -729,16 +814,25 @@ exports.createEvent = async (req, res) => {
       return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์สร้างกิจกรรมในหน่วยงานนี้' });
     }
     const sourceEventId = req.body.cloneFromEventId;
+    const cloneParts = Array.isArray(req.body.cloneParts) ? req.body.cloneParts : [];
 
-    if (sourceEventId) {
+    if (sourceEventId && cloneParts.length > 0) {
       const sourceEvent = await Event.findById(sourceEventId);
       if (sourceEvent) {
         if (!canAccessEvent(req.user, sourceEvent)) {
           return res.status(403).json({ success: false, message: 'คุณไม่มีสิทธิ์คัดลอกจากกิจกรรมต้นทางนี้' });
         }
-        payload.config = payload.config || sourceEvent.config;
-        payload.layouts = sourceEvent.layouts;
-        payload.templates = sourceEvent.templates;
+        if (cloneParts.includes('branding')) payload.branding = sourceEvent.branding;
+        if (cloneParts.includes('config')) {
+          payload.config = {
+            ...sourceEvent.config,
+            ...(payload.config || {}),
+            allowRegistrationReuse: false,
+            registrationReuseEventIds: [],
+          };
+        }
+        if (cloneParts.includes('layouts')) payload.layouts = sourceEvent.layouts;
+        if (cloneParts.includes('templates')) payload.templates = sourceEvent.templates;
       }
     }
 
@@ -760,6 +854,17 @@ exports.updateEvent = async (req, res) => {
     const current = await Event.findById(req.params.id);
     if (!current) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
     if (!requireEventScope(req, res, current)) return;
+    if (payload.config) {
+      payload.config = {
+        ...(current.config || {}),
+        ...payload.config,
+        enabledFeatures: {
+          ...((current.config || {}).enabledFeatures || {}),
+          ...(payload.config.enabledFeatures || {}),
+        },
+      };
+      if (payload.config.enabledFeatures.registration === false) payload.config.enableRegister = false;
+    }
     const event = await Event.findByIdAndUpdate(
       req.params.id,
       { $set: payload },

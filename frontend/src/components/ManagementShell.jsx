@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AppBar,
   Avatar,
@@ -6,7 +6,9 @@ import {
   Button,
   Chip,
   Container,
+  Breadcrumbs,
   Divider,
+  IconButton,
   Menu,
   MenuItem,
   Stack,
@@ -14,116 +16,21 @@ import {
   Toolbar,
   Tooltip,
   Typography,
-  createTheme,
+  TextField,
 } from "@mui/material";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import QrCodeIcon from "@mui/icons-material/QrCode2";
-import StoreIcon from "@mui/icons-material/Store";
-import PeopleIcon from "@mui/icons-material/People";
-import VolunteerActivismIcon from "@mui/icons-material/VolunteerActivism";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import SettingsIcon from "@mui/icons-material/Settings";
-import GroupIcon from "@mui/icons-material/Group";
-import TimelineIcon from "@mui/icons-material/Timeline";
 import LogoutIcon from "@mui/icons-material/Logout";
 import PersonIcon from "@mui/icons-material/Person";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
-import SyncAltIcon from "@mui/icons-material/SyncAlt";
+import SearchIcon from "@mui/icons-material/Search";
 import useAuth from "../hooks/useAuth";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
-
-const managementTheme = createTheme({
-  palette: {
-    primary: { main: "#f6b700", dark: "#7a5200", contrastText: "#332400" },
-    secondary: { main: "#1f7a5f", contrastText: "#ffffff" },
-    background: { default: "#f6f8fb", paper: "#ffffff" },
-    text: { primary: "#263238", secondary: "#667085" },
-  },
-  typography: {
-    fontFamily: "'Prompt', 'Kanit', sans-serif",
-    button: { textTransform: "none", fontWeight: 800 },
-  },
-  shape: { borderRadius: 8 },
-  components: {
-    MuiButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          letterSpacing: 0,
-          boxShadow: "none",
-        },
-      },
-    },
-    MuiChip: {
-      styleOverrides: {
-        root: { borderRadius: 8, fontWeight: 800 },
-      },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 8,
-          boxShadow: "0 10px 30px rgba(16, 24, 40, 0.06)",
-        },
-      },
-    },
-  },
-});
-
-function rolesOf(user) {
-  return Array.isArray(user?.role) ? user.role.filter(Boolean) : [user?.role].filter(Boolean);
-}
-
-function canSee(user, roles = []) {
-  const userRoles = rolesOf(user);
-  return userRoles.includes("superadmin") || roles.length === 0 || roles.some((role) => userRoles.includes(role));
-}
-
-const navGroups = [
-  {
-    label: "กิจกรรม",
-    icon: <EventAvailableIcon fontSize="small" />,
-    items: [
-      { label: "เลือกกิจกรรม", path: "/workspace", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"] },
-      { label: "จัดการกิจกรรม", path: "/admin/events", roles: ["admin", "org_admin", "event_admin", "event_manager"] },
-      { label: "Migration ข้อมูลเดิม", path: "/admin/events/migration", roles: ["admin"], icon: <SyncAltIcon fontSize="small" /> },
-    ],
-  },
-  {
-    label: "ปฏิบัติงาน",
-    icon: <QrCodeIcon fontSize="small" />,
-    items: [
-      { label: "ภาพรวม", path: "/dashboard", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], icon: <DashboardIcon fontSize="small" /> },
-      { label: "เช็คอินหน้างาน", path: "/staff", roles: ["admin", "staff"], icon: <QrCodeIcon fontSize="small" /> },
-      { label: "เลือกจุดลงทะเบียน", path: "/staff/select-point", roles: ["admin", "staff"], icon: <StoreIcon fontSize="small" /> },
-      { label: "เครื่องลงทะเบียน", path: "/kiosk", roles: ["admin", "staff", "kiosk"], icon: <StoreIcon fontSize="small" /> },
-      { label: "สุ่มรางวัล", path: "/admin/lucky-draw", roles: ["admin"], icon: <EmojiEventsIcon fontSize="small" /> },
-    ],
-  },
-  {
-    label: "ข้อมูล",
-    icon: <PeopleIcon fontSize="small" />,
-    items: [
-      { label: "ผู้เข้าร่วม", path: "/admin/participants", roles: ["admin"], icon: <PeopleIcon fontSize="small" /> },
-      { label: "ผู้สนับสนุน", path: "/admin/donations", roles: ["admin"], icon: <VolunteerActivismIcon fontSize="small" /> },
-      { label: "รายงานสด", path: "/public/report", roles: ["admin", "auditor"], icon: <TimelineIcon fontSize="small" /> },
-    ],
-  },
-  {
-    label: "ตั้งค่า",
-    icon: <SettingsIcon fontSize="small" />,
-    items: [
-      { label: "ผู้ใช้และสิทธิ์", path: "/admin", exact: true, roles: ["admin"], icon: <GroupIcon fontSize="small" /> },
-      { label: "จุดลงทะเบียน", path: "/registration-points", roles: ["admin"], icon: <StoreIcon fontSize="small" /> },
-      { label: "ตั้งค่าระบบ", path: "/settings", roles: ["admin"], icon: <SettingsIcon fontSize="small" /> },
-      { label: "Session", path: "/admin/sessions", roles: ["admin"], icon: <PersonIcon fontSize="small" /> },
-      { label: "Cron", path: "/admin/cron-status", roles: ["admin"], icon: <TimelineIcon fontSize="small" /> },
-    ],
-  },
-];
+import managementTheme from "../theme/managementTheme";
+import CommandPalette from "./CommandPalette";
+import { canSee, findNavItem, navGroups, rolePreviewOptions, rolesOf } from "../utils/navigation";
+import { getEventCatalog } from "../utils/api";
 
 function initials(name = "") {
   return String(name || "?")
@@ -140,21 +47,54 @@ export default function ManagementShell({ children }) {
   const navigate = useNavigate();
   const [anchorByGroup, setAnchorByGroup] = useState({});
   const [profileAnchor, setProfileAnchor] = useState(null);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [previewRole, setPreviewRole] = useState("");
+  const [eventsById, setEventsById] = useState({});
   const eventParams = useMemo(
     () => eventContextToParams(eventContextFromSearch(location.search)),
     [location.search]
   );
   const displayName = user?.fullName || user?.username || "ผู้ใช้งาน";
+  const isSuperadmin = rolesOf(user).includes("superadmin");
 
   const visibleGroups = useMemo(
     () => navGroups
       .map((group) => ({
         ...group,
-        items: group.items.filter((item) => canSee(user, item.roles)),
+        items: group.items.filter((item) => canSee(user, item.roles, previewRole)),
       }))
       .filter((group) => group.items.length > 0),
-    [user]
+    [previewRole, user]
   );
+
+  useEffect(() => {
+    let alive = true;
+    getEventCatalog()
+      .then((res) => {
+        if (!alive) return;
+        const next = {};
+        (res.data?.data?.events || []).forEach((event) => {
+          const id = event?._id || event?.id;
+          if (id) next[id] = event;
+        });
+        setEventsById(next);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const go = (path) => {
     setAnchorByGroup({});
@@ -164,6 +104,13 @@ export default function ManagementShell({ children }) {
   const isActiveItem = (item) => (
     item.exact ? location.pathname === item.path : location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
   );
+  const currentItem = findNavItem(location.pathname);
+  const currentEvent = eventParams.eventId ? eventsById[eventParams.eventId] : null;
+  const breadcrumbs = [
+    { label: "กิจกรรม", path: "/workspace" },
+    currentEvent ? { label: currentEvent.name || `งาน ${currentEvent.eventYear || ""}`, path: `/workspace/events/${eventParams.eventId}` } : null,
+    currentItem ? { label: currentItem.label, path: currentItem.path } : null,
+  ].filter(Boolean);
 
   return (
     <ThemeProvider theme={managementTheme}>
@@ -187,10 +134,11 @@ export default function ManagementShell({ children }) {
                 {visibleGroups.map((group) => {
                   const active = group.items.some(isActiveItem);
                   const anchor = anchorByGroup[group.label] || null;
+                  const GroupIcon = group.icon;
                   return (
                     <Box key={group.label}>
                       <Button
-                        startIcon={group.icon}
+                        startIcon={<GroupIcon fontSize="small" />}
                         endIcon={<ExpandMoreIcon fontSize="small" />}
                         onClick={(event) => setAnchorByGroup({ [group.label]: event.currentTarget })}
                         variant={active ? "contained" : "text"}
@@ -203,7 +151,9 @@ export default function ManagementShell({ children }) {
                         {group.items.map((item) => (
                           <MenuItem key={item.path} selected={isActiveItem(item)} onClick={() => go(item.path)}>
                             <Stack direction="row" spacing={1.25} alignItems="center">
-                              <Box sx={{ color: "primary.dark", display: "flex" }}>{item.icon || group.icon}</Box>
+                              <Box sx={{ color: "primary.dark", display: "flex" }}>
+                                {React.createElement(item.icon || group.icon, { fontSize: "small" })}
+                              </Box>
                               <Typography fontWeight={800}>{item.label}</Typography>
                             </Stack>
                           </MenuItem>
@@ -213,6 +163,12 @@ export default function ManagementShell({ children }) {
                   );
                 })}
               </Stack>
+
+              <Tooltip title="ค้นหาเร็ว (⌘K / Ctrl K)">
+                <IconButton onClick={() => setCommandOpen(true)} sx={{ border: "1px solid #e4e7ec", bgcolor: "#fff" }}>
+                  <SearchIcon />
+                </IconButton>
+              </Tooltip>
 
               {(eventParams.eventId || eventParams.eventYear) && (
                 <Chip
@@ -239,6 +195,22 @@ export default function ManagementShell({ children }) {
                   <Typography fontWeight={900}>{displayName}</Typography>
                   <Typography variant="caption" color="text.secondary">{rolesOf(user).join(", ") || "-"}</Typography>
                 </Box>
+                {isSuperadmin && (
+                  <Box sx={{ px: 2, pb: 1.25 }}>
+                    <TextField
+                      select
+                      fullWidth
+                      size="small"
+                      label="ดูเมนูในมุมมอง"
+                      value={previewRole}
+                      onChange={(event) => setPreviewRole(event.target.value)}
+                    >
+                      {rolePreviewOptions.map((item) => (
+                        <MenuItem key={item.value || "real"} value={item.value}>{item.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  </Box>
+                )}
                 <Divider />
                 <MenuItem onClick={() => { setProfileAnchor(null); navigate("/profile"); }}>
                   <PersonIcon sx={{ mr: 1.25 }} fontSize="small" /> โปรไฟล์
@@ -248,9 +220,39 @@ export default function ManagementShell({ children }) {
                 </MenuItem>
               </Menu>
             </Toolbar>
+            <Box sx={{ px: { xs: 1.5, md: 3 }, pb: 1.25, display: { xs: "none", md: "block" } }}>
+              <Breadcrumbs separator="›" aria-label="breadcrumb">
+                {breadcrumbs.map((item, index) => {
+                  const last = index === breadcrumbs.length - 1;
+                  const path = item.path?.startsWith("/workspace/events/")
+                    ? appendQuery(item.path, eventParams)
+                    : appendQuery(item.path || "/workspace", eventParams);
+                  return last ? (
+                    <Typography key={`${item.label}-${index}`} variant="caption" color="text.primary" fontWeight={900}>{item.label}</Typography>
+                  ) : (
+                    <Button key={`${item.label}-${index}`} size="small" color="inherit" onClick={() => navigate(path)} sx={{ minWidth: 0, p: 0, fontSize: 12 }}>
+                      {item.label}
+                    </Button>
+                  );
+                })}
+              </Breadcrumbs>
+              {previewRole && (
+                <Typography variant="caption" color="warning.dark" fontWeight={800}>
+                  Role preview: กำลังดูเมนูแบบ {rolePreviewOptions.find((item) => item.value === previewRole)?.label}
+                </Typography>
+              )}
+            </Box>
           </Container>
         </AppBar>
         <Box>{children}</Box>
+        <CommandPalette
+          open={commandOpen}
+          onClose={() => setCommandOpen(false)}
+          user={user}
+          eventParams={eventParams}
+          previewRole={previewRole}
+          onNavigate={navigate}
+        />
       </Box>
     </ThemeProvider>
   );

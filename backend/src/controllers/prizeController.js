@@ -19,13 +19,11 @@ function contextRefsForYear(context, eventYear) {
 
 function scopeForPrize(prize, prizeEventYear) {
   if (!prize.eventId) return { eventYear: prizeEventYear };
-  return {
-    $or: [
-      { eventId: prize.eventId },
-      { eventId: null, eventYear: prizeEventYear },
-      { eventId: { $exists: false }, eventYear: prizeEventYear },
-    ],
-  };
+  return { eventId: prize.eventId };
+}
+
+function featureDisabled(event, key) {
+  return event?.config?.enabledFeatures && event.config.enabledFeatures[key] === false;
 }
 
 function revealWinnerParticipant(winner) {
@@ -44,7 +42,10 @@ function revealPrize(prize) {
 
 exports.listPrizes = async (req, res) => {
   try {
-    const eventScope = await eventScopeFromRequest(req);
+    const eventScope = await eventScopeFromRequest(req, {}, { requireEventIdentity: true });
+    if (featureDisabled(eventScope.event, 'luckyDraw')) {
+      return res.json([]);
+    }
     const { eventYear, filter } = eventScope;
     const prizes = await Prize.find(filter)
       .populate('winners.participantId', 'fields.name fields.department fields.dept registeredPoint')
@@ -65,7 +66,10 @@ exports.listPrizes = async (req, res) => {
 
 exports.listPublicPrizes = async (req, res) => {
   try {
-    const eventScope = await eventScopeFromRequest(req, {}, { requirePublic: true });
+    const eventScope = await eventScopeFromRequest(req, {}, { requireEventIdentity: true, requirePublic: true, requireAccess: false });
+    if (featureDisabled(eventScope.event, 'luckyDraw')) {
+      return res.json([]);
+    }
     const { eventYear, filter } = eventScope;
     const prizes = await Prize.find(filter)
       .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint')
@@ -113,7 +117,10 @@ exports.createPrize = async (req, res) => {
     if (!payload.name || !Number.isFinite(totalQuantity) || totalQuantity < 1) {
       return res.status(400).json({ error: 'กรุณาระบุชื่อและจำนวนรางวัลให้ถูกต้อง' });
     }
-    const eventContext = await getEventContextFromRequest(req);
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (featureDisabled(eventContext.event, 'luckyDraw')) {
+      return res.status(403).json({ error: 'กิจกรรมนี้ไม่ได้เปิดฟีเจอร์สุ่มผู้โชคดี' });
+    }
     const eventYear = normalizeEventYear(payload.eventYear || eventContext.eventYear || await getCurrentEventYear());
     const prize = await Prize.create({
       name: payload.name,
@@ -146,6 +153,12 @@ exports.drawPrize = async (req, res) => {
       if (!prize) {
         const err = new Error('ไม่พบของรางวัล');
         err.statusCode = 404;
+        throw err;
+      }
+      const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+      if (featureDisabled(eventContext.event, 'luckyDraw') || String(prize.eventId || '') !== String(eventContext.eventId || '')) {
+        const err = new Error('กิจกรรมนี้ไม่ได้เปิดฟีเจอร์สุ่มผู้โชคดี หรือของรางวัลไม่อยู่ในกิจกรรมนี้');
+        err.statusCode = 403;
         throw err;
       }
       if (prize.remainingQuantity <= 0) {
@@ -268,6 +281,10 @@ exports.cancelWinner = async (req, res) => {
 
     const prize = await Prize.findById(prizeId);
     if (!prize) return res.status(404).json({ error: 'ไม่พบของรางวัล' });
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (featureDisabled(eventContext.event, 'luckyDraw') || String(prize.eventId || '') !== String(eventContext.eventId || '')) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์จัดการรางวัลของกิจกรรมนี้' });
+    }
 
     // 1. จำจำนวนผู้ชนะก่อนลบไว้
     const originalLength = prize.winners.length;

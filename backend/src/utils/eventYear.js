@@ -2,6 +2,7 @@ const SystemSetting = require('../models/SystemSetting');
 const mongoose = require('mongoose');
 const Event = require('../models/event');
 const { isPublicEventStatus, isRegistrationOpenStatus } = require('./eventLayout');
+const { canAccessEvent } = require('./permissions');
 
 function defaultEventYear() {
   return String(new Date().getFullYear());
@@ -41,7 +42,7 @@ function requestedEventIdentity(req) {
 }
 
 async function getEventContextFromRequest(req, options = {}) {
-  const { requirePublic = false, requireRegistrationOpen = false } = options;
+  const { requireAccess = true, requireEventIdentity = false, requirePublic = false, requireRegistrationOpen = false } = options;
   const { eventId, eventSlug } = requestedEventIdentity(req);
   const hasRequestedEvent = Boolean(eventId || eventSlug);
   let event = null;
@@ -63,7 +64,18 @@ async function getEventContextFromRequest(req, options = {}) {
       error.statusCode = 404;
       throw error;
     }
+    if (requireEventIdentity) {
+      const error = new Error('กรุณาเลือกกิจกรรมก่อนใช้งานหน้านี้');
+      error.statusCode = 400;
+      throw error;
+    }
     return getCurrentEventContext();
+  }
+
+  if (req.user && requireAccess && !canAccessEvent(req.user, event)) {
+    const error = new Error('คุณไม่มีสิทธิ์เข้าถึงกิจกรรมนี้');
+    error.statusCode = 403;
+    throw error;
   }
 
   if (requirePublic && !isPublicEventStatus(event.status)) {
@@ -82,7 +94,7 @@ async function getEventContextFromRequest(req, options = {}) {
       error.statusCode = 403;
       throw error;
     }
-    if (config.enableRegister === false || !isRegistrationOpenStatus(event.status)) {
+    if (config.enabledFeatures?.registration === false || config.enableRegister === false || !isRegistrationOpenStatus(event.status)) {
       const error = new Error('กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน');
       error.statusCode = 403;
       throw error;
@@ -129,18 +141,30 @@ function applyEventYearFilter(filter, eventYear) {
 }
 
 async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
-  const { requirePublic = false } = options;
-  const { eventId } = requestedEventIdentity(req);
+  const { requireAccess = true, requireEventIdentity = false, requirePublic = false } = options;
+  const { eventId, eventSlug } = requestedEventIdentity(req);
+  let event = null;
+
   if (eventId) {
     if (!mongoose.Types.ObjectId.isValid(eventId)) {
       const error = new Error('รหัสกิจกรรมไม่ถูกต้อง');
       error.statusCode = 400;
       throw error;
     }
-    const event = await Event.findById(eventId).select('eventYear status');
+    event = await Event.findById(eventId).select('eventYear status organizationId seriesId');
+  } else if (eventSlug) {
+    event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() }).select('eventYear status organizationId seriesId');
+  }
+
+  if (eventId || eventSlug) {
     if (!event) {
       const error = new Error('ไม่พบกิจกรรมที่ระบุ');
       error.statusCode = 404;
+      throw error;
+    }
+    if (req.user && requireAccess && !canAccessEvent(req.user, event)) {
+      const error = new Error('คุณไม่มีสิทธิ์เข้าถึงกิจกรรมนี้');
+      error.statusCode = 403;
       throw error;
     }
     if (requirePublic && !isPublicEventStatus(event.status)) {
@@ -152,7 +176,14 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
       filter: { ...baseFilter, eventId: event._id },
       eventId: event._id,
       eventYear: normalizeEventYear(event.eventYear),
+      event,
     };
+  }
+
+  if (requireEventIdentity) {
+    const error = new Error('กรุณาเลือกกิจกรรมก่อนใช้งานหน้านี้');
+    error.statusCode = 400;
+    throw error;
   }
 
   const eventYear = await eventYearOrCurrentFromRequest(req);

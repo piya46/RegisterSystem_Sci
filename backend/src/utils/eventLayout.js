@@ -34,6 +34,7 @@ const FORM_FIELD_TYPES = new Set([
   'text',
   'email',
   'phone',
+  'tel',
   'number',
   'select',
   'checkbox',

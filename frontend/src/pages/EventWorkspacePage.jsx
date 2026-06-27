@@ -33,6 +33,9 @@ import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import useAuth from "../hooks/useAuth";
 import { getEventCatalog } from "../utils/api";
+import { EmptyState, LoadingState } from "../components/FeedbackStates";
+
+const RECENT_EVENTS_KEY = "psevent.recentEvents";
 
 const statusLabels = {
   draft: "ร่าง",
@@ -76,6 +79,19 @@ function toolPath(path, event) {
   return query ? `${path}?${query}` : path;
 }
 
+function readRecentEvents() {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY) || "[]");
+    return Array.isArray(value) ? value.filter(Boolean).slice(0, 8) : [];
+  } catch {
+    return [];
+  }
+}
+
+function featureEnabled(event, key) {
+  return event?.config?.enabledFeatures?.[key] !== false;
+}
+
 export default function EventWorkspacePage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
@@ -84,6 +100,7 @@ export default function EventWorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [query, setQuery] = useState("");
+  const [recentEventIds, setRecentEventIds] = useState(readRecentEvents);
 
   const canManageSystem = hasAnyRole(user, ["admin", "org_admin", "event_admin", "event_manager"]);
   const canManageUsers = hasAnyRole(user, ["admin"]);
@@ -114,9 +131,23 @@ export default function EventWorkspacePage() {
 
   const selectedEvent = useMemo(() => {
     if (eventId) return catalog.events.find((event) => getId(event) === eventId) || null;
-    const currentId = getId(catalog.settings?.currentEventId);
-    return catalog.events.find((event) => getId(event) === currentId) || catalog.events[0] || null;
-  }, [catalog.events, catalog.settings?.currentEventId, eventId]);
+    return null;
+  }, [catalog.events, eventId]);
+
+  useEffect(() => {
+    const id = getId(selectedEvent);
+    if (!id) return;
+    setRecentEventIds((prev) => {
+      const next = [id, ...prev.filter((item) => item !== id)].slice(0, 8);
+      localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(next));
+      return next;
+    });
+  }, [selectedEvent]);
+
+  const recentEvents = useMemo(
+    () => recentEventIds.map((id) => catalog.events.find((event) => getId(event) === id)).filter(Boolean),
+    [catalog.events, recentEventIds]
+  );
 
   const workspaceStats = useMemo(() => {
     const events = catalog.events || [];
@@ -173,14 +204,7 @@ export default function EventWorkspacePage() {
   };
 
   if (loading) {
-    return (
-      <Box sx={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", bgcolor: "#f7f9fb" }}>
-        <Stack alignItems="center" spacing={2}>
-          <CircularProgress color="warning" />
-          <Typography color="text.secondary" fontWeight={800}>กำลังเตรียม Event Workspace...</Typography>
-        </Stack>
-      </Box>
-    );
+    return <LoadingState label="กำลังเตรียม Event Workspace..." minHeight="80vh" />;
   }
 
   return (
@@ -236,6 +260,25 @@ export default function EventWorkspacePage() {
                 </Stack>
               </Stack>
               <Divider sx={{ mb: 2 }} />
+              {recentEvents.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="overline" color="text.secondary" fontWeight={900}>เปิดล่าสุด</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    {recentEvents.map((event) => {
+                      const id = getId(event);
+                      return (
+                        <Chip
+                          key={id}
+                          label={`${event.name} ${event.eventYear ? `(${event.eventYear})` : ""}`}
+                          avatar={<Avatar src={event.branding?.logoUrl}>{String(event.name || "E").charAt(0)}</Avatar>}
+                          onClick={() => navigate(`/workspace/events/${id}`)}
+                          sx={{ maxWidth: "100%", "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
+                        />
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              )}
               <Stack spacing={1.25}>
                 {catalog.events.length === 0 && (
                   <Alert severity="info">ยังไม่มีกิจกรรมที่ผูกกับบัญชีนี้</Alert>
@@ -272,6 +315,7 @@ export default function EventWorkspacePage() {
                         </Box>
                         <Stack alignItems="flex-end" spacing={0.5}>
                           {isCurrent && <Chip size="small" color="success" label="ปัจจุบัน" />}
+                          <Chip size="small" variant="outlined" label={event.seriesId ? "งานต่อเนื่อง" : "งานแยกข้อมูล"} />
                           <Chip size="small" color={statusColors[event.status] || "default"} label={statusLabels[event.status] || event.status} />
                         </Stack>
                       </Stack>
@@ -343,9 +387,9 @@ export default function EventWorkspacePage() {
                           เปิดเหมือน workspace tab โดยส่ง context ของ event ไปกับหน้าเครื่องมือ
                         </Typography>
                         <Stack spacing={1.25}>
-                          <Button startIcon={<DashboardIcon />} variant="contained" onClick={() => openTool("/dashboard")}>Dashboard ของอีเวนต์</Button>
-                          {canWorkStaff && <Button startIcon={<QrCodeIcon />} variant="outlined" onClick={() => openTool("/staff")}>Check-in Staff</Button>}
-                          {canWorkStaff && <Button startIcon={<StoreIcon />} variant="outlined" onClick={() => openTool("/select-point")}>เลือกจุดลงทะเบียน</Button>}
+                          {featureEnabled(selectedEvent, "dashboard") && <Button startIcon={<DashboardIcon />} variant="contained" onClick={() => openTool("/dashboard")}>Dashboard ของอีเวนต์</Button>}
+                          {canWorkStaff && featureEnabled(selectedEvent, "checkin") && <Button startIcon={<QrCodeIcon />} variant="outlined" onClick={() => openTool("/staff")}>Check-in Staff</Button>}
+                          {canWorkStaff && featureEnabled(selectedEvent, "checkin") && <Button startIcon={<StoreIcon />} variant="outlined" onClick={() => openTool("/staff/select-point")}>เลือกจุดลงทะเบียน</Button>}
                           {canManageSystem && <Button startIcon={<PeopleIcon />} variant="outlined" onClick={() => openTool("/admin/participants")}>ผู้เข้าร่วม</Button>}
                         </Stack>
                       </CardContent>
@@ -371,10 +415,11 @@ export default function EventWorkspacePage() {
                 </Grid>
               </Stack>
             ) : (
-              <Paper variant="outlined" sx={{ p: 4, borderRadius: 2, bgcolor: "#fff", textAlign: "center" }}>
-                <Typography variant="h6" fontWeight={900}>ยังไม่มีอีเวนต์ให้เปิดใช้งาน</Typography>
-                <Typography color="text.secondary" mt={1}>ติดต่อ Superadmin หรือ Admin เพื่อมอบหมายสิทธิ์ให้กับบัญชีนี้</Typography>
-              </Paper>
+              <EmptyState
+                title={catalog.events.length ? "เลือกกิจกรรมจากรายการด้านซ้าย" : "ยังไม่มีอีเวนต์ให้เปิดใช้งาน"}
+                description={catalog.events.length ? "ระบบจะเปิดเครื่องมือพร้อม eventId ของกิจกรรมนั้นเท่านั้น เพื่อป้องกันข้อมูลข้ามงาน" : "ติดต่อ Superadmin หรือ Admin เพื่อมอบหมายสิทธิ์ให้กับบัญชีนี้"}
+                icon={<EventAvailableIcon />}
+              />
             )}
           </Grid>
         </Grid>

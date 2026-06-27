@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Box, Typography, Button, Paper, Stack, Select, MenuItem, FormControl, InputLabel, CircularProgress, Fade } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
@@ -6,6 +6,8 @@ import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import { useNavigate } from 'react-router-dom';
 import { listPrizes, drawPrize } from '../utils/api';
 import Confetti from 'react-confetti';
+import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
+import { EmptyState } from '../components/FeedbackStates';
 
 // ธีมสีสำหรับงานเฉลิมฉลอง
 const THEME = {
@@ -23,6 +25,8 @@ const DUMMY_NAMES = [
 
 export default function LuckyDrawPage() {
   const navigate = useNavigate();
+  const urlEventContext = React.useMemo(() => eventContextFromSearch(window.location.search), []);
+  const eventParams = React.useMemo(() => eventContextToParams(urlEventContext), [urlEventContext]);
   const [prizes, setPrizes] = useState([]);
   const [selectedPrize, setSelectedPrize] = useState('');
   
@@ -34,19 +38,23 @@ export default function LuckyDrawPage() {
   const [currentDisplay, setCurrentDisplay] = useState("พร้อมลุ้นรางวัล?");
   const intervalRef = useRef(null);
 
-  useEffect(() => {
-    fetchPrizes();
-  }, []);
-
-  const fetchPrizes = async () => {
+  const fetchPrizes = useCallback(async () => {
+    if (!eventParams.eventId) {
+      setPrizes([]);
+      return;
+    }
     try {
-      const res = await listPrizes();
+      const res = await listPrizes(eventParams);
       // กรองเฉพาะรางวัลที่ยังเหลืออยู่มาให้พิธีกรเลือก
       setPrizes(res.data.filter(p => p.remainingQuantity > 0));
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [eventParams]);
+
+  useEffect(() => {
+    fetchPrizes();
+  }, [fetchPrizes]);
 
   const startDrawAnimation = (actualWinner) => {
     setIsDrawing(true);
@@ -81,7 +89,7 @@ export default function LuckyDrawPage() {
 
     try {
       // เรียก API ไปสุ่มหลังบ้านก่อน เพื่อให้ได้ชื่อผู้ชนะที่แท้จริง
-      const res = await drawPrize(selectedPrize);
+      const res = await drawPrize(selectedPrize, eventParams);
       const winner = res.data.winner;
       
       // เริ่มเล่น Effect หน้าจอ
@@ -99,6 +107,22 @@ export default function LuckyDrawPage() {
   };
 
   const activePrizeObj = prizes.find(p => p._id === selectedPrize);
+
+  if (!eventParams.eventId) {
+    return (
+      <Box sx={{ minHeight: '100vh', background: THEME.bg, p: 4 }}>
+        <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+          <EmptyState
+            title="เลือกกิจกรรมก่อนสุ่มรางวัล"
+            description="กรุณาเปิดหน้านี้จาก Event Workspace เพื่อให้ระบบส่ง eventId มากับหน้า"
+            actionLabel="ไปหน้าเลือกกิจกรรม"
+            onAction={() => navigate('/workspace')}
+            icon={<EmojiEventsIcon />}
+          />
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', background: THEME.bg, color: THEME.text, p: 4, fontFamily: 'Prompt, sans-serif', position: 'relative', overflow: 'hidden' }}>

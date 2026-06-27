@@ -15,10 +15,11 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
 import { useLocation, useNavigate } from 'react-router-dom';
-import EventYearSelect from '../components/EventYearSelect';
+import { EmptyState } from '../components/FeedbackStates';
 import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 export default function DonationListPage() {
@@ -47,16 +48,21 @@ export default function DonationListPage() {
   );
 
   const fetchDonations = useCallback(async () => {
+    if (!eventId) {
+      setDonations([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const res = await getDonationSummary(Object.keys(eventParams).length ? eventParams : undefined);
+      const res = await getDonationSummary(eventParams);
       setDonations(res.data?.transactions || []);
     } catch (err) {
       console.error("Failed to fetch donations", err);
     } finally {
       setLoading(false);
     }
-  }, [eventParams]);
+  }, [eventId, eventParams]);
 
   useEffect(() => { fetchDonations(); }, [fetchDonations]);
 
@@ -131,6 +137,22 @@ export default function DonationListPage() {
     downloadCsv(`Donations_${new Date().toISOString().slice(0,10)}.csv`, dataToExport);
   };
 
+  if (!eventId) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
+        <Box sx={{ maxWidth: 900, mx: "auto" }}>
+          <EmptyState
+            title="เลือกกิจกรรมก่อนดูผู้สนับสนุน"
+            description="รายการสนับสนุนถูกแยกตามกิจกรรม และจะไม่ค้นจากปีเพื่อป้องกันข้อมูลคนละงานปนกัน"
+            actionLabel="ไปหน้าเลือกกิจกรรม"
+            onAction={() => navigate('/workspace')}
+            icon={<EventAvailableIcon />}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
       <Box sx={{ maxWidth: 1300, mx: "auto" }}>
@@ -142,7 +164,7 @@ export default function DonationListPage() {
             </Typography>
             <Typography variant="body2" color="text.secondary">เพิ่ม ลบ อัปเดต และตรวจสอบสลิป</Typography>
           </Box>
-          <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+          <Chip label={`กิจกรรมที่เลือก ${eventId.slice(-6)}`} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
           <Button variant="contained" color="primary" startIcon={<AddBoxIcon />} onClick={() => handleOpenDialog()} sx={{ borderRadius: 2 }}>เพิ่มรายการใหม่</Button>
           <Button variant="contained" color="success" startIcon={<DownloadIcon />} onClick={exportExcel} sx={{ borderRadius: 2 }}>Export CSV</Button>
         </Stack>

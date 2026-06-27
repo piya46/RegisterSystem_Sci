@@ -30,12 +30,13 @@ import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 import ReplayIcon from '@mui/icons-material/Replay';
 import SettingsBackupRestoreIcon from '@mui/icons-material/SettingsBackupRestore';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
 import { QRCodeSVG } from 'qrcode.react';
 
 import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
-import EventYearSelect from '../components/EventYearSelect';
+import { EmptyState } from '../components/FeedbackStates';
 import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 const Y = { main: "#FFC107", dark: "#F57F17", light: "#FFF8E1", text: "#4E342E", success: "#2e7d32", white: "#FFFFFF", gray: "#f5f5f5" };
@@ -63,6 +64,7 @@ export default function AdminParticipantsPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const initialQuery = React.useMemo(() => new URLSearchParams(location.search).get('q') || '', [location.search]);
 
   const [activeTab, setActiveTab] = useState(0);
   const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
@@ -70,7 +72,7 @@ export default function AdminParticipantsPage() {
 
   // States: Participants
   const [participants, setParticipants] = useState([]);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialQuery);
   const [statusFilter, setStatusFilter] = useState('all');
   const [deptFilter, setDeptFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('all');
@@ -107,6 +109,10 @@ export default function AdminParticipantsPage() {
     setEventId(urlEventContext.eventId || '');
   }, [urlEventContext.eventId, urlEventContext.eventYear]);
 
+  useEffect(() => {
+    setSearch(initialQuery);
+  }, [initialQuery]);
+
   const eventParams = React.useMemo(
     () => eventContextToParams({ eventId, eventYear }),
     [eventId, eventYear]
@@ -114,22 +120,32 @@ export default function AdminParticipantsPage() {
 
   // Functions: Participants
   const fetchParticipants = useCallback(async () => {
+    if (!eventId) {
+      setParticipants([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const res = await listParticipants(Object.keys(eventParams).length ? eventParams : undefined);
+      const res = await listParticipants(eventParams);
       setParticipants(res.data || res);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลผู้เข้าร่วมผิดพลาด', severity: 'error' }); }
     setLoading(false);
-  }, [eventParams]);
+  }, [eventId, eventParams]);
 
   const fetchPrizes = useCallback(async () => {
+    if (!eventId) {
+      setPrizes([]);
+      setPrizeLoading(false);
+      return;
+    }
     setPrizeLoading(true);
     try {
-      const res = await listPrizes(Object.keys(eventParams).length ? eventParams : undefined);
+      const res = await listPrizes(eventParams);
       setPrizes(res.data);
     } catch { setSnackbar({ open: true, message: 'โหลดข้อมูลรางวัลไม่สำเร็จ', severity: 'error' }); }
     setPrizeLoading(false);
-  }, [eventParams]);
+  }, [eventId, eventParams]);
 
   useEffect(() => {
     fetchParticipants();
@@ -315,7 +331,7 @@ export default function AdminParticipantsPage() {
   const handleRevokePrize = async (prizeId, winnerId) => {
     if (!window.confirm("ยืนยันการยกเลิกสิทธิ์ผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัล และผู้ใช้ท่านนี้จะมีสิทธิ์จับรางวัลใหม่อีกครั้ง")) return;
     try {
-      await cancelPrizeWinner(prizeId, winnerId);
+      await cancelPrizeWinner(prizeId, winnerId, eventParams);
       setSnackbar({ open: true, message: 'ยกเลิกสิทธิ์และดึงโควต้าคืนสำเร็จ', severity: 'success' });
       fetchPrizes();
     } catch (err) {
@@ -339,6 +355,20 @@ export default function AdminParticipantsPage() {
     fetchPrizes();
   };
 
+  if (!eventId) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 4, mb: 8, p: { xs: 2, md: 4 } }}>
+        <EmptyState
+          title="เลือกกิจกรรมก่อนจัดการผู้เข้าร่วม"
+          description="รายชื่อผู้เข้าร่วมและรางวัลถูกแยกตามกิจกรรม หากเป็นงานต่อเนื่องให้เชื่อมผ่านชุดกิจกรรมจากหน้าจัดการกิจกรรมก่อน"
+          actionLabel="ไปหน้าเลือกกิจกรรม"
+          onAction={() => navigate('/workspace')}
+          icon={<EventAvailableIcon />}
+        />
+      </Container>
+    );
+  }
+
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 8, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', bgcolor: "#fafafa", borderRadius: 4, minHeight: "80vh" }}>
 
@@ -349,7 +379,7 @@ export default function AdminParticipantsPage() {
            <Typography variant="body1" color="text.secondary">จัดการรายชื่อผู้เข้าร่วมงานและของรางวัล</Typography>
         </Box>
         <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap>
-            <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+            <Chip label={`กิจกรรมที่เลือก ${eventId.slice(-6)}`} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
             <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ borderRadius: 3, borderColor: 'rgba(0,0,0,0.2)', color: 'text.primary', "&:hover": { borderColor: Y.dark, bgcolor: '#fff' } }}>กลับหน้าหลัก</Button>
             <Button variant="outlined" startIcon={<RefreshIcon />} onClick={handleRefreshAll} sx={{ borderRadius: 3, borderColor: Y.main, color: Y.dark, "&:hover":{ bgcolor: Y.light, borderColor: Y.dark } }}>รีเฟรชข้อมูล</Button>
         </Stack>

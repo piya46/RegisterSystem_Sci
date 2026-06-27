@@ -36,7 +36,7 @@ router.get('/export', auth, requireAdmin, participantController.exportParticipan
 router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
   let eventYear = null;
   try {
-    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     eventYear = eventScope.eventYear;
     const data = await getReportData(eventYear, eventScope.eventId);
     await auditSensitiveAccess({

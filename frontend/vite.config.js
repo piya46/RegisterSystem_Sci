@@ -25,6 +25,10 @@ export default defineConfig({
         // แยกไฟล์ Vendor (Library) ออกจากไฟล์ Code หลัก เพื่อการ Cache ที่ดีขึ้น
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            if (id.includes('@mui')) return 'mui';
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+            if (id.includes('framer-motion')) return 'motion';
+            if (id.includes('html5-qrcode') || id.includes('qrcode')) return 'qr';
             return 'vendor';
           }
         }

@@ -10,6 +10,7 @@
     "backfill:privacy-year": "node src/scripts/backfillPrivacyAndEventYear.js",
     "backfill:event-refs": "node src/scripts/backfillEventReferences.js",
     "migrate:legacy-events": "node src/scripts/backfillEventReferences.js",
+    "grant:superadmin": "node src/scripts/grantSuperadmin.js",
     "rotate:field-encryption": "node src/scripts/rotateFieldEncryptionKey.js"
   },
   "keywords": [],

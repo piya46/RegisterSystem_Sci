@@ -8,10 +8,11 @@ import CampaignIcon from '@mui/icons-material/Campaign';
 import ReplayIcon from '@mui/icons-material/Replay';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareIcon from '@mui/icons-material/IosShare';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { listPrizes, drawPrize, cancelPrizeWinner } from '../utils/api';
-import EventYearSelect from '../components/EventYearSelect';
+import { EmptyState } from '../components/FeedbackStates';
 import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 // 🌟 ธีมสีเหลืองเสือเหลืองคืนถิ่น (Yellow & Dark Brown)
@@ -69,13 +70,17 @@ export default function LuckyDrawPage() {
 
   // 🌟 ฟังก์ชันโหลดข้อมูลของรางวัล
   const fetchPrizes = useCallback(async () => {
+    if (!eventId) {
+      setPrizes([]);
+      return;
+    }
     try {
-      const res = await listPrizes(Object.keys(eventParams).length ? eventParams : undefined);
+      const res = await listPrizes(eventParams);
       setPrizes(res.data);
     } catch (err) {
       console.error("Auto-refresh error:", err);
     }
-  }, [eventParams]);
+  }, [eventId, eventParams]);
 
   // 🌟 ระบบ Auto-Refresh ข้อมูลทุกๆ 10 วินาที
   useEffect(() => {
@@ -131,7 +136,7 @@ export default function LuckyDrawPage() {
   const handleDraw = async () => {
     if (!selectedPrize) return alert("กรุณาเลือกของรางวัลที่จะแจกครับ");
     try {
-      const res = await drawPrize(selectedPrize);
+      const res = await drawPrize(selectedPrize, eventParams);
       startDrawAnimation(res.data.winner);
     } catch (err) {
       alert(err.response?.data?.error || "เกิดข้อผิดพลาด หรือรางวัลหมดแล้ว");
@@ -159,7 +164,7 @@ export default function LuckyDrawPage() {
          // ในกรณีที่ api.js กำหนด cancelPrizeWinner(prizeId, participantId)
          // เราต้องแน่ใจว่าส่ง ID ไม่ใช่ Object ไป
          const winnerId = winnerData._id || winnerData.id; 
-         await cancelPrizeWinner(activePrizeObj._id, winnerId);
+         await cancelPrizeWinner(activePrizeObj._id, winnerId, eventParams);
       } else {
          throw new Error("ไม่พบข้อมูลผู้ได้รับรางวัล");
       }
@@ -193,6 +198,22 @@ export default function LuckyDrawPage() {
     alert('คัดลอกลิงก์ Live สำหรับหน้าจอแสดงผลสำเร็จ!');
   };
 
+  if (!eventId) {
+    return (
+      <Box sx={{ minHeight: '100vh', bgcolor: '#FFFDE7', p: { xs: 2, md: 4 } }}>
+        <Box sx={{ maxWidth: 900, mx: 'auto' }}>
+          <EmptyState
+            title="เลือกกิจกรรมก่อนสุ่มรางวัล"
+            description="ของรางวัลและผู้มีสิทธิ์รับรางวัลถูกแยกตามกิจกรรม ไม่ใช้ข้อมูลจากงานอื่นหรือปีเดียวกันโดยอัตโนมัติ"
+            actionLabel="ไปหน้าเลือกกิจกรรม"
+            onAction={() => navigate('/workspace')}
+            icon={<EventAvailableIcon />}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
   const activePrizeObj = prizes.find(p => p._id === selectedPrize);
   const recentWinners = prizes.flatMap(p => p.winners.map(w => ({ prizeName: p.name, winnerName: w.participantId?.fields?.name || 'ไม่ทราบชื่อ', wonAt: new Date(w.wonAt) }))).sort((a, b) => b.wonAt - a.wonAt).slice(0, 5);
 
@@ -215,7 +236,7 @@ export default function LuckyDrawPage() {
           </Typography>
         </Stack>
         <Stack direction="row" spacing={1} alignItems="center">
-          <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
+          <Chip label={`กิจกรรมที่เลือก ${eventId.slice(-6)}`} sx={{ bgcolor: '#fff', borderRadius: 2 }} />
           <Button variant="outlined" startIcon={<IosShareIcon />} onClick={handleSharePublic} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.accent, borderColor: THEME.accent, borderWidth: 2, '&:hover': { bgcolor: '#FFFDE7', borderWidth: 2 } }}>
             แชร์จอแสดงผล (Public)
           </Button>

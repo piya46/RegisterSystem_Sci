@@ -17,6 +17,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import BadgeIcon from "@mui/icons-material/Badge";
+import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 
 // Utils & Hooks
 import getAvatarUrl from "../utils/getAvatarUrl";
@@ -24,6 +25,7 @@ import { searchParticipants, checkinByQr, listEnabledRegistrationPoints } from "
 import useAuth from "../hooks/useAuth";
 import QrScanner from "../components/QrScanner";
 import FollowersDialog from "../components/FollowersDialog";
+import { EmptyState } from "../components/FeedbackStates";
 import { useNavigate, useLocation } from "react-router-dom";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
@@ -89,9 +91,10 @@ export default function CheckinStaffPage() {
   const location = useLocation();
   const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
   const eventParams = React.useMemo(() => eventContextToParams(urlEventContext), [urlEventContext]);
+  const initialQuery = React.useMemo(() => new URLSearchParams(location.search).get("q") || "", [location.search]);
 
   // State
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialQuery);
   const [loading, setLoading] = useState(false);
   const [participants, setParticipants] = useState([]);
   const [showQR, setShowQR] = useState(false);
@@ -124,6 +127,11 @@ export default function CheckinStaffPage() {
   }, []);
 
   useEffect(() => {
+    setSearch(initialQuery);
+  }, [initialQuery]);
+
+  useEffect(() => {
+    if (!eventParams.eventId) return;
     const params = new URLSearchParams(location.search);
     const pointId = params.get("point") || localStorage.getItem("selectedPointId") || "";
     if (!pointId) {
@@ -294,6 +302,22 @@ export default function CheckinStaffPage() {
     { label: 'ตรวจสอบรายชื่อ', icon: <SearchIcon fontSize="small"/> },
     { label: 'ยืนยันเช็คอิน', icon: <CheckCircleIcon fontSize="small"/> },
   ];
+
+  if (!eventParams.eventId) {
+    return (
+      <Box sx={{ minHeight: "100vh", bgcolor: "#FFF8E1", p: { xs: 2, md: 4 }, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Box sx={{ maxWidth: 900, width: "100%" }}>
+          <EmptyState
+            title="เลือกกิจกรรมก่อนเริ่ม Check-in"
+            description="การค้นหาและสแกน QR จะทำงานเฉพาะในกิจกรรมที่เลือกเท่านั้น เพื่อป้องกันการเช็คอินข้ามงาน"
+            actionLabel="ไปหน้าเลือกกิจกรรม"
+            onAction={() => navigate("/workspace")}
+            icon={<EventAvailableIcon />}
+          />
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{

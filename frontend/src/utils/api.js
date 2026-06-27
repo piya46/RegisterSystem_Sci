@@ -91,6 +91,7 @@ export const deleteParticipantField = (id) => api.delete(`/participant-fields/${
 export const getDashboardStats = () => api.get('/dashboard/stats');
 export const getCheckinSummary = (params) => api.get('/dashboard/checkin-summary', { params });
 export const getDashboardSummary = (params) => api.get('/dashboard/summary', { params });
+export const getDashboardComparison = (params) => api.get('/dashboard/comparison', { params });
 export const createDonation = (data) => api.post('/donations', data);
 export const getDonationSummary = (params) => api.get('/donations/summary', { params });
 export const updateDonation = (id, data) => api.put(`/donations/${id}`, data);
@@ -104,6 +105,8 @@ export const getEventCatalog = () => api.get('/events/catalog');
 export const getLegacyMigrationPreview = () => api.get('/events/migration-preview');
 export const runLegacyEventMigration = (dryRun = false) => api.post('/events/migrate-legacy', { dryRun });
 export const getPublicEvent = (slug) => api.get(`/public/events/${encodeURIComponent(slug)}`);
+export const requestRegistrationReuseOtp = (slug, email) => api.post(`/public/events/${encodeURIComponent(slug)}/reuse/request-otp`, { email });
+export const confirmRegistrationReuseOtp = (slug, data) => api.post(`/public/events/${encodeURIComponent(slug)}/reuse/confirm`, data);
 export const createOrganization = (data) => api.post('/events/organizations', data);
 export const updateOrganization = (id, data) => api.put(`/events/organizations/${id}`, data);
 export const createEventSeries = (data) => api.post('/events/series', data);
@@ -127,8 +130,8 @@ export const getPublicDashboardStats = (params) => api.get('/public/dashboard', 
 export const listPrizes = (params) => api.get('/prizes', { params });
 export const createPrize = (data) => api.post('/prizes', data);
 export const deletePrize = (id) => api.delete(`/prizes/${id}`);
-export const drawPrize = (prizeId) => api.post(`/prizes/draw/${prizeId}`);
-export const cancelPrizeWinner = (prizeId, winnerId) => api.post('/prizes/cancel', { prizeId, winnerId });
+export const drawPrize = (prizeId, params) => api.post(`/prizes/draw/${prizeId}`, null, { params });
+export const cancelPrizeWinner = (prizeId, winnerId, params) => api.post('/prizes/cancel', { prizeId, winnerId, ...(params || {}) });
 
 // 🌟 [เพิ่ม] API สำหรับสร้างลิงก์ QR ให้คนทั่วไปแสกน (Self-Register)
 export const generateSelfRegisterLink = (data) => api.post('/public/self-register-link', data);

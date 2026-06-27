@@ -37,9 +37,9 @@ import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
 import { Link, useLocation } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
-import EventYearSelect from "../components/EventYearSelect";
+import { EmptyState } from "../components/FeedbackStates";
 import getAvatarUrl from "../utils/getAvatarUrl";
-import api, { getDonationSummary, getDashboardSummary } from "../utils/api";
+import api, { getDonationSummary, getDashboardSummary, getDashboardComparison } from "../utils/api";
 import { downloadCsv } from "../utils/exportCsv";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
@@ -155,6 +155,7 @@ export default function DashboardPage({ embedded = false }) {
 
   const [summary, setSummary] = useState(null);
   const [donationStats, setDonationStats] = useState(null);
+  const [comparison, setComparison] = useState([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
   const [eventId, setEventId] = useState(urlEventContext.eventId || '');
@@ -177,27 +178,43 @@ export default function DashboardPage({ embedded = false }) {
   );
 
   const fetchSummary = useCallback(async () => {
+    if (!eventId) {
+      setSummary(null);
+      setDonationStats(null);
+      setComparison([]);
+      setLoadingSummary(false);
+      return;
+    }
     setLoadingSummary(true);
-    const params = Object.keys(eventParams).length ? eventParams : undefined;
     try {
-      const res = await getDashboardSummary(params);
+      const res = await getDashboardSummary(eventParams);
       setSummary(res.data);
-      const donRes = await getDonationSummary(params);
+      const donRes = await getDonationSummary(eventParams);
       setDonationStats(donRes.data);
+      const comparisonRes = await getDashboardComparison(eventParams);
+      setComparison(comparisonRes.data?.data?.rows || []);
     } catch (err) {
       console.error("Failed to fetch summary", err);
     }
     setLoadingSummary(false);
     setRefreshCountdown(60);
-  }, [eventParams]);
+  }, [eventId, eventParams]);
 
   const handleSharePublicDashboard = () => {
+    if (!eventId) {
+      setSnackbar({ open: true, message: 'กรุณาเลือกกิจกรรมก่อนสร้างลิงก์ Dashboard', severity: 'warning' });
+      return;
+    }
     const link = `${window.location.origin}${appendQuery('/public/dashboard', eventParams)}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: 'คัดลอกลิงก์ Live Dashboard สำเร็จ! นำไปส่งต่อได้เลย', severity: 'success' });
   };
 
   async function handleDownloadExcel() {
+    if (!eventId) {
+      setSnackbar({ open: true, message: 'กรุณาเลือกกิจกรรมก่อน Export', severity: 'warning' });
+      return;
+    }
     try {
       const res = await api.get("/participants", { params: { all: true, ...eventParams } });
       const participants = Array.isArray(res.data) ? res.data : (res.data.data || []);
@@ -231,6 +248,30 @@ export default function DashboardPage({ embedded = false }) {
       console.error(e);
       alert("เกิดข้อผิดพลาด: " + (e.response?.data?.error || e.message));
     }
+  }
+
+  function handleDownloadComparisonCsv() {
+    if (!comparison.length) {
+      alert("ยังไม่มีข้อมูลเปรียบเทียบให้ดาวน์โหลด");
+      return;
+    }
+    downloadCsv(`Event_Comparison_${new Date().toISOString().slice(0, 10)}.csv`, comparison.map((row) => ({
+      "ปีงาน": row.eventYear,
+      "กิจกรรม": row.eventName,
+      "สถานะ": row.status,
+      "ลงทะเบียนหลัก": row.registered,
+      "เช็คอินหลัก": row.checkedIn,
+      "ผู้ติดตาม": row.followers,
+      "คนทั้งหมด": row.totalPeople,
+      "คนเช็คอินทั้งหมด": row.checkedInPeople,
+      "อัตราเช็คอินหลัก (%)": row.checkinRate,
+      "อัตราเช็คอินรวมคนติดตาม (%)": row.peopleCheckinRate,
+      "ยอดสนับสนุน": row.donationAmount,
+      "จำนวนรายการสนับสนุน": row.donationCount,
+      "ต่างจากปีก่อน: ลงทะเบียน": row.delta?.registered ?? "",
+      "ต่างจากปีก่อน: เช็คอิน (%)": row.delta?.checkinRate ?? "",
+      "ต่างจากปีก่อน: ยอดสนับสนุน": row.delta?.donationAmount ?? "",
+    })));
   }
 
   fetchSummaryRef.current = fetchSummary;
@@ -358,12 +399,15 @@ export default function DashboardPage({ embedded = false }) {
             </Box>
 
             <Stack direction="row" alignItems="center" spacing={2} sx={{ bgcolor: 'background.paper', p: 1, borderRadius: 4, boxShadow: '0 4px 20px rgba(0,0,0,0.04)', mt: { xs: 2, sm: 0 }, flexWrap: { xs: 'wrap', sm: 'nowrap' }, justifyContent: { xs: 'flex-start', sm: 'flex-end' } }}>
-              <EventYearSelect value={eventYear} onChange={(value) => { setEventYear(value); setEventId(""); }} sx={{ minWidth: 150 }} />
+              <Button component={Link} to="/workspace" size="small" variant="outlined" startIcon={<EventAvailableIcon />} sx={{ borderRadius: 3 }}>
+                เลือกกิจกรรม
+              </Button>
 
               {/* 🌟 [เพิ่ม] ปุ่มเข้าหน้า Lucky Draw */}
               <Button
                 component={Link}
                 to={appendQuery("/admin/lucky-draw", eventParams)}
+                disabled={!eventId}
                 size="small"
                 variant="contained"
                 startIcon={<EmojiEventsIcon />}
@@ -376,6 +420,7 @@ export default function DashboardPage({ embedded = false }) {
                 size="small"
                 variant="outlined"
                 onClick={handleSharePublicDashboard}
+                disabled={!eventId}
                 startIcon={<IosShareIcon />}
                 sx={{ borderRadius: 3, borderColor: '#FFC107', color: '#F57F17', '&:hover': { bgcolor: '#FFF8E1', borderColor: '#F57F17' } }}
               >
@@ -399,6 +444,15 @@ export default function DashboardPage({ embedded = false }) {
             </Stack>
           </Stack>
 
+          {!eventId ? (
+            <EmptyState
+              title="เลือกกิจกรรมก่อนดู Dashboard"
+              description="Dashboard จะแสดงเฉพาะข้อมูลของกิจกรรมที่เลือก เพื่อป้องกันข้อมูลคนละงานปนกัน"
+              actionLabel="ไปหน้าเลือกกิจกรรม"
+              onAction={() => { window.location.href = "/workspace"; }}
+              icon={<EventAvailableIcon />}
+            />
+          ) : (
           <ChartErrorBoundary>
             {/* 🌟 1. Main Stats Cards */}
             <Stack direction={{ xs: "column", md: "row" }} spacing={2} mb={4}>
@@ -427,6 +481,68 @@ export default function DashboardPage({ embedded = false }) {
                 icon={<VolunteerActivismIcon />} color1="#66BB6A" color2="#43A047" loading={loadingSummary}
               />
             </Stack>
+
+            <Card sx={{ mb: 4 }}>
+              <CardContent>
+                <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1.5} alignItems={{ xs: "flex-start", md: "center" }} mb={2}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={800}>เปรียบเทียบรอบกิจกรรมย้อนหลัง</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      ใช้ดูแนวโน้มข้ามปีและส่งออกไปวิเคราะห์ต่อได้ ตัวเลขนี้เป็นผลรวมแบบ aggregate ไม่แสดงข้อมูลส่วนบุคคล
+                    </Typography>
+                  </Box>
+                  <Button size="small" variant="outlined" onClick={handleDownloadComparisonCsv} disabled={!comparison.length}>
+                    Export comparison CSV
+                  </Button>
+                </Stack>
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>ปี / กิจกรรม</TableCell>
+                        <TableCell align="right">ลงทะเบียน</TableCell>
+                        <TableCell align="right">เช็คอิน</TableCell>
+                        <TableCell align="right">คนทั้งหมด</TableCell>
+                        <TableCell align="right">อัตราเช็คอิน</TableCell>
+                        <TableCell align="right">ยอดสนับสนุน</TableCell>
+                        <TableCell align="right">ต่างจากปีก่อน</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {comparison.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={7} align="center" sx={{ py: 3, color: "text.secondary" }}>
+                            ยังไม่มีข้อมูลเปรียบเทียบ
+                          </TableCell>
+                        </TableRow>
+                      ) : comparison.map((row) => (
+                        <TableRow key={row.eventId || row.eventYear} hover>
+                          <TableCell>
+                            <Typography fontWeight={800}>{row.eventYear}</Typography>
+                            <Typography variant="caption" color="text.secondary">{row.eventName}</Typography>
+                          </TableCell>
+                          <TableCell align="right">{Number(row.registered || 0).toLocaleString()}</TableCell>
+                          <TableCell align="right">{Number(row.checkedIn || 0).toLocaleString()}</TableCell>
+                          <TableCell align="right">{Number(row.totalPeople || 0).toLocaleString()}</TableCell>
+                          <TableCell align="right">{row.checkinRate || 0}%</TableCell>
+                          <TableCell align="right">฿{Number(row.donationAmount || 0).toLocaleString()}</TableCell>
+                          <TableCell align="right">
+                            <Stack spacing={0.25} alignItems="flex-end">
+                              <Typography variant="caption" color={(row.delta?.registered || 0) >= 0 ? "success.main" : "error.main"}>
+                                ลงทะเบียน {row.delta?.registered == null ? "-" : `${row.delta.registered >= 0 ? "+" : ""}${row.delta.registered}`}
+                              </Typography>
+                              <Typography variant="caption" color={(row.delta?.donationAmount || 0) >= 0 ? "success.main" : "error.main"}>
+                                ยอดสนับสนุน {row.delta?.donationAmount == null ? "-" : `${row.delta.donationAmount >= 0 ? "+" : ""}${Number(row.delta.donationAmount).toLocaleString()}`}
+                              </Typography>
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
 
             {/* 🌟 2. Donation Breakdown & Recent Transactions */}
             {donationStats && (
@@ -698,6 +814,7 @@ export default function DashboardPage({ embedded = false }) {
             </Box>
 
           </ChartErrorBoundary>
+          )}
 
           {loadingSummary && (
             <Fade in={loadingSummary} timeout={450}>

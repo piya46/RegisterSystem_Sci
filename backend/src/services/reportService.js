@@ -1,12 +1,16 @@
 const Participant = require('../models/participant');
 const Donation = require('../models/Donation');
 const { revealDonationObject, revealParticipantObject } = require('../utils/fieldEncryption');
-const { applyEventYearFilter } = require('../utils/eventYear');
 
 exports.getReportData = async (eventYear = null, eventId = null) => {
   try {
-    const participantFilter = eventId ? { isDeleted: false, eventId } : applyEventYearFilter({ isDeleted: false }, eventYear);
-    const donationFilter = eventId ? { eventId } : applyEventYearFilter({}, eventYear);
+    if (!eventId) {
+      const error = new Error('กรุณาเลือกกิจกรรมก่อนออกรายงาน');
+      error.statusCode = 400;
+      throw error;
+    }
+    const participantFilter = { isDeleted: false, eventId };
+    const donationFilter = { eventId };
     const participants = (await Participant.find(participantFilter).select('+secureIndex'))
       .map(revealParticipantObject);
     const donations = (await Donation.find(donationFilter).lean())

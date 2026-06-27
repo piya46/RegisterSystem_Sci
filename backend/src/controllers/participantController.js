@@ -47,7 +47,7 @@ function checkAdmin(req, res) {
 exports.createParticipant = async (req, res) => {
   /* โค้ดเดิมคงไว้ ไม่มีการเปลี่ยนแปลง */
   try {
-    const eventContext = await getEventContextFromRequest(req, { requirePublic: true, requireRegistrationOpen: true });
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requirePublic: true, requireRegistrationOpen: true });
     if (!eventContext.event) {
       const setting = await SystemSetting.findOne();
       if (setting) {
@@ -189,7 +189,7 @@ exports.createParticipantByStaff = async (req, res) => {
       if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
-    const eventContext = await getEventContextFromRequest(req);
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
     const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
@@ -245,7 +245,7 @@ exports.registerOnsite = async (req, res) => {
       return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
     }
 
-    const eventContext = await getEventContextFromRequest(req);
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
     const eventYear = normalizeEventYear(requestedEventYear || eventContext.eventYear || await getCurrentEventYear());
 
     // ตรวจสอบข้อมูลซ้ำ
@@ -307,7 +307,7 @@ exports.registerOnsite = async (req, res) => {
 exports.listParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const { eventYear, filter } = eventScope;
     const participants = await Participant.find(filter).sort({ createdAt: -1 }).select('+secureIndex');
     const safeParticipants = participants.map(revealParticipantObject);
@@ -399,7 +399,7 @@ exports.checkinByQr = async (req, res) => {
       return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
     }
 
-    const eventScope = await eventScopeFromRequest(req, { qrCode, isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { qrCode, isDeleted: false }, { requireEventIdentity: true });
     const { eventYear, filter } = eventScope;
     const participant = await Participant.findOne(filter);
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
@@ -442,7 +442,7 @@ exports.resendTicket = async (req, res) => {
   if (!phone) return res.status(400).json({ error: 'Phone is required.' });
   const phoneRegex = /^0[689]\d{8}$/;
   if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-  const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+  const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true, requireAccess: false });
   const { eventYear } = eventScope;
   const participant = await Participant.findOne({
     $and: [
@@ -478,7 +478,7 @@ exports.resendTicket = async (req, res) => {
 exports.searchParticipants = async (req, res) => {
   try {
     const { phone, name, email, qrCode, q } = req.query;
-    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const { eventYear } = eventScope;
     let filter = eventScope.filter;
     if (q) {
@@ -578,7 +578,7 @@ exports.exportParticipants = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
     const { status } = req.query;
-    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const { eventYear } = eventScope;
     const find = eventScope.filter;
     if (status) find.status = status;

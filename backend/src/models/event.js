@@ -28,10 +28,66 @@ const defaultLayouts = () => ({
       ],
     },
   },
-  registrationForm: { version: 1, config: { sections: [], fields: [] } },
-  dashboard: { version: 1, config: { widgets: [] } },
-  ticket: { version: 1, config: { blocks: [] } },
-  report: { version: 1, config: { columns: [] } },
+  registrationForm: {
+    version: 1,
+    config: {
+      sections: [
+        { id: 'personal', title: 'ข้อมูลส่วนตัว', description: 'ข้อมูลหลักที่ใช้ยืนยันตัวตนและออกบัตรเข้างาน' },
+        { id: 'contact', title: 'ข้อมูลติดต่อ', description: 'ใช้ส่งอีเมลยืนยันและติดต่อกรณีจำเป็น' },
+      ],
+      fields: [
+        { id: 'name', name: 'name', label: 'ชื่อ-นามสกุล', type: 'text', required: true },
+        { id: 'email', name: 'email', label: 'อีเมล', type: 'email', required: true },
+        { id: 'phone', name: 'phone', label: 'เบอร์โทรศัพท์', type: 'phone', required: true },
+        { id: 'dept', name: 'dept', label: 'ภาควิชา/หน่วยงาน', type: 'text', required: false },
+        { id: 'date_year', name: 'date_year', label: 'ปีการศึกษา', type: 'text', required: false },
+      ],
+    },
+  },
+  dashboard: {
+    version: 1,
+    config: {
+      widgets: [
+        { id: 'registered', type: 'metric', title: 'ผู้ลงทะเบียน', enabled: true },
+        { id: 'checked-in', type: 'metric', title: 'เช็คอินแล้ว', enabled: true },
+        { id: 'donations', type: 'metric', title: 'ยอดสนับสนุน', enabled: true },
+        { id: 'year-comparison', type: 'table', title: 'เปรียบเทียบย้อนหลัง', enabled: true },
+      ],
+    },
+  },
+  ticket: {
+    version: 1,
+    config: {
+      blocks: [
+        { id: 'ticket-header', type: 'text', label: 'หัวบัตร', value: 'บัตรเข้างาน / อีเมลยืนยัน', enabled: true },
+        { id: 'ticket-qr', type: 'qr', label: 'QR Code', value: 'qrCode', enabled: true },
+        { id: 'ticket-name', type: 'field', label: 'ชื่อผู้เข้าร่วม', value: 'name', enabled: true },
+        { id: 'ticket-note', type: 'text', label: 'หมายเหตุ', value: 'กรุณาแสดง QR Code นี้ที่หน้างาน', enabled: true },
+      ],
+    },
+  },
+  report: {
+    version: 1,
+    config: {
+      columns: [
+        { id: 'name', key: 'name', label: 'ชื่อ-นามสกุล', enabled: true },
+        { id: 'email', key: 'email', label: 'อีเมล', enabled: true },
+        { id: 'phone', key: 'phone', label: 'เบอร์โทรศัพท์', enabled: true },
+        { id: 'status', key: 'status', label: 'สถานะ', enabled: true },
+        { id: 'checkedInAt', key: 'checkedInAt', label: 'เวลาเช็คอิน', enabled: true },
+      ],
+    },
+  },
+});
+
+const defaultEnabledFeatures = () => ({
+  registration: true,
+  checkin: true,
+  dashboard: true,
+  publicReport: true,
+  donations: false,
+  packages: false,
+  luckyDraw: false,
 });
 
 const versionSchema = new mongoose.Schema({
@@ -87,6 +143,11 @@ const eventSchema = new mongoose.Schema({
       maintenanceMode: false,
       enablePickup: true,
       enableDelivery: true,
+      enabledFeatures: defaultEnabledFeatures(),
+      allowRegistrationReuse: false,
+      registrationReuseMode: 'series-linked',
+      registrationReuseRequiresOtp: true,
+      registrationReuseEventIds: [],
       contactEmail: '',
       welcomeMessage: '',
       preRegStartDate: null,
@@ -97,10 +158,10 @@ const eventSchema = new mongoose.Schema({
   },
   layouts: {
     landingPage: { type: layoutSchema, default: () => ({ version: 1, config: defaultLayouts().landingPage.config }) },
-    registrationForm: { type: layoutSchema, default: () => ({ version: 1, config: { sections: [], fields: [] } }) },
-    dashboard: { type: layoutSchema, default: () => ({ version: 1, config: { widgets: [] } }) },
-    ticket: { type: layoutSchema, default: () => ({ version: 1, config: { blocks: [] } }) },
-    report: { type: layoutSchema, default: () => ({ version: 1, config: { columns: [] } }) },
+    registrationForm: { type: layoutSchema, default: () => ({ version: 1, config: defaultLayouts().registrationForm.config }) },
+    dashboard: { type: layoutSchema, default: () => ({ version: 1, config: defaultLayouts().dashboard.config }) },
+    ticket: { type: layoutSchema, default: () => ({ version: 1, config: defaultLayouts().ticket.config }) },
+    report: { type: layoutSchema, default: () => ({ version: 1, config: defaultLayouts().report.config }) },
   },
   templates: {
     type: mongoose.Schema.Types.Mixed,
@@ -119,5 +180,6 @@ eventSchema.index({ organizationId: 1, seriesId: 1, slug: 1 }, { unique: true })
 eventSchema.index({ organizationId: 1, eventYear: 1 });
 
 eventSchema.statics.defaultLayouts = defaultLayouts;
+eventSchema.statics.defaultEnabledFeatures = defaultEnabledFeatures;
 
 module.exports = mongoose.model('Event', eventSchema);

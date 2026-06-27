@@ -43,6 +43,10 @@ function contextRefsForYear(context, eventYear) {
   };
 }
 
+function featureDisabled(event, key) {
+  return event?.config?.enabledFeatures && event.config.enabledFeatures[key] === false;
+}
+
 exports.createDonation = async (req, res) => {
   const dbSession = await mongoose.startSession();
   try {
@@ -61,7 +65,13 @@ exports.createDonation = async (req, res) => {
     const numericAmount = Number(amount);
     const transferDate = new Date(transferDateTime);
     const packageSelected = isPackage === true || isPackage === 'true';
-    const eventContext = await getEventContextFromRequest(req, { requirePublic: !isAdminSession(req) });
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requirePublic: !isAdminSession(req) });
+    if (featureDisabled(eventContext.event, 'donations')) {
+      return res.status(403).json({ message: 'กิจกรรมนี้ไม่ได้เปิดฟีเจอร์ผู้สนับสนุน' });
+    }
+    if (packageSelected && featureDisabled(eventContext.event, 'packages')) {
+      return res.status(403).json({ message: 'กิจกรรมนี้ไม่ได้เปิดฟีเจอร์แพ็กเกจ' });
+    }
     const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
 
     if (!firstName || !lastName) return res.status(400).json({ message: 'กรุณาระบุชื่อและนามสกุล' });
@@ -73,7 +83,11 @@ exports.createDonation = async (req, res) => {
     if (packageSelected) {
       if (!packageType || !size) return res.status(400).json({ message: 'กรุณาระบุแพ็กเกจและขนาด' });
 
-      const selectedPackage = await Package.findOne({ name: packageType, eventYear, isActive: true });
+      const selectedPackage = await Package.findOne({
+        name: packageType,
+        ...(eventContext.eventId ? { eventId: eventContext.eventId } : { eventYear }),
+        isActive: true
+      });
       if (!selectedPackage) return res.status(400).json({ message: 'ไม่พบแพ็กเกจที่เลือก หรือแพ็กเกจถูกปิดใช้งานแล้ว' });
       if (selectedPackage.orderDeadline && selectedPackage.orderDeadline < new Date()) {
         return res.status(400).json({ message: 'หมดเวลาสั่งแพ็กเกจนี้แล้ว' });
@@ -115,7 +129,7 @@ exports.createDonation = async (req, res) => {
         const stockUpdate = await Package.updateOne(
           {
             name: packageType,
-            eventYear,
+            ...(eventContext.eventId ? { eventId: eventContext.eventId } : { eventYear }),
             isActive: true,
             $or: [
               { orderDeadline: { $exists: false } },
@@ -173,7 +187,7 @@ exports.createDonation = async (req, res) => {
 
 exports.getDonationSummary = async (req, res) => {
   try {
-    const eventScope = await eventScopeFromRequest(req);
+    const eventScope = await eventScopeFromRequest(req, {}, { requireEventIdentity: true });
     const { eventYear, filter } = eventScope;
     const donations = (await Donation.find(filter).sort({ createdAt: -1 }))
       .map(revealDonationObject);

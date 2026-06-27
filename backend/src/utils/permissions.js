@@ -78,6 +78,27 @@ function isAdminLike(user) {
   return isSuperadmin(user) || hasRole(user, 'admin');
 }
 
+function idList(values = []) {
+  return (Array.isArray(values) ? values : [])
+    .filter(Boolean)
+    .map((value) => String(value));
+}
+
+function canAccessOrganization(user, organizationId) {
+  if (isAdminLike(user)) return true;
+  if (!organizationId) return false;
+  return idList(user?.organizationIds).includes(String(organizationId));
+}
+
+function canAccessEvent(user, event) {
+  if (!event) return false;
+  if (isAdminLike(user)) return true;
+  const eventIds = idList(user?.eventIds);
+  if (eventIds.includes(String(event._id))) return true;
+  if (event.organizationId && canAccessOrganization(user, event.organizationId)) return true;
+  return false;
+}
+
 function permissionsOf(user) {
   const permissions = new Set(user?.permissions || []);
   rolesOf(user).forEach((role) => {
@@ -93,6 +114,8 @@ function hasPermission(user, permission) {
 
 module.exports = {
   ROLE_PERMISSIONS,
+  canAccessEvent,
+  canAccessOrganization,
   hasPermission,
   hasRole,
   isAdminLike,

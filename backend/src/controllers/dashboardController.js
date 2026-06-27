@@ -1,13 +1,19 @@
 const Participant = require('../models/participant');
 const Admin = require('../models/admin');
+const Donation = require('../models/Donation');
+const Event = require('../models/event');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
 const { eventScopeFromRequest } = require('../utils/eventYear');
 const { serverError } = require('../utils/httpResponses');
 
+function idString(value) {
+  return value ? String(value) : '';
+}
+
 exports.getDashboardSummary = async (req, res) => {
   try {
-    const eventScope = await eventScopeFromRequest(req, { isDeleted: false });
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const baseFilter = eventScope.filter;
     // -------- สถิติโดยรวม (รายการ/participant) --------
     const [totalRegistered, checkedIn, cancelled, onlineRegistered, onsiteRegistered] = await Promise.all([
@@ -460,6 +466,129 @@ exports.getDashboardSummary = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in getDashboardSummary:', error);
+    serverError(res, error);
+  }
+};
+
+exports.getDashboardComparison = async (req, res) => {
+  try {
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
+    let events = [];
+    if (eventScope.eventId) {
+      const event = await Event.findById(eventScope.eventId).select('name eventYear seriesId organizationId status');
+      if (event?.seriesId) {
+        events = await Event.find({ seriesId: event.seriesId }).select('name eventYear seriesId organizationId status').sort({ eventYear: -1 });
+      } else if (event) {
+        events = [event];
+      }
+    }
+    const eventIds = events.map((event) => event._id);
+    const participantMatch = eventIds.length
+      ? { isDeleted: false, eventId: { $in: eventIds } }
+      : eventScope.filter;
+    const donationMatch = eventIds.length
+      ? { eventId: { $in: eventIds } }
+      : { eventId: eventScope.eventId };
+
+    const [participantRows, donationRows] = await Promise.all([
+      Participant.aggregate([
+        { $match: participantMatch },
+        {
+          $group: {
+            _id: { eventId: '$eventId', eventYear: '$eventYear' },
+            registered: { $sum: 1 },
+            checkedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, 1, 0] } },
+            cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
+            followers: { $sum: { $ifNull: ['$followers', 0] } },
+            checkedInFollowers: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } },
+            online: { $sum: { $cond: [{ $eq: ['$registrationType', 'online'] }, 1, 0] } },
+            onsite: { $sum: { $cond: [{ $eq: ['$registrationType', 'onsite'] }, 1, 0] } },
+          },
+        },
+      ]),
+      Donation.aggregate([
+        { $match: donationMatch },
+        {
+          $group: {
+            _id: { eventId: '$eventId', eventYear: '$eventYear' },
+            amount: { $sum: '$amount' },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    const donationsByKey = new Map();
+    donationRows.forEach((row) => {
+      donationsByKey.set(`${idString(row._id.eventId)}:${row._id.eventYear || ''}`, row);
+    });
+
+    const participantsByKey = new Map();
+    participantRows.forEach((row) => {
+      participantsByKey.set(`${idString(row._id.eventId)}:${row._id.eventYear || ''}`, row);
+    });
+
+    const rows = events.map((event) => {
+      const eventId = idString(event._id);
+      const year = String(event.eventYear || '');
+      const participants = participantsByKey.get(`${eventId}:${year}`) || {};
+      const donation = donationsByKey.get(`${eventId}:${year}`) || {};
+      const registered = participants.registered || 0;
+      const checkedIn = participants.checkedIn || 0;
+      const followers = participants.followers || 0;
+      const checkedInFollowers = participants.checkedInFollowers || 0;
+      const totalPeople = registered + followers;
+      const checkedInPeople = checkedIn + checkedInFollowers;
+      return {
+        eventId,
+        eventName: event.name,
+        eventYear: year,
+        status: event.status,
+        registered,
+        checkedIn,
+        cancelled: participants.cancelled || 0,
+        followers,
+        totalPeople,
+        checkedInPeople,
+        checkinRate: registered > 0 ? Number(((checkedIn / registered) * 100).toFixed(2)) : 0,
+        peopleCheckinRate: totalPeople > 0 ? Number(((checkedInPeople / totalPeople) * 100).toFixed(2)) : 0,
+        online: participants.online || 0,
+        onsite: participants.onsite || 0,
+        donationAmount: donation.amount || 0,
+        donationCount: donation.count || 0,
+      };
+    });
+
+    const rowsWithDelta = rows.map((row, index) => {
+      const previous = rows[index + 1] || null;
+      const registeredDelta = previous ? row.registered - previous.registered : null;
+      const checkinRateDelta = previous ? Number((row.checkinRate - previous.checkinRate).toFixed(2)) : null;
+      const donationDelta = previous ? row.donationAmount - previous.donationAmount : null;
+      return { ...row, delta: { registered: registeredDelta, checkinRate: checkinRateDelta, donationAmount: donationDelta } };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        scope: eventScope.eventId ? 'series' : 'catalog',
+        rows: rowsWithDelta,
+        fields: [
+          'eventYear',
+          'eventName',
+          'registered',
+          'checkedIn',
+          'followers',
+          'totalPeople',
+          'checkinRate',
+          'peopleCheckinRate',
+          'donationAmount',
+          'delta.registered',
+          'delta.checkinRate',
+          'delta.donationAmount',
+        ],
+      },
+    });
+  } catch (error) {
     serverError(res, error);
   }
 };

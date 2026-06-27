@@ -8,6 +8,8 @@ const prizeController = require('../controllers/prizeController');
 const eventController = require('../controllers/eventController');
 
 router.get('/events/:slug', eventController.getPublicEventBySlug);
+router.post('/events/:slug/reuse/request-otp', publicController.requestRegistrationReuseOtp);
+router.post('/events/:slug/reuse/confirm', publicController.confirmRegistrationReuseOtp);
 router.get('/report', publicController.getPublicReport);
 router.get('/dashboard', publicController.getPublicDashboardStats);
 router.post('/kiosk-token', auth, requireStaffOrAdmin, publicController.generateKioskToken);

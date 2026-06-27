@@ -41,7 +41,7 @@ import WheelchairPickupIcon from '@mui/icons-material/WheelchairPickup';
 // Libraries
 import { QRCodeSVG } from "qrcode.react";
 import html2canvas from "html2canvas";
-import { listParticipantFields, createParticipant, createDonation, getSystemSettings, listPackages, getPublicEvent } from "../utils/api";
+import { listParticipantFields, createParticipant, createDonation, getSystemSettings, listPackages, getPublicEvent, requestRegistrationReuseOtp, confirmRegistrationReuseOtp } from "../utils/api";
 import { getTurnstileToken } from "../utils/turnstile";
 import dayjs from "dayjs";
 import Turnstile from "../components/Turnstile";
@@ -260,6 +260,15 @@ export default function PreRegistrationPage({ mode = "register" }) {
   const [availablePackages, setAvailablePackages] = useState([]);
   const [availableSizes, setAvailableSizes] = useState([]);
   const [eventInfo, setEventInfo] = useState(null);
+  const [reuseState, setReuseState] = useState({
+    email: "",
+    otp: "",
+    challengeId: "",
+    ref: "",
+    loading: false,
+    message: "",
+    sourceEventYear: "",
+  });
 
   // 🌟 เพิ่ม State รับค่า เปิด-ปิด การรับสินค้า
   const [pickupOptions, setPickupOptions] = useState({ pickup: true, delivery: true });
@@ -339,8 +348,12 @@ export default function PreRegistrationPage({ mode = "register" }) {
         const resFields = await listParticipantFields();
         setFields(resFields.data || []);
 
-        const resPkgs = await listPackages(eventSlug ? { eventSlug } : undefined);
-        setAvailablePackages(resPkgs.data?.data || []);
+        if (!eventSlug || set?.enabledFeatures?.packages === true) {
+          const resPkgs = await listPackages(eventSlug ? { eventSlug } : undefined);
+          setAvailablePackages(resPkgs.data?.data || []);
+        } else {
+          setAvailablePackages([]);
+        }
       } catch (err) {
         console.error(err);
         setSystemStatus({ isOpen: false, message: err.response?.data?.message || "ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดให้ใช้งาน" });
@@ -392,6 +405,66 @@ export default function PreRegistrationPage({ mode = "register" }) {
   };
 
   const handleCopyAccount = () => { navigator.clipboard.writeText("2118768143"); setSnackbarOpen(true); };
+
+  const canReuseRegistration = eventSlug && eventInfo?.config?.allowRegistrationReuse === true;
+  const eventFeatures = eventInfo?.config?.enabledFeatures || {};
+  const canUseDonations = eventSlug ? eventFeatures.donations === true : true;
+  const canUsePackages = canUseDonations && (eventSlug ? eventFeatures.packages === true : true);
+
+  useEffect(() => {
+    if (!canUseDonations) {
+      setWantToDonate(false);
+      setWantPackage(false);
+    } else if (!canUsePackages) {
+      setWantPackage(false);
+    }
+  }, [canUseDonations, canUsePackages]);
+
+  const handleRequestReuseOtp = async () => {
+    if (!reuseState.email.trim()) {
+      setReuseState((prev) => ({ ...prev, message: "กรุณากรอกอีเมลที่เคยใช้ลงทะเบียน" }));
+      return;
+    }
+    setReuseState((prev) => ({ ...prev, loading: true, message: "" }));
+    try {
+      const res = await requestRegistrationReuseOtp(eventSlug, reuseState.email);
+      setReuseState((prev) => ({
+        ...prev,
+        loading: false,
+        challengeId: res.data?.challengeId || "",
+        ref: res.data?.ref || "",
+        message: res.data?.message || "หากพบข้อมูลเดิม ระบบจะส่งรหัสยืนยันไปยังอีเมลที่ระบุ",
+      }));
+    } catch (err) {
+      setReuseState((prev) => ({ ...prev, loading: false, message: err.response?.data?.message || "ขอรหัสยืนยันไม่สำเร็จ" }));
+    }
+  };
+
+  const handleConfirmReuseOtp = async () => {
+    if (!reuseState.challengeId || !reuseState.otp.trim()) {
+      setReuseState((prev) => ({ ...prev, message: "กรุณากรอก OTP ที่ได้รับทางอีเมล" }));
+      return;
+    }
+    setReuseState((prev) => ({ ...prev, loading: true, message: "" }));
+    try {
+      const res = await confirmRegistrationReuseOtp(eventSlug, { challengeId: reuseState.challengeId, otp: reuseState.otp });
+      const data = res.data?.data || {};
+      setForm((prev) => ({ ...prev, ...(data.fields || {}) }));
+      if (Number(data.followers || 0) > 0) {
+        setBringFollowers(true);
+        setFollowersCount(Number(data.followers || 0));
+      }
+      if (data.specialAssistance) setSpecialAssistance(data.specialAssistance);
+      setReuseState((prev) => ({
+        ...prev,
+        loading: false,
+        sourceEventYear: data.sourceEventYear || "",
+        message: `ยืนยันสำเร็จ เติมข้อมูลเดิม${data.sourceEventYear ? `จากปี ${data.sourceEventYear}` : ""} ลงในฟอร์มแล้ว กรุณาตรวจสอบอีกครั้งก่อนส่ง`,
+      }));
+    } catch (err) {
+      setReuseState((prev) => ({ ...prev, loading: false, message: err.response?.data?.message || "ยืนยัน OTP ไม่สำเร็จ" }));
+    }
+  };
 
   const handleDonationModeChange = (e) => {
     const mode = e.target.value;
@@ -690,6 +763,53 @@ export default function PreRegistrationPage({ mode = "register" }) {
         ) : (
           <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
           <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+            {canReuseRegistration && (
+              <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#fff", borderColor: "#bbdefb" }}>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" spacing={1.25} alignItems="center">
+                    <SecurityIcon color="info" />
+                    <Box>
+                      <Typography fontWeight={900}>เคยลงทะเบียนกิจกรรมรอบก่อนใช่ไหม?</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        กรอกอีเมลเดิมเพื่อรับ OTP แล้วระบบจะเติมข้อมูลเดิมให้ ต้องยืนยันตัวตนก่อนทุกครั้ง
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="อีเมลที่เคยใช้ลงทะเบียน"
+                      type="email"
+                      value={reuseState.email}
+                      onChange={(event) => setReuseState((prev) => ({ ...prev, email: event.target.value }))}
+                      disabled={reuseState.loading}
+                    />
+                    <Button type="button" variant="outlined" onClick={handleRequestReuseOtp} disabled={reuseState.loading}>
+                      {reuseState.loading ? "กำลังส่ง..." : "ขอ OTP"}
+                    </Button>
+                  </Stack>
+                  {reuseState.challengeId && (
+                    <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={reuseState.ref ? `OTP (Ref: ${reuseState.ref})` : "OTP"}
+                        value={reuseState.otp}
+                        onChange={(event) => setReuseState((prev) => ({ ...prev, otp: event.target.value }))}
+                        disabled={reuseState.loading}
+                      />
+                      <Button type="button" variant="contained" onClick={handleConfirmReuseOtp} disabled={reuseState.loading}>
+                        ยืนยันและเติมข้อมูล
+                      </Button>
+                    </Stack>
+                  )}
+                  {reuseState.message && (
+                    <Alert severity={reuseState.sourceEventYear ? "success" : "info"}>{reuseState.message}</Alert>
+                  )}
+                </Stack>
+              </Paper>
+            )}
 
             <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
               {fieldGroups.personal.map((field) => (
@@ -732,6 +852,7 @@ export default function PreRegistrationPage({ mode = "register" }) {
             </Paper>
 
             {/* Donation Section */}
+            {canUseDonations && (
             <Paper variant="elevation" elevation={3} sx={{ p: 3, borderRadius: 4, background: wantToDonate ? "linear-gradient(135deg, #e8f5e9 0%, #ffffff 100%)" : "#f9f9f9", border: wantToDonate ? "2px solid #66bb6a" : "1px solid #e0e0e0", transition: "all 0.3s ease-in-out" }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" mb={1}>
                   <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -762,6 +883,7 @@ export default function PreRegistrationPage({ mode = "register" }) {
                                         {!wantPackage && <CheckCircleIcon color="success" sx={{ position: 'absolute', top: 8, right: 8 }} />}
                                     </Paper>
                                 </Grid>
+                                {canUsePackages && (
                                 <Grid item xs={12} sm={6}>
                                     <Paper variant="outlined" elevation={0} sx={{ position: 'relative', p: 2, border: wantPackage ? '2px solid #ab47bc' : '1px solid #e0e0e0', bgcolor: wantPackage ? '#f3e5f5' : '#fff', borderRadius: 3, cursor: 'pointer', transition: 'all 0.2s ease-in-out', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, '&:hover': { borderColor: '#ab47bc', bgcolor: '#fce4ec' } }} onClick={() => handleDonationModeChange({ target: { value: 'package' } })}>
                                         <CardGiftcardIcon sx={{ fontSize: 40, color: wantPackage ? '#ab47bc' : '#bdbdbd' }} />
@@ -769,6 +891,7 @@ export default function PreRegistrationPage({ mode = "register" }) {
                                         {wantPackage && <CheckCircleIcon color="secondary" sx={{ position: 'absolute', top: 8, right: 8 }} />}
                                     </Paper>
                                 </Grid>
+                                )}
                             </Grid>
                         </RadioGroup>
                     </FormControl>
@@ -854,6 +977,7 @@ export default function PreRegistrationPage({ mode = "register" }) {
                 </Box>
               </Collapse>
             </Paper>
+            )}
 
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3, bgcolor: "#e3f2fd", border: "1px solid #90caf9" }}>
                <Stack direction="row" alignItems="center" spacing={1} mb={2}>

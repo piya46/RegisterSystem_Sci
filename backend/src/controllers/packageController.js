@@ -1,7 +1,7 @@
 const Package = require('../models/Package');
 const auditLog = require('../helpers/auditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
-const { applyEventYearFilter, eventYearFromRequest, getCurrentEventContext, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
+const { applyEventYearFilter, eventYearFromRequest, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
 
 const PACKAGE_FIELDS = [
   'name',
@@ -24,12 +24,26 @@ function contextRefsForYear(context, eventYear) {
   };
 }
 
+function featureDisabled(event, key) {
+  return event?.config?.enabledFeatures && event.config.enabledFeatures[key] === false;
+}
+
 // ดึงแพ็กเกจทั้งหมด (ใช้ได้ทั้ง User และ Admin)
 exports.getAllPackages = async (req, res) => {
   try {
-    const eventContext = await getEventContextFromRequest(req, { requirePublic: Boolean(req.query?.eventSlug || req.query?.eventId) });
+    const eventContext = await getEventContextFromRequest(req, {
+      requireEventIdentity: true,
+      requirePublic: Boolean(req.query?.eventSlug || req.query?.eventId),
+      requireAccess: !Boolean(req.query?.eventSlug),
+    });
     const eventYear = eventYearFromRequest(req) || eventContext.eventYear || await getCurrentEventYear();
-    const packages = await Package.find(applyEventYearFilter({ isActive: true }, eventYear));
+    if (featureDisabled(eventContext.event, 'packages')) {
+      return res.json({ success: true, data: [] });
+    }
+    const filter = eventContext.eventId
+      ? { isActive: true, eventId: eventContext.eventId }
+      : applyEventYearFilter({ isActive: true }, eventYear);
+    const packages = await Package.find(filter);
     res.json({ success: true, data: packages });
   } catch (error) {
     if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
@@ -41,7 +55,10 @@ exports.getAllPackages = async (req, res) => {
 exports.createPackage = async (req, res) => {
   try {
     const payload = pickAllowed(req.body, PACKAGE_FIELDS);
-    const eventContext = await getCurrentEventContext();
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (featureDisabled(eventContext.event, 'packages')) {
+      return res.status(403).json({ success: false, message: 'กิจกรรมนี้ไม่ได้เปิดฟีเจอร์แพ็กเกจ' });
+    }
     payload.eventYear = normalizeEventYear(payload.eventYear || eventContext.eventYear || await getCurrentEventYear());
     Object.assign(payload, contextRefsForYear(eventContext, payload.eventYear));
     const newPackage = await Package.create(payload);
