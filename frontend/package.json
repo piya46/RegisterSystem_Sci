@@ -15,7 +15,7 @@
     "@hookform/resolvers": "^5.4.0",
     "@line/liff": "^2.29.1",
     "@mui/icons-material": "^7.3.6",
-    "@mui/material": "^7.2.0",
+    "@mui/material": "^9.2.0",
     "@mui/system": "^7.3.6",
     "@react-oauth/google": "^0.13.4",
     "@react-pdf/renderer": "^4.5.1",
