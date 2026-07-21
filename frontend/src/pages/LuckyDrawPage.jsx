@@ -9,11 +9,11 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import Confetti from 'react-confetti';
 import { listPrizes, drawPrize, cancelPrizeWinner } from '../utils/api';
 import { EmptyState } from '../components/FeedbackStates';
-import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
+import { appendQuery } from '../utils/eventContext';
 
 // 🌟 ธีมสีเหลืองเสือเหลืองคืนถิ่น (Yellow & Dark Brown)
 const THEME = {
@@ -31,12 +31,11 @@ const DUMMY_NAMES = [
 
 export default function LuckyDrawPage() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const { eventId: paramEventId } = useParams();
   const [prizes, setPrizes] = useState([]);
   const [selectedPrize, setSelectedPrize] = useState('');
-  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
-  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
+  const [eventYear] = useState('');
+  const [eventId, setEventId] = useState(paramEventId || '');
 
   // States สำหรับการสุ่ม
   const [isDrawing, setIsDrawing] = useState(false);
@@ -53,12 +52,11 @@ export default function LuckyDrawPage() {
   const timerRef = useRef(null);
 
   useEffect(() => {
-    setEventYear(urlEventContext.eventYear || '');
-    setEventId(urlEventContext.eventId || '');
-  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+    if (paramEventId) setEventId(paramEventId);
+  }, [paramEventId]);
 
   const eventParams = React.useMemo(
-    () => eventContextToParams({ eventId, eventYear }),
+    () => ({ eventId, eventYear }),
     [eventId, eventYear]
   );
 
@@ -163,7 +161,7 @@ export default function LuckyDrawPage() {
       if (winnerData && activePrizeObj) {
          // ในกรณีที่ api.js กำหนด cancelPrizeWinner(prizeId, participantId)
          // เราต้องแน่ใจว่าส่ง ID ไม่ใช่ Object ไป
-         const winnerId = winnerData._id || winnerData.id; 
+         const winnerId = winnerData._id || winnerData.id;
          await cancelPrizeWinner(activePrizeObj._id, winnerId, eventParams);
       } else {
          throw new Error("ไม่พบข้อมูลผู้ได้รับรางวัล");
@@ -200,7 +198,7 @@ export default function LuckyDrawPage() {
 
   if (!eventId) {
     return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#FFFDE7', p: { xs: 2, md: 4 } }}>
+      <Box sx={{ p: { xs: 2, md: 4 } }}>
         <Box sx={{ maxWidth: 900, mx: 'auto' }}>
           <EmptyState
             title="เลือกกิจกรรมก่อนสุ่มรางวัล"
@@ -218,16 +216,14 @@ export default function LuckyDrawPage() {
   const recentWinners = prizes.flatMap(p => p.winners.map(w => ({ prizeName: p.name, winnerName: w.participantId?.fields?.name || 'ไม่ทราบชื่อ', wonAt: new Date(w.wonAt) }))).sort((a, b) => b.wonAt - a.wonAt).slice(0, 5);
 
   return (
-    <Box sx={{ minHeight: '100vh', background: THEME.bg, color: THEME.text, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', position: 'relative', overflowX: 'hidden' }}>
+    <Box sx={{ background: THEME.bg, color: THEME.text, p: { xs: 2, md: 4 }, fontFamily: 'Prompt, sans-serif', position: 'relative', overflowX: 'hidden', borderRadius: 4 }}>
 
       {showWinner && <Confetti width={window.innerWidth} height={window.innerHeight} recycle={countdown > 290} numberOfPieces={400} />}
 
       {/* Header */}
       <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2}>
-        <Button variant="contained" startIcon={<ArrowBackIcon />} onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ borderRadius: 3, bgcolor: '#FFF', color: THEME.text, '&:hover': { bgcolor: '#FFECB3' } }}>
-          Dashboard
-        </Button>
-        <Stack alignItems="flex-end">
+        <Box sx={{ width: 120 }} /> {/* Spacer to replace back button */}
+        <Stack alignItems="center">
           <Typography variant="h4" fontWeight={900} color={THEME.accent} display="flex" alignItems="center" gap={1} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)' }}>
             <EmojiEventsIcon fontSize="large" /> เสือเหลืองคืนถิ่นสุ่มผู้โชคดี
           </Typography>

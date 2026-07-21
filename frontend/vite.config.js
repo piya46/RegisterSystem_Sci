@@ -19,7 +19,7 @@ export default defineConfig({
     outDir: "dist", // โฟลเดอร์ปลายทาง
     emptyOutDir: true, // ล้างไฟล์เก่าก่อน build
     sourcemap: false, // ไม่สร้าง Source map ใน Production (เพื่อความปลอดภัยและลดขนาด)
-    chunkSizeWarningLimit: 1000, // ขยายลิมิตการแจ้งเตือนขนาดไฟล์ (optional)
+    chunkSizeWarningLimit: 1500, // PDF renderer is lazy-loaded and intentionally split from the initial app shell.
     rollupOptions: {
       output: {
         // แยกไฟล์ Vendor (Library) ออกจากไฟล์ Code หลัก เพื่อการ Cache ที่ดีขึ้น
@@ -29,7 +29,7 @@ export default defineConfig({
             if (id.includes('recharts') || id.includes('d3-')) return 'charts';
             if (id.includes('framer-motion')) return 'motion';
             if (id.includes('html5-qrcode') || id.includes('qrcode')) return 'qr';
-            return 'vendor';
+            if (id.includes('@line') || id.includes('@react-oauth')) return 'auth-providers';
           }
         }
       }

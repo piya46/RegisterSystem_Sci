@@ -6,6 +6,7 @@ const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
 const { eventScopeFromRequest } = require('../utils/eventYear');
 const { serverError } = require('../utils/httpResponses');
+const { REGISTRATION_TYPES, ONSITE_REGISTRATION_TYPES } = require('../utils/registrationTypes');
 
 function idString(value) {
   return value ? String(value) : '';
@@ -16,12 +17,24 @@ exports.getDashboardSummary = async (req, res) => {
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const baseFilter = eventScope.filter;
     // -------- สถิติโดยรวม (รายการ/participant) --------
-    const [totalRegistered, checkedIn, cancelled, onlineRegistered, onsiteRegistered] = await Promise.all([
+    const [
+      totalRegistered,
+      checkedIn,
+      cancelled,
+      onlineRegistered,
+      onsiteRegistered,
+      onsiteStaffRegistered,
+      onsiteKioskRegistered,
+      selfRegisterRegistered,
+    ] = await Promise.all([
       Participant.countDocuments(baseFilter),
       Participant.countDocuments({ ...baseFilter, status: 'checkedIn' }),
       Participant.countDocuments({ ...baseFilter, status: 'cancelled' }),
-      Participant.countDocuments({ ...baseFilter, registrationType: 'online' }),
-      Participant.countDocuments({ ...baseFilter, registrationType: 'onsite' })
+      Participant.countDocuments({ ...baseFilter, registrationType: REGISTRATION_TYPES.ONLINE }),
+      Participant.countDocuments({ ...baseFilter, registrationType: { $in: ONSITE_REGISTRATION_TYPES } }),
+      Participant.countDocuments({ ...baseFilter, registrationType: REGISTRATION_TYPES.ONSITE_STAFF }),
+      Participant.countDocuments({ ...baseFilter, registrationType: REGISTRATION_TYPES.ONSITE_KIOSK }),
+      Participant.countDocuments({ ...baseFilter, registrationType: REGISTRATION_TYPES.SELF_REGISTER })
     ]);
 
     const notCheckedIn = Math.max(0, totalRegistered - checkedIn - cancelled);
@@ -151,16 +164,33 @@ exports.getDashboardSummary = async (req, res) => {
 
     // -------- By Registration Point (รองรับ OID/สตริง + เคส online/onsite + fallback ชื่อเดิม) --------
     const byRegistrationPoint = await Participant.aggregate([
-      { $match: { ...baseFilter, registeredPoint: { $ne: null } } },
+      {
+        $match: {
+          ...baseFilter,
+          $or: [
+            { registeredPointId: { $ne: null } },
+            { registeredPoint: { $ne: null } },
+            { registeredPointName: { $exists: true, $ne: '' } }
+          ]
+        }
+      },
 
       // ระบุชนิดค่า: objectId จริง, สตริง 24-hex, หรือสตริงทั่วไป
       {
         $addFields: {
           _type: { $type: "$registeredPoint" },
+          _nameFromField: {
+            $cond: [
+              { $gt: [{ $strLenCP: { $trim: { input: { $ifNull: ["$registeredPointName", ""] } } } }, 0] },
+              { $trim: { input: { $ifNull: ["$registeredPointName", ""] } } },
+              null
+            ]
+          },
           _isHexStr: {
-            $and: [
+            $cond: [
               { $eq: [{ $type: "$registeredPoint" }, "string"] },
-              { $regexMatch: { input: "$registeredPoint", regex: /^[a-f\d]{24}$/i } }
+              { $regexMatch: { input: "$registeredPoint", regex: /^[a-f\d]{24}$/i } },
+              false
             ]
           }
         }
@@ -169,16 +199,28 @@ exports.getDashboardSummary = async (req, res) => {
         $addFields: {
           rp_oid: {
             $cond: [
-              { $eq: ["$_type", "objectId"] },
-              "$registeredPoint",
-              { $cond: ["$_isHexStr", { $toObjectId: "$registeredPoint" }, null] }
+              { $ne: ["$registeredPointId", null] },
+              "$registeredPointId",
+              {
+                $cond: [
+                  { $eq: ["$_type", "objectId"] },
+                  "$registeredPoint",
+                  { $cond: ["$_isHexStr", { $toObjectId: "$registeredPoint" }, null] }
+                ]
+              }
             ]
           },
           rp_nameRaw: {
             $cond: [
-              { $or: [{ $eq: ["$_type", "objectId"] }, "$_isHexStr"] },
-              null,
-              { $toString: "$registeredPoint" }
+              { $ne: ["$_nameFromField", null] },
+              "$_nameFromField",
+              {
+                $cond: [
+                  { $or: [{ $eq: ["$_type", "objectId"] }, "$_isHexStr"] },
+                  null,
+                  { $toString: "$registeredPoint" }
+                ]
+              }
             ]
           }
         }
@@ -202,6 +244,7 @@ exports.getDashboardSummary = async (req, res) => {
           registered: { $sum: 1 },
           checkedIn: { $sum: { $cond: [{ $eq: ["$status", "checkedIn"] }, 1, 0] } },
           cancelled: { $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] } },
+          displayName: { $first: "$rp_nameRaw" },
           followerRegistered: { $sum: { $ifNull: ["$followers", 0] } },
           followerCheckedIn: {
             $sum: {
@@ -274,7 +317,7 @@ exports.getDashboardSummary = async (req, res) => {
       {
         $addFields: {
           pointName: {
-            $ifNull: ["$_point.name", { $ifNull: ["$_mappedName", { $ifNull: ["$_capFromKey", "ไม่ทราบจุด"] }] }]
+            $ifNull: ["$_point.name", { $ifNull: ["$displayName", { $ifNull: ["$_mappedName", { $ifNull: ["$_capFromKey", "ไม่ทราบจุด"] }] }] }]
           }
         }
       },
@@ -430,6 +473,9 @@ exports.getDashboardSummary = async (req, res) => {
       checkinRate,
       onlineRegistered,
       onsiteRegistered,
+      onsiteStaffRegistered,
+      onsiteKioskRegistered,
+      selfRegisterRegistered,
 
       // followers/people
       totalFollowers,
@@ -501,8 +547,11 @@ exports.getDashboardComparison = async (req, res) => {
             cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
             followers: { $sum: { $ifNull: ['$followers', 0] } },
             checkedInFollowers: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } },
-            online: { $sum: { $cond: [{ $eq: ['$registrationType', 'online'] }, 1, 0] } },
-            onsite: { $sum: { $cond: [{ $eq: ['$registrationType', 'onsite'] }, 1, 0] } },
+            online: { $sum: { $cond: [{ $eq: ['$registrationType', REGISTRATION_TYPES.ONLINE] }, 1, 0] } },
+            onsite: { $sum: { $cond: [{ $in: ['$registrationType', ONSITE_REGISTRATION_TYPES] }, 1, 0] } },
+            onsiteStaff: { $sum: { $cond: [{ $eq: ['$registrationType', REGISTRATION_TYPES.ONSITE_STAFF] }, 1, 0] } },
+            onsiteKiosk: { $sum: { $cond: [{ $eq: ['$registrationType', REGISTRATION_TYPES.ONSITE_KIOSK] }, 1, 0] } },
+            selfRegister: { $sum: { $cond: [{ $eq: ['$registrationType', REGISTRATION_TYPES.SELF_REGISTER] }, 1, 0] } },
           },
         },
       ]),
@@ -554,6 +603,9 @@ exports.getDashboardComparison = async (req, res) => {
         peopleCheckinRate: totalPeople > 0 ? Number(((checkedInPeople / totalPeople) * 100).toFixed(2)) : 0,
         online: participants.online || 0,
         onsite: participants.onsite || 0,
+        onsiteStaff: participants.onsiteStaff || 0,
+        onsiteKiosk: participants.onsiteKiosk || 0,
+        selfRegister: participants.selfRegister || 0,
         donationAmount: donation.amount || 0,
         donationCount: donation.count || 0,
       };
@@ -581,6 +633,11 @@ exports.getDashboardComparison = async (req, res) => {
           'totalPeople',
           'checkinRate',
           'peopleCheckinRate',
+          'online',
+          'onsite',
+          'onsiteStaff',
+          'onsiteKiosk',
+          'selfRegister',
           'donationAmount',
           'delta.registered',
           'delta.checkinRate',

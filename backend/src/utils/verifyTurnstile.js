@@ -1,17 +1,70 @@
 const axios = require('axios');
 
-async function verifyTurnstile(token, ip) {
+function normalizeHostname(value) {
+  return String(value || '').trim().toLowerCase().replace(/\.$/, '');
+}
+
+function hostnameFromUrl(value) {
+  try {
+    return normalizeHostname(new URL(value).hostname);
+  } catch {
+    return '';
+  }
+}
+
+function turnstileAllowedHostnames() {
+  const configured = String(process.env.TURNSTILE_ALLOWED_HOSTNAMES || '')
+    .split(',')
+    .map(normalizeHostname)
+    .filter(Boolean);
+  const origins = [
+    process.env.FRONTEND_URL,
+    ...String(process.env.CORS_ORIGIN || '').split(','),
+  ].map(hostnameFromUrl).filter(Boolean);
+  return [...new Set([...configured, ...origins])];
+}
+
+function validateTurnstileResponse(data, {
+  expectedAction = '',
+  allowedHostnames = turnstileAllowedHostnames(),
+  requireHostname = process.env.NODE_ENV === 'production',
+} = {}) {
+  if (data?.success !== true) return { valid: false, reason: 'siteverify_failed' };
+  if (expectedAction && data.action !== expectedAction) {
+    return { valid: false, reason: 'action_mismatch' };
+  }
+
+  const hostname = normalizeHostname(data.hostname);
+  const allowed = [...new Set((allowedHostnames || []).map(normalizeHostname).filter(Boolean))];
+  if (requireHostname && allowed.length === 0) {
+    return { valid: false, reason: 'hostname_allowlist_missing' };
+  }
+  if (allowed.length > 0 && (!hostname || !allowed.includes(hostname))) {
+    return { valid: false, reason: 'hostname_mismatch' };
+  }
+  return { valid: true, reason: 'verified' };
+}
+
+function assertTurnstileConfiguration({
+  production = process.env.NODE_ENV === 'production',
+  secret = process.env.TURNSTILE_SECRET_KEY,
+  allowedHostnames = turnstileAllowedHostnames(),
+} = {}) {
+  if (!production) return;
+  if (!secret) throw new Error('TURNSTILE_SECRET_KEY is required in production');
+  if (!Array.isArray(allowedHostnames) || allowedHostnames.length === 0) {
+    throw new Error('TURNSTILE_ALLOWED_HOSTNAMES or a valid FRONTEND_URL/CORS_ORIGIN is required in production');
+  }
+}
+
+async function verifyTurnstile(token, ip, { expectedAction = '' } = {}) {
   const secret = process.env.TURNSTILE_SECRET_KEY;
 
   if (!secret) {
-    console.warn("⚠️ TURNSTILE_SECRET_KEY not set. Skipping verification.");
+    console.warn('Turnstile secret is not configured.');
     return process.env.NODE_ENV !== 'production';
   }
-
-  if (!token) {
-    console.log("❌ Turnstile Verify: No token provided");
-    return false;
-  }
+  if (typeof token !== 'string' || token.length === 0 || token.length > 2048) return false;
 
   try {
     const formData = new URLSearchParams();
@@ -19,31 +72,28 @@ async function verifyTurnstile(token, ip) {
     formData.append('response', token);
     if (ip) formData.append('remoteip', ip);
 
-    const res = await axios.post('https://challenges.cloudflare.com/turnstile/v0/siteverify', formData);
-
-    const data = res.data;
-
-    // ✅ จุดที่ควรเพิ่ม: เช็คว่า Success ไหม ถ้าไม่ ให้ Log Error Codes ออกมาดู
-    if (!data.success) {
-        console.error("❌ Turnstile Verification Failed:", {
-            ip: ip,
-            errorCodes: data['error-codes'], // ตรงนี้สำคัญมาก! มันจะบอกสาเหตุ
-            messages: data.messages
-        });
-
-        // ตัวอย่าง error-codes ที่พบบ่อย:
-        // 'timeout-or-duplicate' -> นี่แหละคือตัวการที่ทำให้เกิด Loop! (Token ถูกใช้ไปแล้ว)
-        // 'invalid-input-response' -> Token มั่ว หรือหมดอายุ
-        // 'invalid-input-secret' -> Secret key ใน .env ผิด
+    const response = await axios.post(
+      'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      formData,
+      { timeout: 8000 }
+    );
+    const result = validateTurnstileResponse(response.data, { expectedAction });
+    if (!result.valid) {
+      console.warn('Turnstile verification rejected.', {
+        reason: result.reason,
+        errorCodes: Array.isArray(response.data?.['error-codes']) ? response.data['error-codes'] : [],
+      });
     }
-
-    return data.success;
-
-  } catch (err) {
-    console.error("🔥 Turnstile Network Error:", err.message);
-    if (err.response) console.error("Cloudflare Response:", err.response.data);
+    return result.valid;
+  } catch (error) {
+    console.warn('Turnstile verification unavailable.', {
+      code: error.code || 'TURNSTILE_NETWORK_ERROR',
+    });
     return false;
   }
 }
 
 module.exports = verifyTurnstile;
+module.exports.assertTurnstileConfiguration = assertTurnstileConfiguration;
+module.exports.turnstileAllowedHostnames = turnstileAllowedHostnames;
+module.exports.validateTurnstileResponse = validateTurnstileResponse;

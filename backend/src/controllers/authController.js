@@ -35,7 +35,8 @@ exports.login = async (req, res) => {
 
         // 1. Verify Turnstile. Local development is allowed to bypass this so localhost
         // testing is not blocked by Cloudflare domain/key restrictions.
-        const isHuman = isLocalDevelopmentRequest(req) || await verifyTurnstile(cfToken, req.ip);
+        const isHuman = isLocalDevelopmentRequest(req)
+            || await verifyTurnstile(cfToken, req.ip, { expectedAction: 'login' });
         if (!isHuman) {
             auditLog({ req, action: 'LOGIN_BOT_BLOCK', detail: 'Turnstile failed', status: 400 });
             return res.status(400).json({
@@ -118,6 +119,8 @@ exports.getMe = async (req, res) => {
       role: req.user.role,
       authScope: req.auth.scope,
       registrationPoint: req.kioskPoint,
+      eventId: req.auth.eventId || null,
+      eventYear: req.auth.eventYear || '',
     });
   }
   const admin = await Admin.findById(req.user.id);

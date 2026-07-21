@@ -1,6 +1,8 @@
 const ParticipantField = require('../models/participantField');
 const Participant = require('../models/participant');
+const mongoose = require('mongoose');
 const SystemSetting = require('../models/SystemSetting'); 
+const RegistrationPoint = require('../models/registrationPoint');
 const { v4: uuidv4 } = require('uuid');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const { isParticipantCheckedIn } = require('../helpers/checkInStatusService');
@@ -18,8 +20,22 @@ const {
   protectParticipantFields,
   revealParticipantObject,
 } = require('../utils/fieldEncryption');
-const { applyEventYearFilter, eventScopeFromRequest, eventYearOrCurrentFromRequest, getCurrentEventContext, getCurrentEventYear, getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
-const { isAdminLike } = require('../utils/permissions');
+const {
+  assertEventRegistrationOpen,
+  eventScopeFromRequest,
+  getEventContextFromRequest,
+  normalizeEventYear,
+} = require('../utils/eventYear');
+const { hasPermission } = require('../utils/permissions');
+const { REGISTRATION_TYPES, registrationTypeFromRequest } = require('../utils/registrationTypes');
+const { listEffectiveParticipantFields } = require('../utils/participantFieldScope');
+const { boolEnv } = require('../utils/cloudCostGuardrail');
+const { hashIdempotencyKey, normalizeIdempotencyKey, requestFingerprint } = require('../utils/idempotency');
+const {
+  participantOperationalResponse,
+  participantRegistrationResponse,
+} = require('../utils/participantResponse');
+const { revokeParticipantSessions } = require('../utils/participantTokens');
 
 function contextRefsForYear(context, eventYear) {
   if (normalizeEventYear(context?.eventYear) !== normalizeEventYear(eventYear)) return {};
@@ -35,8 +51,57 @@ function participantEventFilter(context, eventYear) {
   return { eventYear: normalizeEventYear(eventYear) };
 }
 
-function checkAdmin(req, res) {
-  if (!isAdminLike(req.user)) {
+function bindScopedEventContext(req, res) {
+  const isScopedRegistration = ['kiosk_device', 'self_register_session'].includes(req.auth?.scope);
+  if (!isScopedRegistration) return true;
+
+  const scopedEventId = req.auth?.eventId ? String(req.auth.eventId) : '';
+  const scopedEventYear = req.auth?.eventYear ? normalizeEventYear(req.auth.eventYear) : '';
+  if (!scopedEventId) {
+    res.status(403).json({ error: 'Scoped registration token is missing event context.' });
+    return false;
+  }
+  if (req.body.eventId && String(req.body.eventId) !== scopedEventId) {
+    res.status(403).json({ error: 'Scoped registration token is invalid for this event.' });
+    return false;
+  }
+  if (req.body.eventYear && scopedEventYear && normalizeEventYear(req.body.eventYear) !== scopedEventYear) {
+    res.status(403).json({ error: 'Scoped registration token is invalid for this event year.' });
+    return false;
+  }
+
+  req.body.eventId = scopedEventId;
+  if (scopedEventYear) req.body.eventYear = scopedEventYear;
+  return true;
+}
+
+async function assertRegistrationPointUsable(req, res, pointId, eventContext, { isScopedRegistration = false, isKioskDevice = false } = {}) {
+  const point = await RegistrationPoint.findById(pointId).lean();
+  if (!point || point.enabled !== true) {
+    res.status(400).json({ error: 'จุดลงทะเบียนนี้ปิดใช้งานหรือไม่พบในระบบ' });
+    return null;
+  }
+  if (point.eventId && eventContext?.eventId && String(point.eventId) !== String(eventContext.eventId)) {
+    res.status(403).json({ error: 'จุดลงทะเบียนนี้ไม่ได้อยู่ในกิจกรรมที่เลือก' });
+    return null;
+  }
+  if (isKioskDevice && point.type !== 'kiosk' && point.kioskPolicy?.allowKioskMode !== true) {
+    res.status(403).json({ error: 'จุดลงทะเบียนนี้ยังไม่ได้เปิดใช้งาน Kiosk mode' });
+    return null;
+  }
+  if (!isScopedRegistration) {
+    const allowedByPoint = Array.isArray(point.allowedStaff)
+      && point.allowedStaff.some((staffId) => String(staffId) === String(req.user?._id));
+    if (!canRegisterAtPoint(req.user, pointId) && !allowedByPoint) {
+      res.status(403).json({ error: 'You do not have permission to use this registration point.' });
+      return null;
+    }
+  }
+  return point;
+}
+
+function checkAdmin(req, res, permission = 'participant:manage') {
+  if (!hasPermission(req.user, permission)) {
     auditLog && auditLog({ req, action: 'UNAUTHORIZED_ACCESS_PARTICIPANT', detail: 'Not admin', status: 403 });
     res.status(403).json({ error: 'Admin only!' });
     return false;
@@ -44,10 +109,42 @@ function checkAdmin(req, res) {
   return true;
 }
 
+function operationalParticipant(participant) {
+  return participantOperationalResponse(revealParticipantObject(participant));
+}
+
+async function findParticipantByRegistrationIdempotency(eventId, keyHash) {
+  if (!eventId || !keyHash) return null;
+  return Participant.findOne({ eventId, registrationIdempotencyKeyHash: keyHash })
+    .select('+registrationIdempotencyFingerprint');
+}
+
+function assertRegistrationFingerprint(participant, fingerprint) {
+  if (participant.registrationIdempotencyFingerprint === fingerprint) return;
+  const error = new Error('Idempotency-Key นี้ถูกใช้กับข้อมูลลงทะเบียนอื่นแล้ว');
+  error.code = 'IDEMPOTENCY_KEY_REUSED';
+  error.statusCode = 409;
+  throw error;
+}
+
+function respondParticipantReplay(req, res, participant) {
+  if (participant.isDeleted || participant.isRevoked) {
+    return res.status(409).json({ error: 'รายการของ Idempotency-Key นี้ไม่สามารถนำกลับมาใช้ได้' });
+  }
+  auditLog({
+    req,
+    action: 'PARTICIPANT_REGISTRATION_IDEMPOTENCY_REPLAY',
+    detail: `participantId=${participant._id}`,
+  });
+  res.setHeader('Idempotency-Replayed', 'true');
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json(participantRegistrationResponse(participant));
+}
+
 exports.createParticipant = async (req, res) => {
-  /* โค้ดเดิมคงไว้ ไม่มีการเปลี่ยนแปลง */
+  let replayState = null;
   try {
-    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requirePublic: true, requireRegistrationOpen: true });
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requirePublic: true });
     if (!eventContext.event) {
       const setting = await SystemSetting.findOne();
       if (setting) {
@@ -58,15 +155,7 @@ exports.createParticipant = async (req, res) => {
       }
     }
 
-    const { cfToken } = req.body;
-    const isHuman = await verifyTurnstile(cfToken, req.ip);
-    
-    if (!isHuman) {
-      auditLog({ req, action: 'REGISTER_BOT_BLOCK', detail: 'Turnstile verification failed', status: 400 });
-      return res.status(400).json({ error: 'ไม่ผ่านการตรวจสอบความปลอดภัย (Turnstile Failed). กรุณาลองใหม่อีกครั้ง' });
-    }
-
-    const fieldsDef = await ParticipantField.find({ enabled: true });
+    const fieldsDef = await listEffectiveParticipantFields(eventContext, { enabledOnly: true });
     const allowedFields = fieldsDef.map(f => f.name);
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
 
@@ -97,12 +186,72 @@ exports.createParticipant = async (req, res) => {
       if (!isNaN(yearVal) && yearVal < 2400) return res.status(400).json({ error: 'กรุณากรอกปีการศึกษาเป็น พ.ศ. (เช่น 2569)' });
     }
 
-    const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
+    const eventYear = normalizeEventYear(eventContext.eventYear);
+    const idempotencyKey = normalizeIdempotencyKey(req.get('Idempotency-Key'), {
+      required: boolEnv('PARTICIPANT_REGISTRATION_IDEMPOTENCY_REQUIRED', process.env.NODE_ENV === 'production'),
+    });
+    const idempotencyKeyHash = idempotencyKey
+      ? hashIdempotencyKey(`participant-registration:${eventContext.eventId}`, idempotencyKey)
+      : null;
+    const idempotencyFingerprint = idempotencyKeyHash
+      ? requestFingerprint({
+        fields: userFields,
+        followers,
+        consent: consent || null,
+        specialAssistance,
+        isPackage: isPackageSelected,
+        organizationId: String(eventContext.organizationId || ''),
+        seriesId: String(eventContext.seriesId || ''),
+        eventId: String(eventContext.eventId || ''),
+        eventYear,
+        registrationType: REGISTRATION_TYPES.ONLINE,
+      })
+      : null;
+    replayState = {
+      eventId: eventContext.eventId,
+      keyHash: idempotencyKeyHash,
+      fingerprint: idempotencyFingerprint,
+    };
+
+    const existingParticipant = await findParticipantByRegistrationIdempotency(
+      eventContext.eventId,
+      idempotencyKeyHash
+    );
+    if (existingParticipant) {
+      assertRegistrationFingerprint(existingParticipant, idempotencyFingerprint);
+      return respondParticipantReplay(req, res, existingParticipant);
+    }
+
+    if (eventContext.event) assertEventRegistrationOpen(eventContext.event);
+
+    const isHuman = await verifyTurnstile(req.body.cfToken, req.ip, { expectedAction: 'register' });
+    if (!isHuman && process.env.NODE_ENV === 'production') {
+      auditLog({ req, action: 'REGISTER_BOT_BLOCK', detail: 'Turnstile verification failed', status: 400 });
+      return res.status(400).json({ error: 'ไม่ผ่านการตรวจสอบความปลอดภัย (Turnstile Failed). กรุณาลองใหม่อีกครั้ง' });
+    }
+
+    if (userFields.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(userFields.email).trim())) {
+      return res.status(400).json({ error: 'Email format is invalid.' });
+    }
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-      const checkedIn = await isParticipantCheckedIn({ field: 'phone', value: userFields.phone, eventId: eventContext.eventId, eventYear });
-      if (checkedIn) return res.status(400).json({ error: 'ท่านได้ทำการลงทะเบียนไปแล้ว' });
+    }
+
+    const duplicateIdentityFilters = [
+      userFields.email ? participantFieldMatch('email', userFields.email) : null,
+      userFields.phone ? participantFieldMatch('phone', userFields.phone) : null,
+    ].filter(Boolean);
+    if (duplicateIdentityFilters.length > 0) {
+      const duplicateParticipant = await Participant.findOne({
+        $and: [
+          { eventId: eventContext.eventId, isDeleted: false },
+          { $or: duplicateIdentityFilters },
+        ],
+      }).select('_id');
+      if (duplicateParticipant) {
+        return res.status(409).json({ error: 'อีเมลหรือเบอร์โทรนี้ลงทะเบียนในกิจกรรมแล้ว' });
+      }
     }
 
     const qrCode = uuidv4();
@@ -115,24 +264,49 @@ exports.createParticipant = async (req, res) => {
       eventYear,
       qrCode,
       registeredBy: req.user?._id || null,
-      registrationType: 'online',
+      registeredPoint: 'Online',
+      registeredPointName: 'Online',
+      registrationType: REGISTRATION_TYPES.ONLINE,
       followers,
       consent, 
-      specialAssistance: encryptValue(specialAssistance)
+      specialAssistance: encryptValue(specialAssistance),
+      registrationIdempotencyKeyHash: idempotencyKeyHash,
+      registrationIdempotencyFingerprint: idempotencyFingerprint,
     });
 
     if (userFields.email) {
       try {
-        await sendTicketMail(userFields.email, revealParticipantObject(participant));
+        await sendTicketMail(userFields.email, {
+          qrCode: participant.qrCode,
+          fields: userFields,
+        }, { event: eventContext.event });
       } catch (err) {
         auditLog && auditLog({ req, action: 'SEND_TICKET_EMAIL_FAIL', detail: `participantId=${participant._id}`, status: 500, error: err.message });
       }
     }
 
     auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT', detail: `participantId=${participant._id}` });
-    res.json(revealParticipantObject(participant));
+    res.setHeader('Idempotency-Replayed', 'false');
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(participantRegistrationResponse(participant));
   } catch (err) {
-    auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT_ERROR', detail: err.message, status: 500 });
+    if (replayState?.keyHash) {
+      try {
+        const existingParticipant = await findParticipantByRegistrationIdempotency(
+          replayState.eventId,
+          replayState.keyHash
+        );
+        if (existingParticipant) {
+          assertRegistrationFingerprint(existingParticipant, replayState.fingerprint);
+          return respondParticipantReplay(req, res, existingParticipant);
+        }
+      } catch (replayError) {
+        if (replayError.statusCode) {
+          return res.status(replayError.statusCode).json({ error: replayError.message });
+        }
+      }
+    }
+    auditLog && auditLog({ req, action: 'CREATE_PARTICIPANT_ERROR', detail: err.message, status: err.statusCode || 500 });
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     serverError(res, err);
   }
@@ -165,16 +339,17 @@ exports.createParticipantByStaff = async (req, res) => {
     // 🌟 1. ดึงค่า Point จาก Token รองรับทั้ง req.kioskPoint และ req.user.kioskPoint
     const tokenPoint = req.kioskPoint || req.user?.kioskPoint;
 
-    if (!isScopedRegistration && !canRegisterAtPoint(req.user, registrationPoint)) {
-      return res.status(403).json({ error: 'You do not have permission to register at this point.' });
-    }
-    
     // 🌟 2. แปลงให้เป็น String ก่อนเปรียบเทียบ เพื่อป้องกันปัญหาเรื่องประเภทตัวแปร (ObjectId vs String)
     if (isScopedRegistration && (!tokenPoint || String(tokenPoint) !== String(registrationPoint))) {
       return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     }
+    if (!bindScopedEventContext(req, res)) return;
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requireAccess: !isScopedRegistration });
+    const eventYear = normalizeEventYear(eventContext.eventYear);
+    const registrationPointDoc = await assertRegistrationPointUsable(req, res, registrationPoint, eventContext, { isScopedRegistration, isKioskDevice });
+    if (!registrationPointDoc) return;
 
-    const fieldsDef = await ParticipantField.find({ enabled: true });
+    const fieldsDef = await listEffectiveParticipantFields(eventContext, { enabledOnly: true });
     const allowedFields = fieldsDef.map(f => f.name);
     const requiredFields = fieldsDef.filter(f => f.required).map(f => f.name);
     const followers = Math.max(0, Number.parseInt(req.body.followers || 0, 10) || 0);
@@ -189,8 +364,6 @@ exports.createParticipantByStaff = async (req, res) => {
       if (!userFields[f]) return res.status(400).json({ error: `Field '${f}' is required.` });
     }
 
-    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
-    const eventYear = normalizeEventYear(req.body.eventYear || eventContext.eventYear || await getCurrentEventYear());
     if (userFields.phone) {
       const phoneRegex = /^0[689]\d{8}$/;
       if (!phoneRegex.test(userFields.phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
@@ -209,15 +382,26 @@ exports.createParticipantByStaff = async (req, res) => {
       checkedInAt: new Date(),
       registeredBy: req.user._id,
       qrCode,
-      registeredPoint: registrationPoint,
-      registrationType: 'onsite',
+      registeredPoint: String(registrationPointDoc._id),
+      registeredPointId: registrationPointDoc._id,
+      registeredPointName: registrationPointDoc.name,
+      registrationType: registrationTypeFromRequest(req),
       followers,
       consent,
       specialAssistance: encryptValue(specialAssistance)
     });
 
-    const safeParticipant = revealParticipantObject(participant);
-    res.json({ _id: participant._id, fields: safeParticipant.fields, status: participant.status, checkedInAt: participant.checkedInAt, registeredPoint: participant.registeredPoint, registrationType: participant.registrationType });
+    const safeParticipant = operationalParticipant(participant);
+    res.json({
+      _id: participant._id,
+      fields: safeParticipant.fields,
+      status: participant.status,
+      checkedInAt: participant.checkedInAt,
+      registeredPoint: participant.registeredPoint,
+      registeredPointId: participant.registeredPointId,
+      registeredPointName: participant.registeredPointName,
+      registrationType: participant.registrationType
+    });
   } catch (err) {
     serverError(res, err);
   }
@@ -230,23 +414,31 @@ exports.registerOnsite = async (req, res) => {
       consent,
       followers,
       registrationPoint,
-      eventYear: requestedEventYear,
+      eventYear: _requestedEventYear,
       specialAssistance,
       ...fields
     } = req.body;
     
     // ตรวจสอบ Turnstile (หากอยู่ใน Production)
-    const isValid = await verifyTurnstile(cfToken);
+    const isValid = await verifyTurnstile(cfToken, req.ip, { expectedAction: 'kiosk_register' });
     if (!isValid && process.env.NODE_ENV === 'production') {
       return res.status(400).json({ error: 'Security check failed. Please try again.' });
     }
 
-    if (!fields.name || !fields.phone || !fields.email) {
-      return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
+    if (!bindScopedEventContext(req, res)) return;
+    const isScopedRegistration = ['kiosk_device', 'self_register_session'].includes(req.auth?.scope);
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true, requireAccess: !isScopedRegistration });
+    const eventYear = normalizeEventYear(eventContext.eventYear);
+    const fieldsDef = await listEffectiveParticipantFields(eventContext, { enabledOnly: true });
+    const allowedFields = fieldsDef.map(f => f.name);
+    const filteredFields = {};
+    for (const name of allowedFields) {
+      if (fields[name] !== undefined) filteredFields[name] = fields[name];
     }
 
-    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
-    const eventYear = normalizeEventYear(requestedEventYear || eventContext.eventYear || await getCurrentEventYear());
+    if (!filteredFields.name || !filteredFields.phone || !filteredFields.email) {
+      return res.status(400).json({ error: 'กรุณากรอกข้อมูลที่จำเป็นให้ครบถ้วน (ชื่อ, อีเมล, เบอร์โทรศัพท์)' });
+    }
 
     // ตรวจสอบข้อมูลซ้ำ
     const existing = await Participant.findOne({
@@ -254,8 +446,8 @@ exports.registerOnsite = async (req, res) => {
         { isDeleted: false, ...participantEventFilter(eventContext, eventYear) },
         {
           $or: [
-            participantFieldMatch('email', fields.email),
-            participantFieldMatch('phone', fields.phone),
+            participantFieldMatch('email', filteredFields.email),
+            participantFieldMatch('phone', filteredFields.phone),
           ],
         },
       ],
@@ -265,20 +457,24 @@ exports.registerOnsite = async (req, res) => {
     const actualPoint = req.kioskPoint || registrationPoint;
     if (!actualPoint) return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน' });
 
-    // ตรวจสอบสิทธิ์และสถานะของจุดลงทะเบียน
-    const canReg = canRegisterAtPoint(req.user, actualPoint);
-    if (!canReg) return res.status(400).json({ error: 'จุดลงทะเบียนนี้ปิดใช้งานหรือไม่พบในระบบ' });
+    const registrationPointDoc = await assertRegistrationPointUsable(req, res, actualPoint, eventContext, {
+      isScopedRegistration,
+      isKioskDevice: req.auth?.scope === 'kiosk_device',
+    });
+    if (!registrationPointDoc) return;
 
     const participant = await Participant.create({
-      fields: protectParticipantFields(fields),
-      secureIndex: participantBlindIndexes(fields),
-      secureSearch: participantSearchTokens(fields),
+      fields: protectParticipantFields(filteredFields),
+      secureIndex: participantBlindIndexes(filteredFields),
+      secureSearch: participantSearchTokens(filteredFields),
       ...contextRefsForYear(eventContext, eventYear),
       eventYear,
       status: 'checkedIn',
       checkedInAt: new Date(),
-      registeredPoint: actualPoint,
-      registrationType: 'onsite',
+      registeredPoint: String(registrationPointDoc._id),
+      registeredPointId: registrationPointDoc._id,
+      registeredPointName: registrationPointDoc.name,
+      registrationType: registrationTypeFromRequest(req),
       followers: parseInt(followers, 10) || 0,
       consent: consent === 'agreed' ? 'agreed' : 'disagreed',
       specialAssistance: encryptValue(specialAssistance || ''),
@@ -298,7 +494,7 @@ exports.registerOnsite = async (req, res) => {
        auditLog({ req, action: 'CREATE_PARTICIPANT_ONSITE', detail: `Method: ${req.registrationMethod} participantId=${participant._id}` });
     }
 
-    res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant: revealParticipantObject(participant) });
+    res.status(201).json({ message: 'ลงทะเบียนหน้างานสำเร็จ', participant: operationalParticipant(participant) });
   } catch (err) {
     serverError(res, err);
   }
@@ -310,7 +506,7 @@ exports.listParticipants = async (req, res) => {
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const { eventYear, filter } = eventScope;
     const participants = await Participant.find(filter).sort({ createdAt: -1 }).select('+secureIndex');
-    const safeParticipants = participants.map(revealParticipantObject);
+    const safeParticipants = participants.map(operationalParticipant);
     await auditSensitiveAccess({
       req,
       action: 'SENSITIVE_DECRYPT_PARTICIPANTS_LIST',
@@ -327,18 +523,42 @@ exports.listParticipants = async (req, res) => {
 exports.updateParticipant = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const participant = await Participant.findById(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Participant ID is invalid' });
+    }
+    const eventScope = await eventScopeFromRequest(
+      req,
+      { _id: req.params.id, isDeleted: false },
+      { requireEventIdentity: true }
+    );
+    const participant = await Participant.findOne(eventScope.filter);
     if (!participant || participant.isDeleted) return res.status(404).json({ error: 'Participant not found' });
-    const fieldsDef = await ParticipantField.find({ enabled: true });
+    const fieldsDef = await listEffectiveParticipantFields({
+      eventId: participant.eventId,
+      eventYear: participant.eventYear,
+      organizationId: participant.organizationId,
+      seriesId: participant.seriesId,
+    }, { enabledOnly: true });
     const allowedFields = fieldsDef.map(f => f.name);
 
-    if (req.body.followers !== undefined) participant.followers = Math.max(0, Number.parseInt(req.body.followers, 10) || 0);
-    if (req.body.consent !== undefined) participant.consent = req.body.consent;
-    if (req.body.specialAssistance !== undefined) participant.specialAssistance = encryptValue(req.body.specialAssistance);
+    if (req.body.followers !== undefined) {
+      participant.followers = Math.min(100, Math.max(0, Number.parseInt(req.body.followers, 10) || 0));
+    }
+    if (req.body.consent !== undefined) {
+      if (!['agreed', 'disagreed', null].includes(req.body.consent)) {
+        return res.status(400).json({ error: 'Consent value is invalid' });
+      }
+      participant.consent = req.body.consent;
+    }
+    if (req.body.specialAssistance !== undefined) {
+      participant.specialAssistance = encryptValue(String(req.body.specialAssistance || '').slice(0, 2000));
+    }
     
     // [เพิ่ม] บันทึก Tags ถ้ามีการส่งมา
     if (req.body.tags !== undefined && Array.isArray(req.body.tags)) {
-      participant.tags = req.body.tags;
+      participant.tags = [...new Set(req.body.tags
+        .map((tag) => String(tag || '').trim().slice(0, 50))
+        .filter(Boolean))].slice(0, 20);
     }
 
     const inputFields = req.body.fields || req.body;
@@ -355,29 +575,34 @@ exports.updateParticipant = async (req, res) => {
     });
     const plainFields = plainParticipant.fields || {};
     for (const f of allowedFields) { if (inputFields[f] !== undefined) plainFields[f] = inputFields[f]; }
-    if (req.body.eventYear !== undefined) {
-      participant.eventYear = normalizeEventYear(req.body.eventYear);
-      participant.organizationId = null;
-      participant.seriesId = null;
-      participant.eventId = null;
-    }
-
     participant.fields = protectParticipantFields(plainFields);
     participant.secureIndex = participantBlindIndexes(plainFields);
     participant.secureSearch = participantSearchTokens(plainFields);
     participant.markModified('fields'); participant.markModified('secureIndex'); participant.markModified('secureSearch'); participant.updatedAt = new Date();
     await participant.save();
-    res.json(revealParticipantObject(participant));
+    res.json(operationalParticipant(participant));
   } catch (err) { serverError(res, err); }
 };
 
 exports.deleteParticipant = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const participant = await Participant.findById(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Participant ID is invalid' });
+    }
+    const eventScope = await eventScopeFromRequest(
+      req,
+      { _id: req.params.id, isDeleted: false },
+      { requireEventIdentity: true }
+    );
+    const participant = await Participant.findOne(eventScope.filter);
     if (!participant || participant.isDeleted) return res.status(404).json({ error: 'Participant not found' });
     participant.isDeleted = true;
+    participant.isRevoked = true;
+    participant.participantTokenVersion = Number(participant.participantTokenVersion || 0) + 1;
     await participant.save();
+    await revokeParticipantSessions(participant._id, { reason: 'participant_deleted' });
+    auditLog({ req, action: 'DELETE_PARTICIPANT', detail: `eventId=${eventScope.eventId}; participantId=${participant._id}` });
     res.json({ message: 'Participant deleted (soft)' });
   } catch (err) { serverError(res, err); }
 };
@@ -395,19 +620,23 @@ exports.checkinByQr = async (req, res) => {
     if (isKioskDevice && (!tokenPoint || String(tokenPoint) !== String(registrationPoint))) {
       return res.status(403).json({ error: 'Kiosk link is invalid for this registration point.' });
     }
-    if (!isKioskDevice && !canRegisterAtPoint(req.user, registrationPoint)) {
-      return res.status(403).json({ error: 'You do not have permission to check-in at this point.' });
-    }
-
-    const eventScope = await eventScopeFromRequest(req, { qrCode, isDeleted: false }, { requireEventIdentity: true });
+    if (!bindScopedEventContext(req, res)) return;
+    const eventScope = await eventScopeFromRequest(req, { qrCode, isDeleted: false }, { requireEventIdentity: true, requireAccess: !isKioskDevice });
     const { eventYear, filter } = eventScope;
+    const registrationPointDoc = await assertRegistrationPointUsable(req, res, registrationPoint, eventScope, { isScopedRegistration: isKioskDevice, isKioskDevice });
+    if (!registrationPointDoc) return;
     const participant = await Participant.findOne(filter);
     if (!participant) return res.status(404).json({ error: 'Ticket not found' });
     if (participant.status === 'checkedIn') return res.status(400).json({ error: 'Already checked in.' });
 
     const actualRegistrationPoint = isKioskDevice ? tokenPoint : registrationPoint;
     if (followers !== undefined) participant.followers = followers;
-    participant.status = 'checkedIn'; participant.checkedInAt = new Date(); participant.registeredBy = req.user._id; participant.registeredPoint = actualRegistrationPoint;
+    participant.status = 'checkedIn';
+    participant.checkedInAt = new Date();
+    participant.registeredBy = req.user._id;
+    participant.registeredPoint = String(actualRegistrationPoint);
+    participant.registeredPointId = registrationPointDoc._id;
+    participant.registeredPointName = registrationPointDoc.name;
     await participant.save();
     const safeParticipant = revealParticipantObject(participant);
     await auditSensitiveAccess({
@@ -427,6 +656,8 @@ res.json({
             fields: safeParticipant.fields,
             checkedInAt: participant.checkedInAt, 
             registeredPoint: participant.registeredPoint, 
+            registeredPointId: participant.registeredPointId,
+            registeredPointName: participant.registeredPointName,
             registeredBy: req.user.username, 
             registrationType: participant.registrationType, 
             followers: participant.followers,
@@ -437,42 +668,97 @@ res.json({
 };
 
 exports.resendTicket = async (req, res) => {
-  // โค้ดเดิม
-  const { phone } = req.body;
-  if (!phone) return res.status(400).json({ error: 'Phone is required.' });
-  const phoneRegex = /^0[689]\d{8}$/;
-  if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
-  const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true, requireAccess: false });
-  const { eventYear } = eventScope;
-  const participant = await Participant.findOne({
-    $and: [
-      eventScope.filter,
-      participantFieldMatch('phone', phone),
-    ],
-  }).select('+secureIndex');
-  const genericResponse = { success: true, message: 'หากพบข้อมูลในระบบ ระบบจะส่ง E-Ticket ไปยังอีเมลที่ลงทะเบียนไว้' };
-  if (!participant) return res.json(genericResponse);
-  const safeParticipant = revealParticipantObject(participant);
-  await auditSensitiveAccess({
-    req,
-    action: 'SENSITIVE_DECRYPT_RESEND_TICKET',
-    purpose: 'public_resend_ticket_email_lookup',
-    resource: 'participants',
-    eventYear,
-    recordCount: 1,
-    fields: ['participant.fields.email'],
-    extra: { participantId: String(participant._id) },
-  });
-  const email = safeParticipant.fields.email;
-  if (email) {
-    try {
-      await sendTicketMail(email, safeParticipant);
-      return res.json(genericResponse);
-    } catch (err) {
-      auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `participantId=${participant._id}`, status: 500, error: err.message });
-      return res.json(genericResponse);
+  try {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone is required.' });
+    const phoneRegex = /^0[689]\d{8}$/;
+    if (!phoneRegex.test(phone)) return res.status(400).json({ error: 'Phone number format is invalid.' });
+
+    const isHuman = await verifyTurnstile(req.body.cfToken, req.ip, { expectedAction: 'resend_ticket' });
+    if (!isHuman && process.env.NODE_ENV === 'production') {
+      return res.status(400).json({ error: 'ไม่ผ่านการตรวจสอบความปลอดภัย กรุณาลองใหม่อีกครั้ง' });
     }
-  } else { return res.json(genericResponse); }
+
+    const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, {
+      requireEventIdentity: true,
+      requireAccess: false,
+      requirePublic: true,
+    });
+    const { eventYear } = eventScope;
+    const participant = await Participant.findOne({
+      $and: [
+        eventScope.filter,
+        participantFieldMatch('phone', phone),
+      ],
+    }).select('+secureIndex');
+    const genericResponse = { success: true, message: 'หากพบข้อมูลในระบบ ระบบจะส่ง E-Ticket ไปยังอีเมลที่ลงทะเบียนไว้' };
+    res.setHeader('Cache-Control', 'no-store');
+    if (!participant) return res.json(genericResponse);
+    const safeParticipant = revealParticipantObject(participant);
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_RESEND_TICKET',
+      purpose: 'public_resend_ticket_email_lookup',
+      resource: 'participants',
+      eventYear,
+      recordCount: 1,
+      fields: ['participant.fields.email'],
+      extra: { participantId: String(participant._id) },
+    });
+    const email = safeParticipant.fields.email;
+    if (email) {
+      try {
+        await sendTicketMail(email, safeParticipant, { event: eventScope.event });
+      } catch (err) {
+        auditLog && auditLog({ req, action: 'RESEND_TICKET_FAIL', detail: `participantId=${participant._id}`, status: 500, error: err.message });
+      }
+    }
+    return res.json(genericResponse);
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+exports.resendTicketByStaff = async (req, res) => {
+  try {
+    if (!checkAdmin(req, res)) return;
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Participant ID is invalid' });
+    }
+    const eventScope = await eventScopeFromRequest(
+      req,
+      { _id: req.params.id, isDeleted: false },
+      { requireEventIdentity: true }
+    );
+    const participant = await Participant.findOne(eventScope.filter).select('+secureIndex');
+    if (!participant) return res.status(404).json({ error: 'Participant not found in this Event' });
+
+    const safeParticipant = revealParticipantObject(participant);
+    const email = safeParticipant.fields?.email;
+    if (!email) return res.status(409).json({ sent: false, message: 'ผู้เข้าร่วมไม่มีอีเมลสำหรับรับ E-Ticket' });
+
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_STAFF_RESEND_TICKET',
+      purpose: 'staff_resend_ticket',
+      resource: 'participants',
+      eventYear: eventScope.eventYear,
+      recordCount: 1,
+      fields: ['participant.fields.email'],
+      extra: { participantId: String(participant._id) },
+    });
+    await sendTicketMail(email, safeParticipant, { event: eventScope.event });
+    auditLog({
+      req,
+      action: 'STAFF_RESEND_TICKET',
+      detail: `eventId=${eventScope.eventId}; participantId=${participant._id}`,
+    });
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ sent: true, message: 'ส่ง E-Ticket สำเร็จ' });
+  } catch (error) {
+    auditLog({ req, action: 'STAFF_RESEND_TICKET_FAIL', detail: 'Ticket delivery failed', status: error.statusCode || 500 });
+    return serverError(res, error);
+  }
 };
 
 exports.searchParticipants = async (req, res) => {
@@ -501,7 +787,7 @@ exports.searchParticipants = async (req, res) => {
       const scanned = directResults.length ? [] : await Participant.find(filter).limit(500).select('+secureIndex +secureSearch');
       const merged = new Map();
       [...directResults, ...scanned].forEach((participant) => {
-        const safe = revealParticipantObject(participant);
+        const safe = operationalParticipant(participant);
         const f = safe.fields || {};
         const haystack = [f.name, f.fullName, f.fullname, f.phone, f.email, safe.qrCode]
           .filter(Boolean)
@@ -529,7 +815,7 @@ exports.searchParticipants = async (req, res) => {
         ? await Participant.find({ ...filter, secureSearch: { $in: secureSearchTokens } }).select('+secureIndex +secureSearch')
         : [];
       const scanned = indexed.length ? indexed : await Participant.find(filter).limit(1000).select('+secureIndex +secureSearch');
-      const matches = scanned.map(revealParticipantObject).filter((participant) => {
+      const matches = scanned.map(operationalParticipant).filter((participant) => {
         const f = participant.fields || {};
         const displayName = String(f.name || f.fullName || f.fullname || '').toLowerCase();
         if (!displayName.includes(normalizedName)) return false;
@@ -557,7 +843,7 @@ exports.searchParticipants = async (req, res) => {
     if (qrCode) filter['qrCode'] = qrCode;
     if (and.length > 1) filter = { $and: and };
     const results = await Participant.find(filter).select('+secureIndex');
-    const safeResults = results.map(revealParticipantObject);
+    const safeResults = results.map(operationalParticipant);
     await auditSensitiveAccess({
       req,
       action: 'SENSITIVE_DECRYPT_PARTICIPANTS_SEARCH',
@@ -576,14 +862,14 @@ exports.searchParticipants = async (req, res) => {
 
 exports.exportParticipants = async (req, res) => {
   try {
-    if (!checkAdmin(req, res)) return;
+    if (!checkAdmin(req, res, 'participant:export')) return;
     const { status } = req.query;
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
     const { eventYear } = eventScope;
     const find = eventScope.filter;
     if (status) find.status = status;
 
-    const participants = (await Participant.find(find).populate('registeredBy', 'username fullName email').select('+secureIndex')).map(revealParticipantObject);
+    const participants = (await Participant.find(find).maxTimeMS(30000).populate('registeredBy', 'username fullName email').select('+secureIndex')).map(operationalParticipant);
     await auditSensitiveAccess({
       req,
       action: 'SENSITIVE_EXPORT_PARTICIPANTS_CSV',
@@ -623,7 +909,7 @@ exports.exportParticipants = async (req, res) => {
         p.status || 'registered',
         formatDate(p.createdAt),
         formatDate(p.checkedInAt),
-        p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '',
+        p.registeredPointName || p.registeredPoint?.name || p.registeredPoint?.pointName || p.registeredPoint || '',
         p.registrationType || '',
         Number.isFinite(p.followers) ? p.followers : 0,
         p.consent || '-',
@@ -642,6 +928,8 @@ exports.exportParticipants = async (req, res) => {
     const fileName = `participants-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.csv`;
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-Total-Count', participants.length);
+    res.setHeader('X-Export-Status', 'completed');
     res.send(`\uFEFF${csv}`);
   } catch (err) { serverError(res, err); }
 };
@@ -649,13 +937,21 @@ exports.exportParticipants = async (req, res) => {
 exports.restorePrizeRight = async (req, res) => {
   try {
     if (!checkAdmin(req, res)) return;
-    const participant = await Participant.findByIdAndUpdate(
-      req.params.id,
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'Participant ID is invalid' });
+    }
+    const eventScope = await eventScopeFromRequest(
+      req,
+      { _id: req.params.id, isDeleted: false },
+      { requireEventIdentity: true }
+    );
+    const participant = await Participant.findOneAndUpdate(
+      eventScope.filter,
       { $set: { isForfeited: false }, $unset: { prizeId: 1, prizeWonAt: 1 } },
       { new: true }
     );
     if (!participant) return res.status(404).json({ error: 'ไม่พบผู้เข้าร่วม' });
-    res.json({ message: 'คืนสิทธิ์จับรางวัลสำเร็จ', participant });
+    res.json({ message: 'คืนสิทธิ์จับรางวัลสำเร็จ', participant: operationalParticipant(participant) });
   } catch (err) {
     serverError(res, err);
   }

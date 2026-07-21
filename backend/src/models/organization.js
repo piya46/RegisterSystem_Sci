@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const sqlMirrorOutboxPlugin = require('../utils/sqlMirrorOutboxPlugin');
 
 const organizationSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
@@ -15,5 +16,7 @@ const organizationSchema = new mongoose.Schema({
   },
   metadata: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
 }, { timestamps: true });
+
+organizationSchema.plugin(sqlMirrorOutboxPlugin, { domain: 'organizations', eventPath: null });
 
 module.exports = mongoose.model('Organization', organizationSchema);

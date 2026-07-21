@@ -48,28 +48,17 @@ import LockIcon from "@mui/icons-material/Lock";
 import ArchiveIcon from "@mui/icons-material/Archive";
 import {
   activateEvent,
-  cloneEventSettings,
   createEvent,
   createEventSeries,
   createOrganization,
   getEventCatalog,
   getLegacyMigrationPreview,
-  publishEvent,
   runLegacyEventMigration,
-  updateEvent,
-  updateEventLayout,
-  updateEventStatus,
 } from "../utils/api";
 import useAuth from "../hooks/useAuth";
 import { EmptyState, LoadingState } from "../components/FeedbackStates";
 
-const layoutKeys = [
-  { value: "landingPage", label: "หน้า Landing" },
-  { value: "registrationForm", label: "แบบฟอร์มลงทะเบียน" },
-  { value: "dashboard", label: "หน้าสรุปผล" },
-  { value: "ticket", label: "บัตร/อีเมลยืนยัน" },
-  { value: "report", label: "รายงาน" },
-];
+
 
 const linkingModeLabels = {
   isolated: "แยกข้อมูล",
@@ -106,15 +95,6 @@ const defaultFeatures = {
   packages: false,
   luckyDraw: false,
 };
-const legacyFeatureDefaults = {
-  registration: true,
-  checkin: true,
-  dashboard: true,
-  publicReport: true,
-  donations: true,
-  packages: true,
-  luckyDraw: true,
-};
 
 function normalizeFeatures(features = {}, fallback = defaultFeatures) {
   return Object.fromEntries(
@@ -129,270 +109,15 @@ const datasetLabels = {
   packages: "แพ็กเกจ",
 };
 
-const defaultJson = {
-  landingPage: {
-    blocks: [
-      {
-        id: "hero",
-        type: "hero",
-        enabled: true,
-        title: "ชื่อกิจกรรม",
-        subtitle: "ข้อความแนะนำกิจกรรม",
-        body: "ใส่รายละเอียดสำคัญของงาน วันเวลา สถานที่ และสิ่งที่ผู้เข้าร่วมควรรู้",
-        imageUrl: "",
-        logoUrl: "",
-        primaryActionLabel: "ลงทะเบียน",
-        primaryActionUrl: "",
-      },
-      { id: "details", type: "richText", enabled: true, title: "รายละเอียดกิจกรรม", body: "เล่ารายละเอียดกิจกรรม สิทธิประโยชน์ และเงื่อนไขที่ควรรู้" },
-      { id: "schedule", type: "schedule", enabled: true, title: "กำหนดการ", items: [{ time: "17:00", title: "เริ่มลงทะเบียนหน้างาน", description: "" }, { time: "18:00", title: "เปิดงาน", description: "" }] },
-      { id: "cta", type: "cta", enabled: true, title: "พร้อมเข้าร่วมกิจกรรม", buttonLabel: "ลงทะเบียน", buttonUrl: "" },
-    ],
-  },
-  registrationForm: {
-    sections: [
-      { id: "personal", title: "ข้อมูลส่วนตัว", description: "ข้อมูลหลักสำหรับออกบัตรและยืนยันตัวตน" },
-      { id: "contact", title: "ข้อมูลติดต่อ", description: "ใช้ส่งอีเมลยืนยันและติดต่อกรณีจำเป็น" },
-    ],
-    fields: [
-      { id: "name", key: "name", name: "name", label: "ชื่อ-นามสกุล", type: "text", required: true },
-      { id: "email", key: "email", name: "email", label: "อีเมล", type: "email", required: true },
-      { id: "phone", key: "phone", name: "phone", label: "เบอร์โทรศัพท์", type: "phone", required: true },
-      { id: "dept", key: "dept", name: "dept", label: "ภาควิชา/หน่วยงาน", type: "text", required: false },
-      { id: "date_year", key: "date_year", name: "date_year", label: "ปีการศึกษา", type: "text", required: false },
-    ],
-  },
-  dashboard: {
-    widgets: [
-      { id: "registered", type: "metric", title: "ผู้ลงทะเบียน", enabled: true },
-      { id: "checked-in", type: "metric", title: "เช็คอินแล้ว", enabled: true },
-      { id: "donations", type: "metric", title: "ยอดสนับสนุน", enabled: true },
-      { id: "year-comparison", type: "table", title: "เปรียบเทียบย้อนหลัง", enabled: true },
-    ],
-  },
-  ticket: {
-    blocks: [
-      { id: "ticket-header", type: "text", label: "หัวบัตร", title: "บัตรเข้างาน / อีเมลยืนยัน", body: "กรุณาแสดง QR Code นี้ที่หน้างาน", value: "บัตรเข้างาน / อีเมลยืนยัน", enabled: true },
-      { id: "ticket-qr", type: "qr", label: "QR Code", value: "qrCode", enabled: true },
-      { id: "ticket-name", type: "field", label: "ชื่อผู้เข้าร่วม", value: "name", enabled: true },
-    ],
-  },
-  report: {
-    columns: [
-      { id: "name", key: "name", label: "ชื่อ-นามสกุล", enabled: true },
-      { id: "email", key: "email", label: "อีเมล", enabled: true },
-      { id: "phone", key: "phone", label: "เบอร์โทรศัพท์", enabled: true },
-      { id: "status", key: "status", label: "สถานะ", enabled: true },
-      { id: "checkedInAt", key: "checkedInAt", label: "เวลาเช็คอิน", enabled: true },
-    ],
-  },
-};
-
-function thisYear() {
-  return String(new Date().getFullYear());
-}
 
 function getId(value) {
   return value?._id || value?.id || value || "";
 }
 
-function prettyJson(value) {
-  return JSON.stringify(value || {}, null, 2);
-}
 
-function safeParseJson(value, fallback = {}) {
-  try {
-    return JSON.parse(value || "{}");
-  } catch {
-    return fallback;
-  }
-}
 
-function isEmptyTemplate(layoutKey, config = {}) {
-  if (layoutKey === "landingPage") return !Array.isArray(config.blocks) || config.blocks.length === 0;
-  if (layoutKey === "registrationForm") return (!Array.isArray(config.sections) || config.sections.length === 0) && (!Array.isArray(config.fields) || config.fields.length === 0);
-  if (layoutKey === "dashboard") return !Array.isArray(config.widgets) || config.widgets.length === 0;
-  if (layoutKey === "ticket") return !Array.isArray(config.blocks) || config.blocks.length === 0;
-  if (layoutKey === "report") return !Array.isArray(config.columns) || config.columns.length === 0;
-  return false;
-}
 
-function blockTitle(block) {
-  const labels = {
-    hero: "Hero",
-    richText: "ข้อความ",
-    schedule: "กำหนดการ",
-    faq: "FAQ",
-    cta: "ปุ่ม CTA",
-  };
-  return labels[block?.type] || block?.type || "บล็อก";
-}
 
-function createLayoutBlock(type, event) {
-  const id = `${type}-${Date.now()}`;
-  const registerUrl = event ? `/e/${event.slug}/register` : "";
-  const map = {
-    hero: {
-      id,
-      type: "hero",
-      enabled: true,
-      title: event?.name || "ชื่อกิจกรรม",
-      subtitle: "ข้อความแนะนำกิจกรรม",
-      body: "",
-      imageUrl: event?.branding?.coverImageUrl || "",
-      logoUrl: event?.branding?.logoUrl || "",
-      primaryActionLabel: "ลงทะเบียน",
-      primaryActionUrl: registerUrl,
-    },
-    richText: { id, type: "richText", enabled: true, title: "หัวข้อใหม่", body: "รายละเอียด" },
-    schedule: { id, type: "schedule", enabled: true, title: "กำหนดการ", items: [{ time: "17:00", title: "เริ่มงาน", description: "" }] },
-    faq: { id, type: "faq", enabled: true, title: "คำถามที่พบบ่อย", items: [{ question: "ต้องเตรียมอะไรบ้าง", answer: "กรุณาแสดง QR Code หน้างาน" }] },
-    cta: { id, type: "cta", enabled: true, title: "พร้อมเข้าร่วมกิจกรรม", buttonLabel: "ลงทะเบียน", buttonUrl: registerUrl },
-  };
-  return map[type] || map.richText;
-}
-
-function LayoutPreview({ layoutKey, config, event }) {
-  if (layoutKey === "registrationForm") {
-    const fields = Array.isArray(config?.fields) ? config.fields : [];
-    return (
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", position: "sticky", top: 92 }}>
-        <Typography variant="overline" color="text.secondary" fontWeight={900}>Preview</Typography>
-        <Typography variant="h6" fontWeight={950}>แบบฟอร์มลงทะเบียน</Typography>
-        <Stack spacing={1.25} mt={1.5}>
-          {fields.filter((field) => field.enabled !== false).map((field) => (
-            <TextField key={field.id || field.name || field.key} size="small" label={`${field.label || field.name}${field.required ? " *" : ""}`} placeholder={field.placeholder || ""} select={field.type === "select"} disabled>
-              {(field.options || []).map((option) => <MenuItem key={option.value || option.label} value={option.value || option.label}>{option.label || option.value}</MenuItem>)}
-            </TextField>
-          ))}
-        </Stack>
-      </Paper>
-    );
-  }
-  if (layoutKey === "dashboard") {
-    const widgets = Array.isArray(config?.widgets) ? config.widgets.filter((item) => item.enabled !== false) : [];
-    return (
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", position: "sticky", top: 92 }}>
-        <Typography variant="overline" color="text.secondary" fontWeight={900}>Preview</Typography>
-        <Grid container spacing={1.25}>
-          {widgets.map((widget) => (
-            <Grid item xs={12} sm={widget.type === "table" ? 12 : 6} key={widget.id || widget.title}>
-              <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: widget.type === "table" ? "#f8fafc" : "#fff8e1" }}>
-                <Typography variant="caption" color="text.secondary">{widget.type}</Typography>
-                <Typography fontWeight={950}>{widget.title}</Typography>
-              </Paper>
-            </Grid>
-          ))}
-        </Grid>
-      </Paper>
-    );
-  }
-  if (layoutKey === "ticket") {
-    const blocks = Array.isArray(config?.blocks) ? config.blocks.filter((item) => item.enabled !== false) : [];
-    return (
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", position: "sticky", top: 92 }}>
-        <Typography variant="overline" color="text.secondary" fontWeight={900}>Preview</Typography>
-        <Paper sx={{ overflow: "hidden", borderRadius: 2, border: "1px solid #e4e7ec" }}>
-          <Box sx={{ p: 1.5, bgcolor: event?.branding?.secondaryColor || "#114b5f", color: "#fff" }}>
-            <Typography fontWeight={950}>{event?.name || "บัตรเข้างาน"}</Typography>
-          </Box>
-          <Stack spacing={1} sx={{ p: 2 }}>
-            {blocks.map((block) => (
-              <Paper key={block.id || block.label} variant="outlined" sx={{ p: 1.25, borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary">{block.label || block.type}</Typography>
-                <Typography fontWeight={900}>{block.title || block.body || block.value || "-"}</Typography>
-              </Paper>
-            ))}
-          </Stack>
-        </Paper>
-      </Paper>
-    );
-  }
-  if (layoutKey === "report") {
-    const columns = Array.isArray(config?.columns) ? config.columns.filter((item) => item.enabled !== false) : [];
-    return (
-      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", position: "sticky", top: 92 }}>
-        <Typography variant="overline" color="text.secondary" fontWeight={900}>Preview</Typography>
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
-          <Table size="small">
-            <TableHead><TableRow>{columns.map((column) => <TableCell key={column.id || column.key}>{column.label || column.key}</TableCell>)}</TableRow></TableHead>
-            <TableBody><TableRow>{columns.map((column) => <TableCell key={column.id || column.key}>ตัวอย่าง</TableCell>)}</TableRow></TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
-    );
-  }
-
-  const blocks = Array.isArray(config?.blocks) ? config.blocks.filter((block) => block.enabled !== false) : [];
-  if (blocks.length === 0) {
-    return <EmptyState title="ยังไม่มีบล็อกในหน้านี้" description="เพิ่มบล็อกด้านซ้ายเพื่อเริ่มออกแบบหน้า Landing" />;
-  }
-  return (
-    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", position: "sticky", top: 92 }}>
-      <Typography variant="overline" color="text.secondary" fontWeight={900}>Preview</Typography>
-      <Stack spacing={1.5}>
-        {blocks.map((block) => {
-          if (block.type === "hero") {
-            return (
-              <Paper key={block.id} sx={{ p: 2.5, borderRadius: 2, color: "#fff", background: `linear-gradient(135deg, ${event?.branding?.secondaryColor || "#114b5f"}, ${event?.branding?.primaryColor || "#f7b500"})` }}>
-                {block.logoUrl && <Box component="img" src={block.logoUrl} alt="" sx={{ width: 56, height: 56, objectFit: "contain", bgcolor: "#fff", borderRadius: 1, p: 0.5, mb: 1 }} />}
-                <Typography variant="h5" fontWeight={950}>{block.title || event?.name || "ชื่อกิจกรรม"}</Typography>
-                <Typography fontWeight={800} sx={{ opacity: 0.9 }}>{block.subtitle}</Typography>
-                {block.body && <Typography variant="body2" sx={{ mt: 1, opacity: 0.85 }}>{block.body}</Typography>}
-                {block.primaryActionLabel && <Chip sx={{ mt: 1.5, bgcolor: "#fff", fontWeight: 900 }} label={block.primaryActionLabel} />}
-              </Paper>
-            );
-          }
-          if (block.type === "schedule") {
-            return (
-              <Paper key={block.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography fontWeight={950}>{block.title || "กำหนดการ"}</Typography>
-                <Stack spacing={1} mt={1}>
-                  {(block.items || []).map((item, index) => (
-                    <Stack key={`${block.id}-preview-${index}`} direction="row" spacing={1}>
-                      <Chip size="small" label={item.time || "-"} />
-                      <Box>
-                        <Typography variant="body2" fontWeight={850}>{item.title || "รายการ"}</Typography>
-                        <Typography variant="caption" color="text.secondary">{item.description}</Typography>
-                      </Box>
-                    </Stack>
-                  ))}
-                </Stack>
-              </Paper>
-            );
-          }
-          if (block.type === "faq") {
-            return (
-              <Paper key={block.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography fontWeight={950}>{block.title || "FAQ"}</Typography>
-                {(block.items || []).slice(0, 3).map((item, index) => (
-                  <Box key={`${block.id}-faq-${index}`} sx={{ mt: 1 }}>
-                    <Typography variant="body2" fontWeight={850}>{item.question || "คำถาม"}</Typography>
-                    <Typography variant="caption" color="text.secondary">{item.answer || "คำตอบ"}</Typography>
-                  </Box>
-                ))}
-              </Paper>
-            );
-          }
-          if (block.type === "cta") {
-            return (
-              <Paper key={block.id} variant="outlined" sx={{ p: 2, borderRadius: 2, textAlign: "center", bgcolor: "#fff8e1" }}>
-                <Typography fontWeight={950}>{block.title || "Call to action"}</Typography>
-                <Button size="small" variant="contained" sx={{ mt: 1 }}>{block.buttonLabel || "เปิด"}</Button>
-              </Paper>
-            );
-          }
-          return (
-            <Paper key={block.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-              <Typography fontWeight={950}>{block.title || "ข้อความ"}</Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: "pre-line" }}>{block.body}</Typography>
-            </Paper>
-          );
-        })}
-      </Stack>
-    </Paper>
-  );
-}
 
 export default function EventPlatformPage({ section = "portal" }) {
   const navigate = useNavigate();
@@ -414,39 +139,14 @@ export default function EventPlatformPage({ section = "portal" }) {
     seriesId: "",
     name: "",
     slug: "",
-    eventYear: thisYear(),
+    eventYear: new Date().getFullYear().toString(),
     linkingMode: "series-linked",
     cloneFromEventId: "",
     cloneParts: [],
     enabledFeatures: defaultFeatures,
   });
 
-  const [layoutEventId, setLayoutEventId] = useState("");
-  const [layoutKey, setLayoutKey] = useState("landingPage");
-  const [layoutJson, setLayoutJson] = useState(prettyJson(defaultJson.landingPage));
-  const [layoutError, setLayoutError] = useState("");
-  const [advancedJsonOpen, setAdvancedJsonOpen] = useState(false);
-  const [dragBlockId, setDragBlockId] = useState("");
-  const [eventDetailForm, setEventDetailForm] = useState({
-    name: "",
-    slug: "",
-    eventYear: thisYear(),
-    linkingMode: "series-linked",
-    status: "draft",
-    logoUrl: "",
-    coverImageUrl: "",
-    primaryColor: "#f7b500",
-    secondaryColor: "#114b5f",
-    accentColor: "#22a06b",
-    enableRegister: true,
-    maintenanceMode: false,
-    enabledFeatures: defaultFeatures,
-    allowRegistrationReuse: false,
-    registrationReuseMode: "series-linked",
-    registrationReuseEventIds: [],
-    welcomeMessage: "",
-    contactEmail: "",
-  });
+
 
   const activeEventId = getId(catalog.settings?.currentEventId);
   const activeEvent = useMemo(
@@ -468,15 +168,11 @@ export default function EventPlatformPage({ section = "portal" }) {
     [catalog.series, eventForm.organizationId]
   );
 
-  const layoutEvent = useMemo(
-    () => catalog.events.find((item) => getId(item) === layoutEventId) || null,
-    [catalog.events, layoutEventId]
-  );
+
 
   const showPortal = section === "portal";
   const showMigration = section === "migration";
-  const showSettings = section === "settings";
-  const showLayouts = section === "layouts";
+
   const sectionTitle = {
     portal: "จัดการกิจกรรม",
     migration: "Migration ข้อมูลเดิม",
@@ -495,11 +191,7 @@ export default function EventPlatformPage({ section = "portal" }) {
     });
     return totals;
   }, [migrationPreview]);
-  const layoutConfig = useMemo(
-    () => safeParseJson(layoutJson, defaultJson[layoutKey] || {}),
-    [layoutJson, layoutKey]
-  );
-  const layoutBlocks = Array.isArray(layoutConfig?.blocks) ? layoutConfig.blocks : [];
+
 
   const loadCatalog = useCallback(async () => {
     setLoading(true);
@@ -538,45 +230,11 @@ export default function EventPlatformPage({ section = "portal" }) {
       setEventForm((prev) => ({ ...prev, seriesId: prev.seriesId || firstSeriesId }));
     }
     if (routeEventId && catalog.events.some((event) => getId(event) === routeEventId)) {
-      setLayoutEventId(routeEventId);
-    } else if (catalog.events.length > 0) {
-      setLayoutEventId((prev) => prev || activeEventId || getId(catalog.events[0]));
+      // route matches
     }
   }, [activeEventId, catalog.events, catalog.organizations, catalog.series, routeEventId]);
 
-  useEffect(() => {
-    const event = catalog.events.find((item) => getId(item) === layoutEventId);
-    const storedConfig = event?.layouts?.[layoutKey]?.config || {};
-    const config = isEmptyTemplate(layoutKey, storedConfig) ? (defaultJson[layoutKey] || {}) : storedConfig;
-    setLayoutJson(prettyJson(config));
-    setLayoutError("");
-  }, [catalog.events, layoutEventId, layoutKey]);
 
-  useEffect(() => {
-    if (!layoutEvent) return;
-    setEventDetailForm({
-      name: layoutEvent.name || "",
-      slug: layoutEvent.slug || "",
-      eventYear: layoutEvent.eventYear || thisYear(),
-      linkingMode: layoutEvent.linkingMode || "series-linked",
-      status: layoutEvent.status || "draft",
-      logoUrl: layoutEvent.branding?.logoUrl || "",
-      coverImageUrl: layoutEvent.branding?.coverImageUrl || "",
-      primaryColor: layoutEvent.branding?.primaryColor || "#f7b500",
-      secondaryColor: layoutEvent.branding?.secondaryColor || "#114b5f",
-      accentColor: layoutEvent.branding?.accentColor || "#22a06b",
-      enableRegister: layoutEvent.config?.enableRegister !== false,
-      maintenanceMode: layoutEvent.config?.maintenanceMode === true,
-      enabledFeatures: layoutEvent.config?.enabledFeatures
-        ? normalizeFeatures(layoutEvent.config.enabledFeatures)
-        : legacyFeatureDefaults,
-      allowRegistrationReuse: layoutEvent.config?.allowRegistrationReuse === true,
-      registrationReuseMode: layoutEvent.config?.registrationReuseMode || layoutEvent.linkingMode || "series-linked",
-      registrationReuseEventIds: layoutEvent.config?.registrationReuseEventIds || layoutEvent.linkedEventIds || [],
-      welcomeMessage: layoutEvent.config?.welcomeMessage || "",
-      contactEmail: layoutEvent.config?.contactEmail || "",
-    });
-  }, [layoutEvent]);
 
   async function runAction(action, successText) {
     setSaving(true);
@@ -620,144 +278,17 @@ export default function EventPlatformPage({ section = "portal" }) {
     "ตั้งเป็นกิจกรรมปัจจุบันสำเร็จ"
   );
 
-  const handlePublishEvent = (eventId) => runAction(
-    () => publishEvent(eventId),
-    "เผยแพร่หน้า Landing สำเร็จ"
-  );
 
-  const handleStatusChange = (eventId, status) => runAction(
-    () => updateEventStatus(eventId, status),
-    `เปลี่ยนสถานะเป็น ${statusLabels[status] || status} สำเร็จ`
-  );
 
-  const handleSaveEventDetail = () => {
-    if (!layoutEventId) return;
-    runAction(
-      () => updateEvent(layoutEventId, {
-        name: eventDetailForm.name,
-        slug: eventDetailForm.slug,
-        eventYear: eventDetailForm.eventYear,
-        linkingMode: eventDetailForm.linkingMode,
-        branding: {
-          logoUrl: eventDetailForm.logoUrl,
-          coverImageUrl: eventDetailForm.coverImageUrl,
-          primaryColor: eventDetailForm.primaryColor,
-          secondaryColor: eventDetailForm.secondaryColor,
-          accentColor: eventDetailForm.accentColor,
-        },
-        config: {
-          enableRegister: eventDetailForm.enableRegister,
-          maintenanceMode: eventDetailForm.maintenanceMode,
-          enabledFeatures: normalizeFeatures(eventDetailForm.enabledFeatures),
-          allowRegistrationReuse: eventDetailForm.allowRegistrationReuse,
-          registrationReuseMode: eventDetailForm.registrationReuseMode,
-          registrationReuseRequiresOtp: true,
-          registrationReuseEventIds: eventDetailForm.registrationReuseEventIds,
-          welcomeMessage: eventDetailForm.welcomeMessage,
-          contactEmail: eventDetailForm.contactEmail,
-        },
-      }),
-      "บันทึกข้อมูลหน้า public สำเร็จ"
-    );
-  };
+
+
+
 
   const handleCopyPublicLink = async (event) => {
     const path = event.publicLinks?.landingPath || `/e/${event.slug}`;
     const url = `${window.location.origin}${path}`;
     await navigator.clipboard.writeText(url);
     setMessage({ open: true, severity: "success", text: "คัดลอกลิงก์กิจกรรมแล้ว" });
-  };
-
-  const addLayoutBlock = (type) => {
-    const parsed = safeParseJson(layoutJson, defaultJson[layoutKey] || {});
-    const currentBlocks = Array.isArray(parsed.blocks) ? parsed.blocks : [];
-    setLayoutJson(prettyJson({ ...parsed, blocks: [...currentBlocks, createLayoutBlock(type, layoutEvent)] }));
-    setLayoutError("");
-  };
-
-  const updateLayoutConfig = (config) => {
-    setLayoutJson(prettyJson(config));
-    setLayoutError("");
-  };
-
-  const updateBlock = (blockId, patch) => {
-    updateLayoutConfig({
-      ...layoutConfig,
-      blocks: layoutBlocks.map((block) => (block.id === blockId ? { ...block, ...patch } : block)),
-    });
-  };
-
-  const removeBlock = (blockId) => {
-    updateLayoutConfig({
-      ...layoutConfig,
-      blocks: layoutBlocks.filter((block) => block.id !== blockId),
-    });
-  };
-
-  const moveBlock = (fromId, toId) => {
-    if (!fromId || !toId || fromId === toId) return;
-    const next = [...layoutBlocks];
-    const fromIndex = next.findIndex((block) => block.id === fromId);
-    const toIndex = next.findIndex((block) => block.id === toId);
-    if (fromIndex < 0 || toIndex < 0) return;
-    const [item] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, item);
-    updateLayoutConfig({ ...layoutConfig, blocks: next });
-  };
-
-  const updateBlockItem = (blockId, key, index, patch) => {
-    const block = layoutBlocks.find((item) => item.id === blockId);
-    if (!block) return;
-    const items = Array.isArray(block[key]) ? [...block[key]] : [];
-    items[index] = { ...(items[index] || {}), ...patch };
-    updateBlock(blockId, { [key]: items });
-  };
-
-  const addBlockItem = (blockId, key, value) => {
-    const block = layoutBlocks.find((item) => item.id === blockId);
-    if (!block) return;
-    updateBlock(blockId, { [key]: [...(Array.isArray(block[key]) ? block[key] : []), value] });
-  };
-
-  const removeBlockItem = (blockId, key, index) => {
-    const block = layoutBlocks.find((item) => item.id === blockId);
-    if (!block) return;
-    updateBlock(blockId, { [key]: (Array.isArray(block[key]) ? block[key] : []).filter((_, itemIndex) => itemIndex !== index) });
-  };
-
-  const collection = (key) => (Array.isArray(layoutConfig?.[key]) ? layoutConfig[key] : []);
-  const updateCollectionItem = (key, index, patch) => {
-    const next = [...collection(key)];
-    next[index] = { ...(next[index] || {}), ...patch };
-    updateLayoutConfig({ ...layoutConfig, [key]: next });
-  };
-  const addCollectionItem = (key, value) => {
-    updateLayoutConfig({ ...layoutConfig, [key]: [...collection(key), value] });
-  };
-  const removeCollectionItem = (key, index) => {
-    updateLayoutConfig({ ...layoutConfig, [key]: collection(key).filter((_, itemIndex) => itemIndex !== index) });
-  };
-  const moveCollectionItem = (key, fromIndex, toIndex) => {
-    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
-    const next = [...collection(key)];
-    const [item] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, item);
-    updateLayoutConfig({ ...layoutConfig, [key]: next });
-  };
-
-  const applyDefaultTemplate = () => {
-    updateLayoutConfig(defaultJson[layoutKey] || {});
-  };
-
-  const handleCloneSettings = () => {
-    if (!eventForm.cloneFromEventId || !layoutEventId) {
-      setMessage({ open: true, severity: "warning", text: "เลือกกิจกรรมต้นทางและปลายทางก่อน" });
-      return;
-    }
-    runAction(
-      () => cloneEventSettings(eventForm.cloneFromEventId, layoutEventId),
-      "คัดลอก settings/layout/templates สำเร็จ"
-    );
   };
 
   const handleRunMigration = async () => {
@@ -778,106 +309,6 @@ export default function EventPlatformPage({ section = "portal" }) {
     } finally {
       setMigrating(false);
     }
-  };
-
-  const handleSaveLayout = () => {
-    try {
-      const parsed = JSON.parse(layoutJson || "{}");
-      setLayoutError("");
-      runAction(
-        () => updateEventLayout(layoutEventId, layoutKey, parsed),
-        "บันทึก layout สำเร็จ"
-      );
-    } catch {
-      setLayoutError("JSON ไม่ถูกต้อง");
-    }
-  };
-
-  const renderBlockEditor = (block) => {
-    const commonFields = (
-      <Stack spacing={1.25}>
-        <FormControlLabel
-          control={<Switch checked={block.enabled !== false} onChange={(event) => updateBlock(block.id, { enabled: event.target.checked })} />}
-          label="แสดงบล็อกนี้บนหน้า Public"
-        />
-      </Stack>
-    );
-    if (block.type === "hero") {
-      return (
-        <Stack spacing={1.5}>
-          {commonFields}
-          <TextField size="small" label="หัวข้อหลัก" value={block.title || ""} onChange={(event) => updateBlock(block.id, { title: event.target.value })} />
-          <TextField size="small" label="หัวข้อรอง" value={block.subtitle || ""} onChange={(event) => updateBlock(block.id, { subtitle: event.target.value })} />
-          <TextField size="small" multiline minRows={2} label="รายละเอียด" value={block.body || ""} onChange={(event) => updateBlock(block.id, { body: event.target.value })} />
-          <TextField size="small" label="URL รูปปก" value={block.imageUrl || ""} onChange={(event) => updateBlock(block.id, { imageUrl: event.target.value })} />
-          <TextField size="small" label="URL โลโก้เฉพาะบล็อก" value={block.logoUrl || ""} onChange={(event) => updateBlock(block.id, { logoUrl: event.target.value })} />
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField fullWidth size="small" label="ข้อความปุ่มหลัก" value={block.primaryActionLabel || ""} onChange={(event) => updateBlock(block.id, { primaryActionLabel: event.target.value })} />
-            <TextField fullWidth size="small" label="ลิงก์ปุ่มหลัก" value={block.primaryActionUrl || ""} onChange={(event) => updateBlock(block.id, { primaryActionUrl: event.target.value })} />
-          </Stack>
-        </Stack>
-      );
-    }
-    if (block.type === "schedule") {
-      return (
-        <Stack spacing={1.5}>
-          {commonFields}
-          <TextField size="small" label="หัวข้อบล็อก" value={block.title || ""} onChange={(event) => updateBlock(block.id, { title: event.target.value })} />
-          {(block.items || []).map((item, index) => (
-            <Paper key={`${block.id}-schedule-${index}`} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-              <Stack direction={{ xs: "column", md: "row" }} spacing={1}>
-                <TextField size="small" label="เวลา" value={item.time || ""} onChange={(event) => updateBlockItem(block.id, "items", index, { time: event.target.value })} sx={{ minWidth: 110 }} />
-                <TextField size="small" label="หัวข้อ" value={item.title || ""} onChange={(event) => updateBlockItem(block.id, "items", index, { title: event.target.value })} sx={{ flex: 1 }} />
-                <TextField size="small" label="คำอธิบาย" value={item.description || ""} onChange={(event) => updateBlockItem(block.id, "items", index, { description: event.target.value })} sx={{ flex: 1 }} />
-                <IconButton color="error" onClick={() => removeBlockItem(block.id, "items", index)}><DeleteIcon /></IconButton>
-              </Stack>
-            </Paper>
-          ))}
-          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addBlockItem(block.id, "items", { time: "", title: "รายการใหม่", description: "" })}>
-            เพิ่มรายการกำหนดการ
-          </Button>
-        </Stack>
-      );
-    }
-    if (block.type === "faq") {
-      return (
-        <Stack spacing={1.5}>
-          {commonFields}
-          <TextField size="small" label="หัวข้อบล็อก" value={block.title || ""} onChange={(event) => updateBlock(block.id, { title: event.target.value })} />
-          {(block.items || []).map((item, index) => (
-            <Paper key={`${block.id}-faq-${index}`} variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-              <Stack spacing={1}>
-                <TextField size="small" label="คำถาม" value={item.question || ""} onChange={(event) => updateBlockItem(block.id, "items", index, { question: event.target.value })} />
-                <TextField size="small" label="คำตอบ" value={item.answer || ""} onChange={(event) => updateBlockItem(block.id, "items", index, { answer: event.target.value })} />
-                <Box><IconButton color="error" onClick={() => removeBlockItem(block.id, "items", index)}><DeleteIcon /></IconButton></Box>
-              </Stack>
-            </Paper>
-          ))}
-          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addBlockItem(block.id, "items", { question: "คำถามใหม่", answer: "" })}>
-            เพิ่มคำถาม
-          </Button>
-        </Stack>
-      );
-    }
-    if (block.type === "cta") {
-      return (
-        <Stack spacing={1.5}>
-          {commonFields}
-          <TextField size="small" label="หัวข้อ" value={block.title || ""} onChange={(event) => updateBlock(block.id, { title: event.target.value })} />
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-            <TextField fullWidth size="small" label="ข้อความปุ่ม" value={block.buttonLabel || ""} onChange={(event) => updateBlock(block.id, { buttonLabel: event.target.value })} />
-            <TextField fullWidth size="small" label="ลิงก์ปุ่ม" value={block.buttonUrl || ""} onChange={(event) => updateBlock(block.id, { buttonUrl: event.target.value })} />
-          </Stack>
-        </Stack>
-      );
-    }
-    return (
-      <Stack spacing={1.5}>
-        {commonFields}
-        <TextField size="small" label="หัวข้อ" value={block.title || ""} onChange={(event) => updateBlock(block.id, { title: event.target.value })} />
-        <TextField size="small" multiline minRows={4} label="รายละเอียด" value={block.body || ""} onChange={(event) => updateBlock(block.id, { body: event.target.value })} />
-      </Stack>
-    );
   };
 
   if (loading) {
@@ -902,12 +333,7 @@ export default function EventPlatformPage({ section = "portal" }) {
             {canRunMigration && (
               <Button variant={showMigration ? "contained" : "outlined"} onClick={() => navigate("/admin/events/migration")}>Migration</Button>
             )}
-            {layoutEventId && (
-              <>
-                <Button variant={showSettings ? "contained" : "outlined"} onClick={() => navigate(`/admin/events/${layoutEventId}/settings`)}>ตั้งค่ากิจกรรม</Button>
-                <Button variant={showLayouts ? "contained" : "outlined"} onClick={() => navigate(`/admin/events/${layoutEventId}/layouts`)}>Layout</Button>
-              </>
-            )}
+
             <Chip label={`${catalog.organizations.length} หน่วยงาน`} color="default" />
             <Chip label={`${catalog.series.length} ชุดกิจกรรม`} color="info" variant="outlined" />
             <Chip label={`${catalog.events.length} รอบกิจกรรม`} color="warning" variant="outlined" />
@@ -1022,7 +448,7 @@ export default function EventPlatformPage({ section = "portal" }) {
                         <TableCell>หน่วยงาน / ชุดกิจกรรม</TableCell>
                         <TableCell>สถานะ</TableCell>
                         <TableCell align="right">ข้อมูลในรอบนี้</TableCell>
-                        <TableCell align="right">ตั้งค่า</TableCell>
+                        <TableCell align="right">จัดการ</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1057,78 +483,20 @@ export default function EventPlatformPage({ section = "portal" }) {
                               )}
                             </TableCell>
                             <TableCell align="right">
-                              <Stack direction="row" spacing={0.75} justifyContent="flex-end" flexWrap="wrap">
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  onClick={() => navigate(`/admin/events/${eventId}/settings`)}
-                                >
-                                  ตั้งค่า
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  onClick={() => navigate(`/admin/events/${eventId}/layouts`)}
-                                >
-                                  Layout
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  startIcon={<ContentCopyIcon />}
-                                  onClick={() => handleCopyPublicLink(event)}
-                                >
-                                  ลิงก์
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  startIcon={<PublicIcon />}
-                                  disabled={saving}
-                                  onClick={() => handlePublishEvent(eventId)}
-                                >
-                                  Publish
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  color="success"
-                                  startIcon={<LockOpenIcon />}
-                                  disabled={saving}
-                                  onClick={() => handleStatusChange(eventId, "registration_open")}
-                                >
-                                  เปิดรับ
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  color="warning"
-                                  startIcon={<LockIcon />}
-                                  disabled={saving}
-                                  onClick={() => handleStatusChange(eventId, "registration_closed")}
-                                >
-                                  ปิดรับ
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant={isActive ? "outlined" : "contained"}
-                                  disabled={saving || isActive}
-                                  startIcon={<PublishedWithChangesIcon />}
-                                  onClick={() => handleActivateEvent(eventId)}
-                                >
-                                  ปัจจุบัน
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  color="inherit"
-                                  startIcon={<ArchiveIcon />}
-                                  disabled={saving}
-                                  onClick={() => handleStatusChange(eventId, "archived")}
-                                >
-                                  เก็บ
-                                </Button>
-                              </Stack>
+
+                                <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                                  <IconButton size="small" onClick={() => handleCopyPublicLink(event)} title="คัดลอกลิงก์">
+                                    <ContentCopyIcon fontSize="small" />
+                                  </IconButton>
+                                  {!isActive && (
+                                    <Button size="small" variant="outlined" onClick={() => handleActivateEvent(eventId)} disabled={saving}>
+                                      ตั้งเป็นปัจจุบัน
+                                    </Button>
+                                  )}
+                                  <Button size="small" variant="contained" disableElevation onClick={() => navigate(`/admin/events/${eventId}/dashboard`, { state: { event } })}>
+                                    จัดการ
+                                  </Button>
+                                </Stack>
                             </TableCell>
                           </TableRow>
                         );
@@ -1278,432 +646,7 @@ export default function EventPlatformPage({ section = "portal" }) {
           </>
           )}
 
-          {(showSettings || showLayouts) && (
-          <Grid item xs={12}>
-            <Card sx={{ borderRadius: 2 }}>
-              <CardContent>
-                {showSettings && (
-                <Box mb={3}>
-                  <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} mb={2}>
-                    <Box>
-                      <Typography variant="h6" fontWeight={900}>หน้าและฟีเจอร์ของกิจกรรม</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        ตั้งค่าโลโก้ ภาพปก สี ข้อความ และเลือกเครื่องมือที่กิจกรรมนี้ใช้งาน
-                      </Typography>
-                    </Box>
-                    <Button startIcon={<SaveIcon />} variant="outlined" onClick={handleSaveEventDetail} disabled={saving || !layoutEventId}>
-                      บันทึกข้อมูลหน้า public
-                    </Button>
-                  </Stack>
-                  <Grid container spacing={1.5}>
-                    <Grid item xs={12} md={6}>
-                      <TextField size="small" fullWidth label="ชื่อกิจกรรม" value={eventDetailForm.name} onChange={(e) => setEventDetailForm({ ...eventDetailForm, name: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12} md={3}>
-                      <TextField size="small" fullWidth label="ปีงาน" value={eventDetailForm.eventYear} onChange={(e) => setEventDetailForm({ ...eventDetailForm, eventYear: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12} md={3}>
-                      <TextField size="small" fullWidth label="รหัส URL" helperText="เช่น event-name-2569" value={eventDetailForm.slug} onChange={(e) => setEventDetailForm({ ...eventDetailForm, slug: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField select size="small" fullWidth label="การเชื่อมข้อมูล" value={eventDetailForm.linkingMode} onChange={(e) => setEventDetailForm({ ...eventDetailForm, linkingMode: e.target.value })}>
-                        <MenuItem value="isolated">{linkingModeLabels.isolated}</MenuItem>
-                        <MenuItem value="series-linked">{linkingModeLabels["series-linked"]}</MenuItem>
-                        <MenuItem value="manual-linked">{linkingModeLabels["manual-linked"]}</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField size="small" fullWidth label="URL โลโก้งาน" value={eventDetailForm.logoUrl} onChange={(e) => setEventDetailForm({ ...eventDetailForm, logoUrl: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField size="small" fullWidth label="URL ภาพปก" value={eventDetailForm.coverImageUrl} onChange={(e) => setEventDetailForm({ ...eventDetailForm, coverImageUrl: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField size="small" fullWidth type="color" label="สีหลัก" value={eventDetailForm.primaryColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, primaryColor: e.target.value })} InputLabelProps={{ shrink: true }} />
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField size="small" fullWidth type="color" label="สีรอง" value={eventDetailForm.secondaryColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, secondaryColor: e.target.value })} InputLabelProps={{ shrink: true }} />
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField size="small" fullWidth type="color" label="สีเน้น" value={eventDetailForm.accentColor} onChange={(e) => setEventDetailForm({ ...eventDetailForm, accentColor: e.target.value })} InputLabelProps={{ shrink: true }} />
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField select size="small" fullWidth label="เปิดรับลงทะเบียนใน config" value={eventDetailForm.enableRegister ? "yes" : "no"} onChange={(e) => setEventDetailForm({ ...eventDetailForm, enableRegister: e.target.value === "yes" })}>
-                        <MenuItem value="yes">เปิด</MenuItem>
-                        <MenuItem value="no">ปิด</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={6}>
-                      <TextField select size="small" fullWidth label="โหมดปิดปรับปรุง" value={eventDetailForm.maintenanceMode ? "yes" : "no"} onChange={(e) => setEventDetailForm({ ...eventDetailForm, maintenanceMode: e.target.value === "yes" })}>
-                        <MenuItem value="no">ไม่ปิดปรับปรุง</MenuItem>
-                        <MenuItem value="yes">ปิดปรับปรุง</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: "#fff" }}>
-                        <Typography fontWeight={900}>ฟีเจอร์ที่เปิดใช้</Typography>
-                        <Typography variant="caption" color="text.secondary">ปิดฟีเจอร์ที่ไม่ใช้ เพื่อลดเมนูที่ไม่เกี่ยวข้องและลดความสับสนของทีมงาน</Typography>
-                        <Grid container spacing={1} mt={0.5}>
-                          {featureOptions.map((feature) => (
-                            <Grid item xs={12} sm={6} md={4} key={feature.key}>
-                              <FormControlLabel
-                                control={
-                                  <Switch
-                                    size="small"
-                                    checked={eventDetailForm.enabledFeatures?.[feature.key] !== false}
-                                    onChange={(e) => {
-                                      const enabledFeatures = {
-                                        ...eventDetailForm.enabledFeatures,
-                                        [feature.key]: e.target.checked,
-                                      };
-                                      setEventDetailForm({
-                                        ...eventDetailForm,
-                                        enabledFeatures,
-                                        enableRegister: feature.key === "registration" ? e.target.checked : eventDetailForm.enableRegister,
-                                      });
-                                    }}
-                                  />
-                                }
-                                label={
-                                  <Box>
-                                    <Typography variant="body2" fontWeight={800}>{feature.label}</Typography>
-                                    <Typography variant="caption" color="text.secondary">{feature.description}</Typography>
-                                  </Box>
-                                }
-                                sx={{ alignItems: "flex-start", m: 0 }}
-                              />
-                            </Grid>
-                          ))}
-                        </Grid>
-                      </Paper>
-                    </Grid>
-                    <Grid item xs={12}>
-                      <Alert severity="info">
-                        การดึงข้อมูลลงทะเบียนเดิมใช้กับงานที่จัดต่อเนื่องรายปี ผู้เข้าร่วมจะขอ OTP ทางอีเมลก่อน ระบบจึงจะเติมข้อมูลเดิมให้ ไม่เปิดเผยข้อมูลจากการเดาอีเมล
-                      </Alert>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField select size="small" fullWidth label="ดึงข้อมูลลงทะเบียนเดิม" value={eventDetailForm.allowRegistrationReuse ? "yes" : "no"} onChange={(e) => setEventDetailForm({ ...eventDetailForm, allowRegistrationReuse: e.target.value === "yes" })}>
-                        <MenuItem value="no">ปิด</MenuItem>
-                        <MenuItem value="yes">เปิด และบังคับ OTP</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField select size="small" fullWidth label="แหล่งข้อมูลเดิม" value={eventDetailForm.registrationReuseMode} onChange={(e) => setEventDetailForm({ ...eventDetailForm, registrationReuseMode: e.target.value })}>
-                        <MenuItem value="series-linked">รอบก่อนในชุดกิจกรรมเดียวกัน</MenuItem>
-                        <MenuItem value="manual-linked">เลือกกิจกรรมเอง</MenuItem>
-                      </TextField>
-                    </Grid>
-                    <Grid item xs={12} md={4}>
-                      <TextField size="small" fullWidth label="การยืนยันตัวตน" value="OTP ทางอีเมล (บังคับ)" InputProps={{ readOnly: true }} />
-                    </Grid>
-                    {eventDetailForm.registrationReuseMode === "manual-linked" && (
-                      <Grid item xs={12}>
-                        <TextField
-                          select
-                          fullWidth
-                          size="small"
-                          SelectProps={{ multiple: true }}
-                          label="กิจกรรมต้นทางที่อนุญาตให้ดึงข้อมูลเดิม"
-                          value={(eventDetailForm.registrationReuseEventIds || []).map(String)}
-                          onChange={(e) => setEventDetailForm({ ...eventDetailForm, registrationReuseEventIds: e.target.value })}
-                          helperText="เลือกได้หลายรอบ เช่น งานปี 2024/2025 เพื่อให้ผู้เข้าร่วมยืนยันอีเมลแล้วดึงข้อมูลมาเติมได้"
-                        >
-                          {catalog.events.filter((item) => getId(item) !== layoutEventId).map((item) => (
-                            <MenuItem key={getId(item)} value={getId(item)}>{item.name} / {item.eventYear}</MenuItem>
-                          ))}
-                        </TextField>
-                      </Grid>
-                    )}
-                    <Grid item xs={12}>
-                      <TextField size="small" fullWidth label="ข้อความต้อนรับ/คำอธิบายสั้น" value={eventDetailForm.welcomeMessage} onChange={(e) => setEventDetailForm({ ...eventDetailForm, welcomeMessage: e.target.value })} />
-                    </Grid>
-                    <Grid item xs={12}>
-                      <TextField size="small" fullWidth label="อีเมลติดต่อ" value={eventDetailForm.contactEmail} onChange={(e) => setEventDetailForm({ ...eventDetailForm, contactEmail: e.target.value })} />
-                    </Grid>
-                  </Grid>
-                </Box>
-                )}
-                {showLayouts && (
-                <>
-                <Stack direction={{ xs: "column", sm: "row" }} justifyContent="space-between" spacing={2} mb={2}>
-                  <Box>
-                    <Typography variant="h6" fontWeight={900}>เลย์เอาท์และแม่แบบ</Typography>
-                    <Typography variant="caption" color="text.secondary">ออกแบบด้วยบล็อกแบบลากเรียงลำดับได้ ระบบยังตรวจ schema ให้ก่อนบันทึกเหมือนเดิม</Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
-                    <Button variant="outlined" onClick={applyDefaultTemplate} disabled={saving}>ใช้แม่แบบมาตรฐาน</Button>
-                    <Button startIcon={<ContentCopyIcon />} onClick={handleCloneSettings} disabled={saving || !eventForm.cloneFromEventId || !layoutEventId}>
-                      คัดลอกไปยังรอบที่เลือก
-                    </Button>
-                  </Stack>
-                </Stack>
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} mb={2}>
-                  <TextField select fullWidth size="small" label="รอบกิจกรรม" value={layoutEventId} onChange={(e) => setLayoutEventId(e.target.value)}>
-                    {catalog.events.map((item) => <MenuItem key={getId(item)} value={getId(item)}>{item.name} / {item.eventYear}</MenuItem>)}
-                  </TextField>
-                  <TextField select fullWidth size="small" label="ส่วนที่ต้องการแก้" value={layoutKey} onChange={(e) => setLayoutKey(e.target.value)}>
-                    {layoutKeys.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
-                  </TextField>
-                </Stack>
-                {layoutKey === "landingPage" && (
-                  <Grid container spacing={2}>
-                    <Grid item xs={12} lg={7}>
-                      <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff" }}>
-                        <Stack direction="row" spacing={1} flexWrap="wrap" mb={2}>
-                          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addLayoutBlock("hero")}>Hero</Button>
-                          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addLayoutBlock("richText")}>ข้อความ</Button>
-                          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addLayoutBlock("schedule")}>กำหนดการ</Button>
-                          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addLayoutBlock("faq")}>FAQ</Button>
-                          <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addLayoutBlock("cta")}>ปุ่ม CTA</Button>
-                        </Stack>
 
-                        <Stack spacing={1.25}>
-                          {layoutBlocks.length === 0 && (
-                            <EmptyState title="ยังไม่มีบล็อก" description="เลือกบล็อกด้านบนเพื่อเริ่มจัดหน้า Landing ของกิจกรรมนี้" />
-                          )}
-                          {layoutBlocks.map((block, index) => (
-                            <Accordion
-                              key={block.id}
-                              defaultExpanded={index === 0}
-                              draggable
-                              onDragStart={() => setDragBlockId(block.id)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => {
-                                moveBlock(dragBlockId, block.id);
-                                setDragBlockId("");
-                              }}
-                              sx={{
-                                border: "1px solid",
-                                borderColor: dragBlockId && dragBlockId !== block.id ? "primary.main" : "divider",
-                                borderRadius: "8px !important",
-                                boxShadow: "none",
-                                "&:before": { display: "none" },
-                              }}
-                            >
-                              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Stack direction="row" spacing={1.25} alignItems="center" sx={{ width: "100%" }}>
-                                  <DragIndicatorIcon color="disabled" />
-                                  <Chip size="small" label={index + 1} />
-                                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                                    <Typography fontWeight={950} noWrap>{blockTitle(block)}: {block.title || block.subtitle || block.buttonLabel || "-"}</Typography>
-                                    <Typography variant="caption" color="text.secondary">{block.enabled === false ? "ซ่อนอยู่" : "แสดงบนหน้า Public"}</Typography>
-                                  </Box>
-                                  <IconButton
-                                    size="small"
-                                    color="error"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      removeBlock(block.id);
-                                    }}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </Stack>
-                              </AccordionSummary>
-                              <AccordionDetails>
-                                {renderBlockEditor(block)}
-                              </AccordionDetails>
-                            </Accordion>
-                          ))}
-                        </Stack>
-                      </Paper>
-                    </Grid>
-                    <Grid item xs={12} lg={5}>
-                      <LayoutPreview layoutKey={layoutKey} config={layoutConfig} event={layoutEvent} />
-                    </Grid>
-                  </Grid>
-                )}
-                {layoutKey !== "landingPage" && (
-                  <Grid container spacing={2}>
-                  <Grid item xs={12} lg={7}>
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff" }}>
-                    <Alert severity="info" sx={{ mb: 2 }}>
-                      แม่แบบส่วนนี้แก้ผ่านฟอร์มได้เลย หากต้องปรับละเอียดมากกว่านี้ให้เปิด JSON ขั้นสูงด้านล่าง
-                    </Alert>
-                    <Stack spacing={1.5}>
-                      {layoutKey === "registrationForm" && (
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Box>
-                              <Typography fontWeight={900}>ช่องข้อมูลในแบบฟอร์ม</Typography>
-                              <Typography variant="caption" color="text.secondary">เหมาะกับ field เฉพาะกิจกรรม ส่วน field หลักยังจัดการได้จาก Participant Fields</Typography>
-                            </Box>
-                            <Button
-                              size="small"
-                              startIcon={<AddIcon />}
-                              variant="outlined"
-                              onClick={() => {
-                                const id = `field_${Date.now()}`;
-                                addCollectionItem("fields", { id, key: id, name: id, label: "ช่องข้อมูลใหม่", type: "text", required: false });
-                              }}
-                            >
-                              เพิ่ม Field
-                            </Button>
-                          </Stack>
-                          {collection("fields").length === 0 && <EmptyState title="ยังไม่มี field เฉพาะกิจกรรม" description="กดเพิ่ม Field หากกิจกรรมนี้ต้องถามข้อมูลพิเศษ" />}
-                          {collection("fields").map((field, index) => (
-                            <Paper
-                              key={`${field.name || field.key || index}`}
-                              variant="outlined"
-                              draggable
-                              onDragStart={() => setDragBlockId(`fields:${index}`)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => {
-                                const fromIndex = Number(String(dragBlockId).split(":")[1]);
-                                moveCollectionItem("fields", fromIndex, index);
-                                setDragBlockId("");
-                              }}
-                              sx={{ p: 1.5, borderRadius: 2, borderColor: dragBlockId ? "primary.main" : "divider" }}
-                            >
-                              <Grid container spacing={1.25} alignItems="center">
-                                <Grid item xs={12} md={3}><TextField fullWidth size="small" label="Key" value={field.name || field.key || ""} onChange={(event) => updateCollectionItem("fields", index, { id: event.target.value, key: event.target.value, name: event.target.value })} /></Grid>
-                                <Grid item xs={12} md={4}><TextField fullWidth size="small" label="ชื่อช่อง" value={field.label || ""} onChange={(event) => updateCollectionItem("fields", index, { label: event.target.value })} /></Grid>
-                                <Grid item xs={12} md={2}>
-                                  <TextField select fullWidth size="small" label="ประเภท" value={field.type || "text"} onChange={(event) => updateCollectionItem("fields", index, { type: event.target.value })}>
-                                    <MenuItem value="text">ข้อความ</MenuItem>
-                                    <MenuItem value="email">อีเมล</MenuItem>
-                                    <MenuItem value="tel">เบอร์โทร</MenuItem>
-                                    <MenuItem value="select">ตัวเลือก</MenuItem>
-                                    <MenuItem value="textarea">หลายบรรทัด</MenuItem>
-                                  </TextField>
-                                </Grid>
-                                <Grid item xs={8} md={2}>
-                                  <FormControlLabel control={<Switch checked={field.required === true} onChange={(event) => updateCollectionItem("fields", index, { required: event.target.checked })} />} label="บังคับกรอก" />
-                                </Grid>
-                                <Grid item xs={4} md={1} textAlign="right"><IconButton color="error" onClick={() => removeCollectionItem("fields", index)}><DeleteIcon /></IconButton></Grid>
-                              </Grid>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      )}
-                      {layoutKey === "dashboard" && (
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography fontWeight={900}>Widgets ใน Dashboard</Typography>
-                            <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addCollectionItem("widgets", { type: "metric", title: "Widget ใหม่", enabled: true })}>เพิ่ม Widget</Button>
-                          </Stack>
-                          {collection("widgets").length === 0 && <EmptyState title="ใช้ Dashboard มาตรฐาน" description="เพิ่ม Widget เฉพาะกิจกรรมเมื่ออยากจัดหน้า dashboard เอง" />}
-                          {collection("widgets").map((widget, index) => (
-                            <Paper
-                              key={`${widget.id || widget.type || "widget"}-${index}`}
-                              variant="outlined"
-                              draggable
-                              onDragStart={() => setDragBlockId(`widgets:${index}`)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => {
-                                const fromIndex = Number(String(dragBlockId).split(":")[1]);
-                                moveCollectionItem("widgets", fromIndex, index);
-                                setDragBlockId("");
-                              }}
-                              sx={{ p: 1.5, borderRadius: 2, borderColor: dragBlockId ? "primary.main" : "divider" }}
-                            >
-                              <Grid container spacing={1.25} alignItems="center">
-                                <Grid item xs={12} md={3}><TextField select fullWidth size="small" label="ชนิด" value={widget.type || "metric"} onChange={(event) => updateCollectionItem("widgets", index, { type: event.target.value })}><MenuItem value="metric">Metric</MenuItem><MenuItem value="chart">Chart</MenuItem><MenuItem value="table">Table</MenuItem></TextField></Grid>
-                                <Grid item xs={12} md={6}><TextField fullWidth size="small" label="ชื่อ Widget" value={widget.title || ""} onChange={(event) => updateCollectionItem("widgets", index, { title: event.target.value })} /></Grid>
-                                <Grid item xs={8} md={2}><FormControlLabel control={<Switch checked={widget.enabled !== false} onChange={(event) => updateCollectionItem("widgets", index, { enabled: event.target.checked })} />} label="เปิด" /></Grid>
-                                <Grid item xs={4} md={1} textAlign="right"><IconButton color="error" onClick={() => removeCollectionItem("widgets", index)}><DeleteIcon /></IconButton></Grid>
-                              </Grid>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      )}
-                      {layoutKey === "ticket" && (
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography fontWeight={900}>บล็อกในบัตร/อีเมลยืนยัน</Typography>
-                            <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addCollectionItem("blocks", { type: "text", title: "หัวข้อ", body: "รายละเอียด", enabled: true })}>เพิ่มบล็อก</Button>
-                          </Stack>
-                          {collection("blocks").length === 0 && <EmptyState title="ใช้บัตร/อีเมลมาตรฐาน" description="เพิ่มบล็อกเมื่ออยากใส่ข้อความเฉพาะกิจกรรม" />}
-                          {collection("blocks").map((block, index) => (
-                            <Paper
-                              key={`${block.id || block.title || "ticket"}-${index}`}
-                              variant="outlined"
-                              draggable
-                              onDragStart={() => setDragBlockId(`blocks:${index}`)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => {
-                                const fromIndex = Number(String(dragBlockId).split(":")[1]);
-                                moveCollectionItem("blocks", fromIndex, index);
-                                setDragBlockId("");
-                              }}
-                              sx={{ p: 1.5, borderRadius: 2, borderColor: dragBlockId ? "primary.main" : "divider" }}
-                            >
-                              <Stack spacing={1}>
-                                <TextField size="small" label="หัวข้อ" value={block.title || ""} onChange={(event) => updateCollectionItem("blocks", index, { title: event.target.value })} />
-                                <TextField size="small" multiline minRows={2} label="รายละเอียด" value={block.body || ""} onChange={(event) => updateCollectionItem("blocks", index, { body: event.target.value })} />
-                                <Box><IconButton color="error" onClick={() => removeCollectionItem("blocks", index)}><DeleteIcon /></IconButton></Box>
-                              </Stack>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      )}
-                      {layoutKey === "report" && (
-                        <Stack spacing={1.5}>
-                          <Stack direction="row" justifyContent="space-between" alignItems="center">
-                            <Typography fontWeight={900}>คอลัมน์รายงาน</Typography>
-                            <Button size="small" startIcon={<AddIcon />} variant="outlined" onClick={() => addCollectionItem("columns", { key: "name", label: "ชื่อ", enabled: true })}>เพิ่มคอลัมน์</Button>
-                          </Stack>
-                          {collection("columns").length === 0 && <EmptyState title="ใช้คอลัมน์รายงานมาตรฐาน" description="เพิ่มคอลัมน์เมื่ออยากกำหนดรายงานเฉพาะกิจกรรม" />}
-                          {collection("columns").map((column, index) => (
-                            <Paper
-                              key={`${column.id || column.key || "column"}-${index}`}
-                              variant="outlined"
-                              draggable
-                              onDragStart={() => setDragBlockId(`columns:${index}`)}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={() => {
-                                const fromIndex = Number(String(dragBlockId).split(":")[1]);
-                                moveCollectionItem("columns", fromIndex, index);
-                                setDragBlockId("");
-                              }}
-                              sx={{ p: 1.5, borderRadius: 2, borderColor: dragBlockId ? "primary.main" : "divider" }}
-                            >
-                              <Grid container spacing={1.25} alignItems="center">
-                                <Grid item xs={12} md={4}><TextField fullWidth size="small" label="Key" value={column.key || ""} onChange={(event) => updateCollectionItem("columns", index, { key: event.target.value })} /></Grid>
-                                <Grid item xs={12} md={5}><TextField fullWidth size="small" label="ชื่อคอลัมน์" value={column.label || ""} onChange={(event) => updateCollectionItem("columns", index, { label: event.target.value })} /></Grid>
-                                <Grid item xs={8} md={2}><FormControlLabel control={<Switch checked={column.enabled !== false} onChange={(event) => updateCollectionItem("columns", index, { enabled: event.target.checked })} />} label="เปิด" /></Grid>
-                                <Grid item xs={4} md={1} textAlign="right"><IconButton color="error" onClick={() => removeCollectionItem("columns", index)}><DeleteIcon /></IconButton></Grid>
-                              </Grid>
-                            </Paper>
-                          ))}
-                        </Stack>
-                      )}
-                    </Stack>
-                  </Paper>
-                  </Grid>
-                  <Grid item xs={12} lg={5}>
-                    <LayoutPreview layoutKey={layoutKey} config={layoutConfig} event={layoutEvent} />
-                  </Grid>
-                  </Grid>
-                )}
-                <Accordion expanded={advancedJsonOpen} onChange={(_, expanded) => setAdvancedJsonOpen(expanded)} sx={{ mt: 2, borderRadius: "8px !important", boxShadow: "none", border: "1px solid #e4e7ec", "&:before": { display: "none" } }}>
-                  <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                    <Typography fontWeight={900}>JSON ขั้นสูงสำหรับทีมเทคนิค</Typography>
-                  </AccordionSummary>
-                  <AccordionDetails>
-                    <TextField
-                      value={layoutJson}
-                      onChange={(e) => setLayoutJson(e.target.value)}
-                      error={!!layoutError}
-                      helperText={layoutError || "ระบบจะตรวจ schema ฝั่ง server ก่อนบันทึกเสมอ"}
-                      multiline
-                      minRows={10}
-                      fullWidth
-                      sx={{ fontFamily: "monospace", "& textarea": { fontFamily: "monospace", fontSize: 13 } }}
-                    />
-                  </AccordionDetails>
-                </Accordion>
-                <Divider sx={{ my: 2 }} />
-                <Button startIcon={saving ? <CircularProgress size={16} /> : <SaveIcon />} variant="contained" onClick={handleSaveLayout} disabled={saving || !layoutEventId}>
-                  บันทึกเลย์เอาท์
-                </Button>
-                </>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-          )}
         </Grid>
 
         <Snackbar open={message.open} autoHideDuration={4000} onClose={() => setMessage((prev) => ({ ...prev, open: false }))}>

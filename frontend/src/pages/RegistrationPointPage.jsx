@@ -1,5 +1,5 @@
 // frontend/src/pages/RegistrationPointPage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box, Typography, Card, CardContent, Button, Table, TableBody,
   TableCell, TableContainer, TableHead, TableRow, Paper, IconButton,
@@ -14,8 +14,9 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import RegistrationPointDialog from "../components/RegistrationPointDialog";
+import { eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 export default function RegistrationPointPage() {
   const { user, loading } = useAuth();
@@ -29,11 +30,14 @@ export default function RegistrationPointPage() {
   const [busyId, setBusyId] = useState(null);
   const [headerHover, setHeaderHover] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+  const eventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const eventParams = useMemo(() => eventContextToParams(eventContext), [eventContext]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setFetching(true);
     try {
-      const res = await api.listRegistrationPoints();
+      const res = await api.listRegistrationPoints(eventParams);
       const rows = res.data || res || [];
       setPoints(rows);
       setLastFetch(Date.now());
@@ -42,7 +46,7 @@ export default function RegistrationPointPage() {
     } finally {
       setFetching(false);
     }
-  };
+  }, [eventParams]);
 
   useEffect(() => {
     if (loading) return;
@@ -58,7 +62,7 @@ export default function RegistrationPointPage() {
       return;
     }
     fetchData();
-  }, [user, loading, navigate]);
+  }, [user, loading, navigate, fetchData]);
 
   useEffect(() => {
     const q = search.trim().toLowerCase();
@@ -113,10 +117,11 @@ export default function RegistrationPointPage() {
   const handleDialogSave = async (data) => {
     setBusyId("form");
     try {
+      const payload = { ...data, ...eventParams };
       if (editData) {
-        await api.updateRegistrationPoint(editData._id, data);
+        await api.updateRegistrationPoint(editData._id, payload);
       } else {
-        await api.createRegistrationPoint(data);
+        await api.createRegistrationPoint(payload);
       }
       setDialogOpen(false);
       await fetchData();
@@ -191,7 +196,9 @@ export default function RegistrationPointPage() {
                 <TableHead>
                   <TableRow sx={{ "& th": { fontWeight: 800, bgcolor: "#fff8e1" } }}>
                     <TableCell>ชื่อจุดลงทะเบียน</TableCell>
+                    <TableCell>ประเภท</TableCell>
                     <TableCell>รายละเอียด</TableCell>
+                    <TableCell>Kiosk Policy</TableCell>
                     <TableCell>สร้างเมื่อ</TableCell>
                     <TableCell align="center" width={140}>จัดการ</TableCell>
                   </TableRow>
@@ -199,11 +206,11 @@ export default function RegistrationPointPage() {
                 <TableBody>
                   {fetching ? (
                     [...Array(4)].map((_, i) => (
-                      <TableRow key={`sk-${i}`}><TableCell><Skeleton width={180} /></TableCell><TableCell><Skeleton width="80%" /></TableCell><TableCell><Skeleton width={160} /></TableCell><TableCell align="center"><Skeleton width={100} /></TableCell></TableRow>
+                      <TableRow key={`sk-${i}`}><TableCell><Skeleton width={180} /></TableCell><TableCell><Skeleton width={90} /></TableCell><TableCell><Skeleton width="80%" /></TableCell><TableCell><Skeleton width={160} /></TableCell><TableCell><Skeleton width={160} /></TableCell><TableCell align="center"><Skeleton width={100} /></TableCell></TableRow>
                     ))
                   ) : filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={4} align="center" sx={{ py: 6 }}>
+                      <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
                         <Avatar src="/logo.svg" sx={{ width: 56, height: 56, mb: 1, bgcolor: "#fffde7", border: "2px solid #ffe082" }} />
                         <Typography color="text.secondary" sx={{ fontWeight: 600 }}>{search ? "ไม่พบผลลัพธ์ตามที่ค้นหา" : "ยังไม่มีจุดลงทะเบียน"}</Typography>
                         {!search && <Button variant="outlined" sx={{ mt: 1.5, borderRadius: 2 }} onClick={handleOpenAdd}>เพิ่มจุดลงทะเบียนแรกของคุณ</Button>}
@@ -223,7 +230,17 @@ export default function RegistrationPointPage() {
                               <Typography sx={{ fontWeight: 700 }}>{point.name}</Typography>
                             </Stack>
                           </TableCell>
+                          <TableCell>
+                            <Chip size="small" label={point.type || "onsite"} variant="outlined" sx={{ fontWeight: 700 }} />
+                          </TableCell>
                           <TableCell sx={{ color: "text.secondary" }}>{point.description || "-"}</TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+                              <Chip size="small" color={point.kioskPolicy?.allowKioskMode || point.type === "kiosk" ? "primary" : "default"} label={point.kioskPolicy?.allowKioskMode || point.type === "kiosk" ? "Kiosk" : "No Kiosk"} />
+                              {point.kioskPolicy?.requireCamera && <Chip size="small" label="Camera" />}
+                              {point.kioskPolicy?.requireFullscreen && <Chip size="small" label="Fullscreen" />}
+                            </Stack>
+                          </TableCell>
                           <TableCell>{point.createdAt ? new Date(point.createdAt).toLocaleString("th-TH") : "-"}</TableCell>
                           <TableCell align="center">
                             <Tooltip title="แก้ไข">

@@ -26,3 +26,6 @@ out/
 build/
 *.tsbuildinfo
 uploads/
+gha-creds-*.json
+.release/
+master_plan_full.json

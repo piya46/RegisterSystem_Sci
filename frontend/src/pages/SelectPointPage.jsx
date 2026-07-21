@@ -1,5 +1,5 @@
 // frontend/src/pages/RegistrationPointSelector.jsx
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { listEnabledRegistrationPoints, generateKioskToken, generateSelfRegisterLink } from "../utils/api";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
@@ -37,7 +37,8 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   const location = useLocation();
 
   const params = new URLSearchParams(location.search);
-  const eventParams = eventContextToParams(eventContextFromSearch(location.search));
+  const eventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const eventParams = useMemo(() => eventContextToParams(eventContext), [eventContext]);
   const targetPath = propRedirectTo || params.get("redirectTo") || (window.location.pathname.includes("staff") ? "/staff" : "/kiosk");
 
   useEffect(() => {
@@ -45,18 +46,18 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
     if (last) setSelectedPoint(last);
   }, []);
 
-  const fetchPoints = () => {
+  const fetchPoints = useCallback(() => {
     setLoading(true); setError("");
-    listEnabledRegistrationPoints().then((res) => {
+    listEnabledRegistrationPoints(eventParams).then((res) => {
          const allPoints = res.data || res || [];
          const activePoints = allPoints.filter(p => p.enabled === true || p.isActive === true);
          setPoints(activePoints);
          const lastUsed = localStorage.getItem("lastPoint");
          if (lastUsed && !activePoints.find(p => p._id === lastUsed || p.id === lastUsed)) setSelectedPoint("");
       }).catch(() => setError("ไม่สามารถโหลดข้อมูลจุดลงทะเบียนได้")).finally(() => setLoading(false));
-  };
+  }, [eventParams]);
 
-  useEffect(() => { fetchPoints(); }, []);
+  useEffect(() => { fetchPoints(); }, [fetchPoints]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -68,7 +69,11 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
   const handleShareKiosk = async () => {
     if (!selectedPoint) return;
     try {
-      const res = await generateKioskToken(selectedPoint);
+      const selectedPointData = points.find((point) => point._id === selectedPoint || point.id === selectedPoint);
+      const requiresDeviceId = selectedPointData?.requiresDeviceBinding === true;
+      const deviceId = requiresDeviceId ? window.prompt('กรุณาระบุ Device ID ของเครื่อง Kiosk นี้') : '';
+      if (requiresDeviceId && !deviceId) return;
+      const res = await generateKioskToken(selectedPoint, { ...eventParams, deviceId });
       const link = `${window.location.origin}/kiosk/join#token=${encodeURIComponent(res.data.token)}`;
       navigator.clipboard.writeText(link);
       alert('คัดลอกลิงก์เครื่อง Kiosk สำเร็จแล้ว! ลิงก์นี้หมดอายุใน 12 ชั่วโมง');
@@ -94,7 +99,8 @@ export default function RegistrationPointSelector({ redirectTo: propRedirectTo, 
       const res = await generateSelfRegisterLink({
         pointId: selectedPoint,
         validFrom: new Date(validFrom).toISOString(),
-        validUntil: new Date(validUntil).toISOString()
+        validUntil: new Date(validUntil).toISOString(),
+        ...eventParams
       });
       setGeneratedLink(`${window.location.origin}${appendQuery('/self-register', eventParams)}#token=${encodeURIComponent(res.data.token)}`);
     } catch (err) {

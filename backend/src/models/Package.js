@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const sqlMirrorOutboxPlugin = require('../utils/sqlMirrorOutboxPlugin');
 
 const packageSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -16,11 +17,15 @@ const packageSchema = new mongoose.Schema({
   pickupLocations: [{ type: String }],
   isDeliveryAvailable: { type: Boolean, default: true },
   isActive: { type: Boolean, default: true },
+  deletedAt: { type: Date, default: null },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', default: null },
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', default: null, index: true },
   seriesId: { type: mongoose.Schema.Types.ObjectId, ref: 'EventSeries', default: null, index: true },
   eventId: { type: mongoose.Schema.Types.ObjectId, ref: 'Event', default: null, index: true },
   eventYear: { type: String, default: '', index: true },
   createdAt: { type: Date, default: Date.now }
 });
+
+packageSchema.plugin(sqlMirrorOutboxPlugin, { domain: 'packages' });
 
 module.exports = mongoose.model('Package', packageSchema);

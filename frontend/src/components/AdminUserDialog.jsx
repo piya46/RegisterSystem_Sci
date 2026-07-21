@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, MenuItem, Typography,
-  Avatar, Stack, Divider, Chip, LinearProgress, InputAdornment, Tooltip, IconButton, Box
+  Avatar, Stack, Divider, Chip, LinearProgress, InputAdornment, Tooltip, IconButton, Box, Paper
 } from "@mui/material";
 import VpnKeyIcon from "@mui/icons-material/VpnKey";
 import PersonAddIcon from "@mui/icons-material/PersonAdd";
@@ -23,6 +23,14 @@ const roles = [
   { value: "auditor", label: "Auditor - ตรวจสอบรายงาน" }
 ];
 
+const systemWideRoles = new Set(["superadmin", "admin"]);
+const organizationScopedRoles = new Set(["org_admin"]);
+const eventScopedRoles = new Set(["event_admin", "event_manager", "staff", "kiosk", "auditor"]);
+
+function entityId(value) {
+  return String(value?._id || value?.id || value || "");
+}
+
 const Y = {
   main: "#FFC107",
   dark: "#FFB300",
@@ -32,7 +40,7 @@ const Y = {
 };
 
 export default function AdminUserDialog({
-  open, onClose, onSave, initialData, isEdit, pointsList = [], canManageSystemRoles = false
+  open, onClose, onSave, initialData, isEdit, pointsList = [], eventCatalog = {}, canManageSystemRoles = false
 }) {
   const [username, setUsername] = useState("");
   const [fullName, setFullName] = useState("");
@@ -40,8 +48,12 @@ export default function AdminUserDialog({
   const [role, setRole] = useState("staff");
   const [password, setPassword] = useState("");
   const [selectedPoints, setSelectedPoints] = useState([]);
+  const [selectedOrganizations, setSelectedOrganizations] = useState([]);
+  const [selectedEvents, setSelectedEvents] = useState([]);
 
   const [errors, setErrors] = useState({});
+  const organizationOptions = eventCatalog.organizations || [];
+  const eventOptions = eventCatalog.events || [];
 
   useEffect(() => {
     if (initialData) {
@@ -50,6 +62,8 @@ export default function AdminUserDialog({
       setEmail(initialData.email || "");
       setRole(Array.isArray(initialData.role) ? initialData.role[0] : initialData.role || "staff");
       setSelectedPoints(initialData.registrationPoints || []);
+      setSelectedOrganizations((initialData.organizationIds || []).map(entityId).filter(Boolean));
+      setSelectedEvents((initialData.eventIds || []).map(entityId).filter(Boolean));
       setPassword("");
     } else {
       setUsername("");
@@ -57,6 +71,8 @@ export default function AdminUserDialog({
       setEmail("");
       setRole("staff");
       setSelectedPoints([]);
+      setSelectedOrganizations([]);
+      setSelectedEvents([]);
       setPassword("");
     }
     setErrors({});
@@ -85,12 +101,52 @@ export default function AdminUserDialog({
     return roles.filter((option) => canManageSystemRoles || !systemRoles.has(option.value) || option.value === role);
   }, [canManageSystemRoles, role]);
 
+  const accessMode = useMemo(() => {
+    if (systemWideRoles.has(role)) {
+      return {
+        title: "เห็นทั้งระบบ",
+        description: "Role นี้ดูแลทุกหน่วยงานและทุกกิจกรรมได้ ควรใช้เฉพาะผู้ดูแลหลัก",
+        severity: "warning",
+      };
+    }
+    if (organizationScopedRoles.has(role)) {
+      return {
+        title: "จำกัดตามหน่วยงาน",
+        description: "เลือกหน่วยงานที่ผู้ใช้นี้ดูแล ระบบจะเปิดสิทธิ์เฉพาะกิจกรรมในหน่วยงานนั้น",
+        severity: "info",
+      };
+    }
+    return {
+      title: "จำกัดตามรอบกิจกรรม",
+      description: "เลือกกิจกรรมที่ผู้ใช้นี้รับผิดชอบ เพื่อป้องกันข้อมูลข้ามงาน",
+      severity: "success",
+    };
+  }, [role]);
+
+  const renderSelectedChips = (selected, options, emptyText) => {
+    if (!selected?.length) return emptyText;
+    return (
+      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+        {selected.map((value) => {
+          const option = options.find((item) => entityId(item) === String(value));
+          return <Chip key={value} label={option?.name || value} size="small" />;
+        })}
+      </Box>
+    );
+  };
+
   const validate = () => {
     const e = {};
     if (!username.trim()) e.username = "กรุณาระบุ Username";
     if (!email.trim()) e.email = "กรุณาระบุ Email";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Email Format ไม่ถูกต้อง";
     if (!isEdit && !password) e.password = "กรุณาระบุ Password";
+    if (organizationScopedRoles.has(role) && selectedOrganizations.length === 0) {
+      e.organizationIds = "กรุณาเลือกอย่างน้อย 1 หน่วยงาน";
+    }
+    if (eventScopedRoles.has(role) && selectedEvents.length === 0) {
+      e.eventIds = "กรุณาเลือกอย่างน้อย 1 รอบกิจกรรม";
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -103,6 +159,8 @@ export default function AdminUserDialog({
       email: email.trim(),
       role,
       registrationPoints: selectedPoints,
+      organizationIds: organizationScopedRoles.has(role) ? selectedOrganizations : [],
+      eventIds: eventScopedRoles.has(role) ? selectedEvents : [],
       ...(!isEdit && password ? { password } : {})
     });
   };
@@ -240,6 +298,63 @@ export default function AdminUserDialog({
               </MenuItem>
             ))}
           </TextField>
+
+          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2, bgcolor: "#fff", borderColor: Y.border }}>
+            <Typography fontWeight={900} color={Y.text}>{accessMode.title}</Typography>
+            <Typography variant="caption" color="text.secondary">{accessMode.description}</Typography>
+            {organizationScopedRoles.has(role) && (
+              <TextField
+                select
+                label="หน่วยงานที่ดูแล"
+                value={selectedOrganizations}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedOrganizations(typeof value === "string" ? value.split(",") : value);
+                }}
+                fullWidth
+                margin="dense"
+                error={!!errors.organizationIds}
+                helperText={errors.organizationIds || "Org Admin จะเข้าถึงกิจกรรมภายใต้หน่วยงานที่เลือก"}
+                SelectProps={{
+                  multiple: true,
+                  renderValue: (selected) => renderSelectedChips(selected, organizationOptions, "ยังไม่ได้เลือกหน่วยงาน"),
+                }}
+                sx={tfStyle}
+              >
+                {organizationOptions.map((organization) => (
+                  <MenuItem key={entityId(organization)} value={entityId(organization)}>
+                    {organization.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+            {eventScopedRoles.has(role) && (
+              <TextField
+                select
+                label="รอบกิจกรรมที่รับผิดชอบ"
+                value={selectedEvents}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setSelectedEvents(typeof value === "string" ? value.split(",") : value);
+                }}
+                fullWidth
+                margin="dense"
+                error={!!errors.eventIds}
+                helperText={errors.eventIds || "ผู้ใช้จะเห็นและจัดการเฉพาะกิจกรรมที่เลือกเท่านั้น"}
+                SelectProps={{
+                  multiple: true,
+                  renderValue: (selected) => renderSelectedChips(selected, eventOptions, "ยังไม่ได้เลือกรอบกิจกรรม"),
+                }}
+                sx={tfStyle}
+              >
+                {eventOptions.map((event) => (
+                  <MenuItem key={entityId(event)} value={entityId(event)}>
+                    {event.name} {event.eventYear ? `/ ${event.eventYear}` : ""}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
+          </Paper>
 
           {/* ส่วนเลือกจุดรับผิดชอบ (แสดงเฉพาะเมื่อไม่ใช่ Admin) */}
           {(role === 'staff' || role === 'kiosk') && (

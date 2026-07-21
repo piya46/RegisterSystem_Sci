@@ -5,7 +5,7 @@ import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import CampaignIcon from '@mui/icons-material/Campaign';
 import { getPublicPrizes } from '../utils/api';
-import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
+import usePublicEventContext from '../hooks/usePublicEventContext';
 
 const THEME = {
     bg: "radial-gradient(circle at 50% 50%, #FFFDE7 0%, #FFC107 100%)",
@@ -16,11 +16,11 @@ const THEME = {
 
 export default function PublicLuckyDrawPage() {
     const [prizes, setPrizes] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
     const [currentTime, setCurrentTime] = useState(new Date());
-    const eventParams = React.useMemo(
-        () => eventContextToParams(eventContextFromSearch(window.location.search)),
-        []
-    );
+    const { event, eventParams, loading: eventLoading, error: eventError } = usePublicEventContext();
+    const primaryColor = event?.branding?.primaryColor || THEME.accent;
 
     useEffect(() => {
         const clock = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -28,25 +28,32 @@ export default function PublicLuckyDrawPage() {
     }, []);
 
     const fetchPrizes = useCallback(async () => {
+        if (!event) return;
         try {
-            const res = await getPublicPrizes(Object.keys(eventParams).length ? eventParams : undefined);
-            setPrizes(res.data);
-        } catch (err) {
-            console.error("Auto-refresh error:", err);
+            const res = await getPublicPrizes(eventParams);
+            setPrizes(Array.isArray(res.data) ? res.data : []);
+            setError('');
+        } catch {
+            setError('ไม่สามารถโหลดผลรางวัลได้');
+        } finally {
+            setLoading(false);
         }
-    }, [eventParams]);
+    }, [event, eventParams]);
 
     useEffect(() => {
+        if (!event) return undefined;
+        setPrizes([]);
+        setLoading(true);
         fetchPrizes();
-        const refreshInterval = setInterval(fetchPrizes, 5000); // 🌟 Refresh ทุก 5 วินาที
+        const refreshInterval = setInterval(fetchPrizes, 5000);
         return () => clearInterval(refreshInterval);
-    }, [fetchPrizes]);
+    }, [event, fetchPrizes]);
 
     const recentWinners = prizes
-        .flatMap(p => p.winners.map(w => ({
+        .flatMap(p => (p.winners || []).map(w => ({
             prizeName: p.name,
-            winnerName: w.participantName || w.participantId?.fields?.name || 'ไม่ทราบชื่อ',
-            department: w.department || w.participantId?.fields?.department || w.participantId?.fields?.dept || '',
+            winnerName: w.participantName || 'ไม่ทราบชื่อ',
+            department: w.department || '',
             wonAt: new Date(w.wonAt)
         })))
         .sort((a, b) => b.wonAt - a.wonAt)
@@ -54,14 +61,35 @@ export default function PublicLuckyDrawPage() {
 
     const latestWinner = recentWinners.length > 0 ? recentWinners[0] : null;
 
+    if (eventLoading || (loading && event)) {
+        return (
+            <Box display="flex" alignItems="center" justifyContent="center" minHeight="100vh">
+                <Typography variant="h6">กำลังโหลดผลรางวัล...</Typography>
+            </Box>
+        );
+    }
+
+    if (eventError || error || !event) {
+        return (
+            <Box display="flex" alignItems="center" justifyContent="center" minHeight="100vh" p={3}>
+                <Typography color="error" variant="h6">{eventError || error || 'ไม่พบข้อมูลกิจกรรม'}</Typography>
+            </Box>
+        );
+    }
+
     return (
         <Box sx={{ minHeight: '100vh', background: THEME.bg, color: THEME.text, p: { xs: 2, md: 4, lg: 6 }, fontFamily: 'Prompt, sans-serif' }}>
 
             {/* Header */}
             <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems="center" mb={6} spacing={2}>
-                <Typography variant="h3" fontWeight={900} color={THEME.accent} display="flex" alignItems="center" gap={1} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)' }}>
-                    <EmojiEventsIcon fontSize="large" /> ประกาศผลรางวัล เสือเหลืองคืนถิ่น
-                </Typography>
+                <Stack direction="row" spacing={2} alignItems="center">
+                    {event.branding?.logoUrl && (
+                        <Box component="img" src={event.branding.logoUrl} alt={`โลโก้ ${event.name}`} sx={{ width: 72, height: 72, objectFit: 'contain' }} />
+                    )}
+                    <Typography variant="h3" fontWeight={900} color={primaryColor} display="flex" alignItems="center" gap={1} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)', letterSpacing: 0 }}>
+                        <EmojiEventsIcon fontSize="large" /> ประกาศผลรางวัล {event.name}
+                    </Typography>
+                </Stack>
                 <Paper elevation={4} sx={{ px: 3, py: 1.5, borderRadius: 50, bgcolor: 'rgba(255,255,255,0.9)', border: '2px solid #FFC107' }}>
                     <Typography variant="h5" fontWeight={800} color={THEME.text} display="flex" alignItems="center" gap={1}>
                         <AccessTimeIcon /> {currentTime.toLocaleTimeString('th-TH')}

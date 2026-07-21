@@ -9,7 +9,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import SchoolIcon from '@mui/icons-material/School';
 import { getPublicDashboardStats } from '../utils/api';
-import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
+import usePublicEventContext from '../hooks/usePublicEventContext';
 
 // 🌟 ธีมเสือเหลืองคืนถิ่น (Bright Yellow & Dark Brown)
 const THEME = {
@@ -24,28 +24,34 @@ const THEME = {
 export default function PublicDashboardPage() {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
-  const eventParams = React.useMemo(
-    () => eventContextToParams(eventContextFromSearch(window.location.search)),
-    []
-  );
+  const { event, eventParams, loading: eventLoading, error: eventError } = usePublicEventContext();
+  const primaryColor = event?.branding?.primaryColor || THEME.gold;
+  const accentColor = event?.branding?.accentColor || THEME.accent;
 
   const fetchStats = useCallback(async () => {
+    if (!event) return;
     try {
-      const res = await getPublicDashboardStats(Object.keys(eventParams).length ? eventParams : undefined);
+      const res = await getPublicDashboardStats(eventParams);
       setStats(res.data);
-    } catch (err) {
-      console.error(err);
+      setError('');
+    } catch {
+      setError('ไม่สามารถโหลดข้อมูล Dashboard ได้');
     } finally {
       setLoading(false);
     }
-  }, [eventParams]);
+  }, [event, eventParams]);
 
   useEffect(() => {
+    if (!event) return undefined;
+    setStats(null);
+    setLoading(true);
+    setError('');
     fetchStats();
     const interval = setInterval(fetchStats, 10000);
     return () => clearInterval(interval);
-  }, [fetchStats]);
+  }, [event, fetchStats]);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -57,11 +63,19 @@ export default function PublicDashboardPage() {
     return new Date(date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  if (loading && !stats) {
+  if (eventLoading || (loading && event && !stats)) {
     return (
       <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100vh" bgcolor="#FFFDE7">
         <CircularProgress sx={{ color: THEME.accent }} size={80} thickness={4} />
         <Typography mt={3} color={THEME.text} variant="h5" fontWeight="bold">กำลังโหลดข้อมูล...</Typography>
+      </Box>
+    );
+  }
+
+  if (eventError || (error && !stats) || !event) {
+    return (
+      <Box display="flex" alignItems="center" justifyContent="center" minHeight="100vh" p={3}>
+        <Typography color="error" variant="h6">{eventError || error || 'ไม่พบข้อมูลกิจกรรม'}</Typography>
       </Box>
     );
   }
@@ -76,23 +90,23 @@ export default function PublicDashboardPage() {
         {/* Header Section */}
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={5}>
           <Stack direction="row" spacing={3} alignItems="center">
-            <Avatar src="/logo.svg" sx={{ width: 100, height: 100, bgcolor: '#fff', border: `4px solid ${THEME.accent}`, p: 1, boxShadow: '0 4px 15px rgba(230, 81, 0, 0.3)' }} />
+            <Avatar src={event.branding?.logoUrl || '/logo.svg'} alt={`โลโก้ ${event.name}`} sx={{ width: 100, height: 100, bgcolor: '#fff', border: `4px solid ${accentColor}`, p: 1, boxShadow: '0 4px 15px rgba(0,0,0,0.18)' }} />
             <Box>
-              <Typography variant="h3" fontWeight={900} color={THEME.accent} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)', letterSpacing: 1 }}>
+              <Typography variant="h3" fontWeight={900} color={accentColor} sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.8)', letterSpacing: 0 }}>
                 DASHBOARD
               </Typography>
-              <Typography variant="h6" color={THEME.text} sx={{ letterSpacing: 2, fontWeight: 700 }}>
-                งานคืนเหย้า เสือเหลืองคืนถิ่น
+              <Typography variant="h6" color={THEME.text} sx={{ letterSpacing: 0, fontWeight: 700 }}>
+                {event.name}
               </Typography>
             </Box>
           </Stack>
 
-          <Paper elevation={12} sx={{ p: 2, px: 4, borderRadius: 4, bgcolor: THEME.cardBg, border: `2px solid ${THEME.gold}`, textAlign: 'center', backdropFilter: 'blur(10px)', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }}>
+          <Paper elevation={12} sx={{ p: 2, px: 4, borderRadius: 1, bgcolor: THEME.cardBg, border: `2px solid ${primaryColor}`, textAlign: 'center', backdropFilter: 'blur(10px)', boxShadow: '0 8px 20px rgba(0,0,0,0.1)' }}>
             <Stack direction="row" alignItems="center" justifyContent="center" spacing={1} mb={0.5}>
-              <AccessTimeIcon sx={{ color: THEME.accent }} />
+              <AccessTimeIcon sx={{ color: accentColor }} />
               <Typography variant="body1" color={THEME.text} fontWeight={800}>เวลาปัจจุบัน</Typography>
             </Stack>
-            <Typography variant="h3" fontWeight={900} color={THEME.accent} fontFamily="monospace" sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.5)' }}>
+            <Typography variant="h3" fontWeight={900} color={accentColor} fontFamily="monospace" sx={{ textShadow: '0 2px 4px rgba(255,255,255,0.5)' }}>
               {formatTime(currentTime)}
             </Typography>
           </Paper>
@@ -157,7 +171,7 @@ export default function PublicDashboardPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {stats?.deptStats.map((row, i) => (
+                    {stats?.deptStats?.map((row, i) => (
                       <TableRow key={i} sx={{ '&:last-child td, &:last-child th': { border: 0 }, '&:hover': { bgcolor: '#FFFDE7' } }}>
                         <TableCell align="center" sx={{ color: THEME.text, fontSize: '1.2rem', borderBottom: '1px dashed #E0E0E0', fontWeight: 600 }}>{row.name}</TableCell>
                         <TableCell align="center" sx={{ borderBottom: '1px dashed #E0E0E0' }}>
@@ -165,7 +179,7 @@ export default function PublicDashboardPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {stats?.deptStats.length === 0 && (
+                    {stats?.deptStats?.length === 0 && (
                       <TableRow><TableCell colSpan={2} align="center" sx={{ py: 5, color: 'text.secondary', fontSize: '1.2rem' }}>ยังไม่มีข้อมูลผู้เข้าร่วม</TableCell></TableRow>
                     )}
                   </TableBody>
@@ -193,7 +207,7 @@ export default function PublicDashboardPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {stats?.yearStats.map((row, i) => (
+                    {stats?.yearStats?.map((row, i) => (
                       <TableRow key={i} sx={{ '&:last-child td, &:last-child th': { border: 0 }, '&:hover': { bgcolor: '#FFFDE7' } }}>
                         <TableCell align="center" sx={{ color: THEME.text, fontSize: '1.2rem', borderBottom: '1px dashed #E0E0E0', fontWeight: 600 }}>{row.name}</TableCell>
                         <TableCell align="center" sx={{ borderBottom: '1px dashed #E0E0E0' }}>
@@ -201,7 +215,7 @@ export default function PublicDashboardPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {stats?.yearStats.length === 0 && (
+                    {stats?.yearStats?.length === 0 && (
                       <TableRow><TableCell colSpan={2} align="center" sx={{ py: 5, color: 'text.secondary', fontSize: '1.2rem' }}>ยังไม่มีข้อมูลผู้เข้าร่วม</TableCell></TableRow>
                     )}
                   </TableBody>

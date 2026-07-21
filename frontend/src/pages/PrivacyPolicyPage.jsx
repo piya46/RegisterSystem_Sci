@@ -1,129 +1,134 @@
 import React from "react";
-import { Box, Container, Typography, Paper, Button, Divider, List, ListItem, ListItemText } from "@mui/material";
+import { Box, Container, Typography, Paper, Button, Divider, List, ListItem, ListItemText, Alert } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { useNavigate } from "react-router-dom";
+
+const policySections = [
+  {
+    title: "1. ข้อมูลที่เก็บรวบรวม",
+    bullets: [
+      "ข้อมูลระบุตัวตนและข้อมูลการศึกษา เช่น ชื่อ นามสกุล ชื่อเล่น ภาควิชา ปีที่เข้าศึกษา รหัสนิสิต หรือข้อมูลที่กิจกรรมนั้นกำหนด",
+      "ข้อมูลติดต่อ เช่น อีเมล เบอร์โทรศัพท์ ที่อยู่สำหรับจัดส่งหรือการติดต่อกรณีจำเป็น",
+      "ข้อมูลการเข้าร่วมกิจกรรม เช่น สถานะลงทะเบียน QR Code เวลาเช็คอิน จุดลงทะเบียน และประวัติการแก้ไข",
+      "ข้อมูลเงินสนับสนุน แพ็กเกจ ของที่ระลึก หรือรางวัล เฉพาะกิจกรรมที่เปิดใช้ฟีเจอร์ดังกล่าว",
+      "ข้อมูลเทคนิคและความปลอดภัย เช่น IP address, user agent, session, audit log, export/decrypt/report log และข้อมูลป้องกันบอท",
+    ],
+  },
+  {
+    title: "2. วัตถุประสงค์และฐานกฎหมาย",
+    bullets: [
+      "เพื่อรับลงทะเบียน ออกบัตร ยืนยันตัวตน เช็คอิน และบริหารจัดการกิจกรรมตามคำขอของผู้เข้าร่วม",
+      "เพื่อจัดการสิทธิ์ผู้ดูแลตามบทบาท หน่วยงาน และรอบกิจกรรมที่ได้รับมอบหมาย",
+      "เพื่อรักษาความปลอดภัย ตรวจสอบการเข้าถึง ป้องกันข้อมูลรั่วไหล และบันทึก Audit Log",
+      "เพื่อจัดทำรายงานแบบ aggregate เปรียบเทียบข้อมูลกิจกรรมข้ามปี และปรับปรุงการจัดงาน",
+      "เพื่อปฏิบัติตามกฎหมาย คำสั่งหน่วยงานรัฐ หรือการตรวจสอบภายในที่จำเป็น",
+    ],
+  },
+  {
+    title: "3. การแยกข้อมูลตามกิจกรรม",
+    body: "ระบบรองรับหลายกิจกรรม ข้อมูลผู้เข้าร่วม รายการสนับสนุน รางวัล แพ็กเกจ แบบฟอร์ม และรายงานจะถูกผูกกับ eventId ของกิจกรรมนั้น งานที่ไม่เกี่ยวข้องกันจะไม่สามารถเข้าถึงข้อมูลของกันและกันได้ เว้นแต่ผู้ดูแลที่มีสิทธิ์ระดับระบบหรือได้รับมอบหมายโดยชัดแจ้ง",
+  },
+  {
+    title: "4. การดึงข้อมูลจากกิจกรรมปีเก่า",
+    body: "หากกิจกรรมเปิดใช้การเชื่อมข้อมูลปีเก่า ระบบจะดึงข้อมูลเดิมเพื่อช่วยกรอกฟอร์มได้หลังจากผู้เข้าร่วมยืนยันตัวตน เช่น OTP ทางอีเมล การเดาอีเมลหรือข้อมูลระบุตัวตนจะไม่ทำให้ระบบเปิดเผยข้อมูลเดิม",
+  },
+  {
+    title: "5. การเข้ารหัสและมาตรการความปลอดภัย",
+    bullets: [
+      "ข้อมูลสำคัญอาจถูกเข้ารหัสแบบ E2EE หรือเข้ารหัสฝั่งระบบตามประเภทข้อมูลและการใช้งาน",
+      "ใช้การจำกัดสิทธิ์ตามบทบาท event scope และหลัก least privilege",
+      "การ decrypt, export, report, เปลี่ยนสิทธิ์ และการกระทำสำคัญถูกบันทึก Audit Log",
+      "ระบบใช้ session security, refresh เมื่อผู้ใช้ยังใช้งานอยู่, timeout เมื่อไม่มี activity, และมาตรการป้องกัน CSRF/CORS ตามสภาพแวดล้อม",
+      "มีขั้นตอน key rotation เพื่อเปลี่ยนกุญแจเข้ารหัสอย่างเป็นระบบและตรวจสอบย้อนหลังได้",
+    ],
+  },
+  {
+    title: "6. ผู้ที่อาจเข้าถึงข้อมูล",
+    body: "ผู้จัดกิจกรรม Superadmin Admin Org Admin Event Admin Event Manager Staff Kiosk และ Auditor จะเข้าถึงข้อมูลได้ตามสิทธิ์ที่จำเป็นต่อหน้าที่เท่านั้น ผู้ให้บริการโครงสร้างพื้นฐาน เช่น ผู้ให้บริการฐานข้อมูล คลาวด์ อีเมล หรือระบบป้องกันบอท อาจประมวลผลข้อมูลในฐานะผู้ประมวลผลข้อมูลตามขอบเขตที่จำเป็น",
+  },
+  {
+    title: "7. การเปิดเผยข้อมูล",
+    bullets: [
+      "เปิดเผยต่อผู้จัดกิจกรรมหรือเจ้าหน้าที่ที่ได้รับมอบหมายเพื่อดำเนินงานกิจกรรม",
+      "เปิดเผยต่อผู้ให้บริการที่จำเป็น เช่น โครงสร้างพื้นฐาน ฐานข้อมูล อีเมล การจัดส่ง หรือระบบป้องกันบอท",
+      "เปิดเผยเมื่อมีกฎหมาย คำสั่งศาล หรือคำขอจากหน่วยงานรัฐที่มีอำนาจ",
+      "ไม่ขายข้อมูลส่วนบุคคลให้บุคคลภายนอก",
+    ],
+  },
+  {
+    title: "8. ระยะเวลาเก็บรักษาและการเก็บย้อนหลัง",
+    body: "ข้อมูลจะถูกเก็บเท่าที่จำเป็นตามวัตถุประสงค์ของกิจกรรม การตรวจสอบบัญชี รายงานย้อนหลัง และข้อกฎหมาย กิจกรรมที่เสร็จสิ้นแล้วอาจถูกเก็บย้อนหลังเพื่อรักษารายงานและ Audit Log ผู้จัดงานสามารถกำหนดรอบการทบทวน ลบ หรือทำให้ข้อมูลไม่ระบุตัวตนตามนโยบายของกิจกรรมนั้น",
+  },
+  {
+    title: "9. คุกกี้และ Session",
+    body: "ระบบใช้คุกกี้หรือกลไกที่จำเป็นสำหรับ session การเข้าสู่ระบบ การรักษาความปลอดภัย และการป้องกันบอท ผู้ใช้ไม่ควรปิดคุกกี้ที่จำเป็น เพราะอาจทำให้เข้าสู่ระบบหรือยืนยันตัวตนไม่ได้",
+  },
+  {
+    title: "10. สิทธิของเจ้าของข้อมูลตาม PDPA",
+    bullets: [
+      "ขอเข้าถึง รับสำเนา หรือขอทราบแหล่งที่มาของข้อมูลส่วนบุคคล",
+      "ขอแก้ไขข้อมูลให้ถูกต้อง เป็นปัจจุบัน และสมบูรณ์",
+      "ขอลบ ระงับการใช้ หรือคัดค้านการประมวลผลตามเงื่อนไขของกฎหมาย",
+      "ถอนความยินยอมสำหรับข้อมูลที่ประมวลผลด้วยฐานความยินยอม โดยไม่กระทบการประมวลผลก่อนถอน",
+      "ร้องเรียนต่อสำนักงานคณะกรรมการคุ้มครองข้อมูลส่วนบุคคล หากเห็นว่ามีการประมวลผลไม่ถูกต้อง",
+    ],
+  },
+];
 
 export default function PrivacyPolicyPage() {
   const navigate = useNavigate();
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", py: 4 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f6f8fb", py: 4 }}>
       <Container maxWidth="md">
-        <Paper elevation={3} sx={{ p: 4, borderRadius: 2 }}>
+        <Paper elevation={0} sx={{ p: { xs: 2.5, md: 4 }, borderRadius: 2, border: "1px solid #e4e7ec" }}>
           <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)} sx={{ mb: 2 }}>
             ย้อนกลับ
           </Button>
-          
-          <Typography variant="h4" fontWeight="bold" gutterBottom color="primary">
-            นโยบายความเป็นส่วนตัว (Privacy Policy)
+
+          <Typography variant="h4" fontWeight={900} gutterBottom color="primary">
+            นโยบายคุ้มครองข้อมูลส่วนบุคคล
           </Typography>
           <Typography variant="caption" color="text.secondary" paragraph>
-            เวอร์ชัน 1.0 | อัปเดตล่าสุด: 15 ธันวาคม 2568
+            เวอร์ชัน 2.0 | อัปเดตล่าสุด: 28 มิถุนายน 2569
           </Typography>
+
+          <Alert severity="info" sx={{ my: 2, borderRadius: 2 }}>
+            นโยบายนี้อธิบายการใช้ข้อมูลในระบบจัดการหลายกิจกรรม รวมถึงการแยกข้อมูลตาม eventId, E2EE, Audit Log และการยืนยันตัวตนก่อนดึงข้อมูลปีเก่า
+          </Alert>
 
           <Typography paragraph>
-            คณะผู้จัดงาน "เสือเหลืองคืนถิ่น" และสมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย ("เรา") ตระหนักถึงความสำคัญของการคุ้มครองข้อมูลส่วนบุคคลของท่าน เราจึงจัดทำนโยบายความเป็นส่วนตัวฉบับนี้ขึ้นเพื่อให้สอดคล้องกับ <b>พระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 (PDPA)</b> โดยมีรายละเอียดดังนี้
+            ผู้จัดกิจกรรมและผู้ดูแลระบบให้ความสำคัญกับการคุ้มครองข้อมูลส่วนบุคคลตามพระราชบัญญัติคุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 (PDPA) และจะประมวลผลข้อมูลเท่าที่จำเป็น โปร่งใส และปลอดภัยตามวัตถุประสงค์ของกิจกรรม
           </Typography>
 
-          <Divider sx={{ my: 2 }} />
+          <Divider sx={{ my: 3 }} />
 
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            1. ข้อมูลส่วนบุคคลที่เราเก็บรวบรวม
-          </Typography>
-          <Typography paragraph>เราเก็บรวบรวมข้อมูลเท่าที่จำเป็นเพื่อการจัดงานและการยืนยันตัวตน ได้แก่:</Typography>
-          <List dense sx={{ pl: 2 }}>
-            <ListItem><ListItemText primary={<b>1.1 ข้อมูลระบุตัวตนทั่วไป (General Data):</b>} secondary="ชื่อ-นามสกุล, ชื่อเล่น, รหัสนิสิต (ถ้ามี), ภาควิชา, ปีที่เข้าศึกษา" /></ListItem>
-            <ListItem><ListItemText primary={<b>1.2 ข้อมูลการติดต่อ (Contact Data):</b>} secondary="หมายเลขโทรศัพท์, อีเมล, ที่อยู่ (สำหรับสมาชิกสมาคมฯ)" /></ListItem>
-            <ListItem><ListItemText primary={<b>1.3 ข้อมูลทางการเงิน (Financial Data):</b>} secondary="หลักฐานการโอนเงิน, วันเวลาที่โอน, จำนวนเงิน (เราไม่มีการเก็บข้อมูลเลขหน้าบัตรเครดิตโดยตรง)" /></ListItem>
-            <ListItem><ListItemText primary={<b>1.4 ข้อมูลที่มีความอ่อนไหว (Sensitive Data):</b>} secondary="ข้อมูลสุขภาพที่จำเป็นต่อการอำนวยความสะดวก (เช่น การแพ้อาหาร, การใช้วีลแชร์) ซึ่งเราจะเก็บรวบรวมเมื่อได้รับความยินยอมโดยชัดแจ้งจากท่านผ่านการกรอกแบบฟอร์มนี้เท่านั้น" /></ListItem>
-            <ListItem><ListItemText primary={<b>1.5 ข้อมูลทางเทคนิค (Technical Data):</b>} secondary="IP Address, ข้อมูลการเข้าใช้งาน (Log), Cookies เพื่อความปลอดภัยและตรวจสอบการใช้งานระบบ" /></ListItem>
-          </List>
+          {policySections.map((section) => (
+            <Box key={section.title} sx={{ mb: 2.5 }}>
+              <Typography variant="h6" fontWeight={900} gutterBottom>
+                {section.title}
+              </Typography>
+              {section.body && <Typography paragraph>{section.body}</Typography>}
+              {section.bullets && (
+                <List dense sx={{ listStyleType: "disc", pl: 4 }}>
+                  {section.bullets.map((item) => (
+                    <ListItem key={item} sx={{ display: "list-item" }}>
+                      <ListItemText primary={item} />
+                    </ListItem>
+                  ))}
+                </List>
+              )}
+            </Box>
+          ))}
 
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            2. ฐานทางกฎหมายและวัตถุประสงค์การประมวลผลข้อมูล
+          <Typography variant="h6" fontWeight={900} gutterBottom>
+            11. ช่องทางติดต่อ
           </Typography>
-          <Typography paragraph>เราประมวลผลข้อมูลของท่านภายใต้ฐานทางกฎหมายต่อไปนี้:</Typography>
-          <List dense sx={{ listStyleType: 'disc', pl: 4 }}>
-            <ListItem sx={{ display: 'list-item' }}><ListItemText primary={<b>ฐานความจำเป็นเพื่อการปฏิบัติตามสัญญา (Contractual Basis):</b>} secondary="เพื่อการลงทะเบียน, การออกบัตรเข้างาน (E-Ticket), และการส่งมอบของที่ระลึก" /></ListItem>
-            <ListItem sx={{ display: 'list-item' }}><ListItemText primary={<b>ฐานความยินยอม (Consent):</b>} secondary="สำหรับการเก็บข้อมูลสุขภาพ (แพ้อาหาร/วีลแชร์) และการสมัครสมาชิกสมาคมฯ" /></ListItem>
-            <ListItem sx={{ display: 'list-item' }}>
-                <ListItemText 
-                    primary={<b>ฐานประโยชน์โดยชอบด้วยกฎหมาย (Legitimate Interest):</b>} 
-                    secondary={
-                        <React.Fragment>
-                            - เพื่อการรักษาความปลอดภัยของระบบ และการป้องกันการทุจริต<br/>
-                            - <b>เพื่อการวิเคราะห์ ประเมินผล และนำข้อมูลไปใช้ในการวางแผนการจัดงานในปีถัดไป รวมถึงการปรับปรุงรูปแบบกิจกรรมให้ดียิ่งขึ้น</b>
-                        </React.Fragment>
-                    } 
-                />
-            </ListItem>
-          </List>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            3. การเปิดเผยและส่งต่อข้อมูล
-          </Typography>
-          <Typography paragraph>
-            ข้อมูลของท่านจะถูกเก็บเป็นความลับ และจะไม่มีการขายข้อมูลแก่บุคคลภายนอก เราอาจเปิดเผยข้อมูลเฉพาะในกรณีดังต่อไปนี้:
-          </Typography>
-          <List dense>
-            <ListItem><ListItemText primary="• เปิดเผยต่อสมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย เพื่อการปรับปรุงฐานข้อมูลสมาชิก (ตามที่ท่านได้เลือก)" /></ListItem>
-            <ListItem><ListItemText primary="• เปิดเผยต่อเจ้าหน้าที่หน้างาน (Staff) เพื่อการตรวจสอบสิทธิ์และอำนวยความสะดวก" /></ListItem>
-            <ListItem><ListItemText primary="• เปิดเผยต่อคณะกรรมการจัดงานชุดต่อไป เพื่อวัตถุประสงค์ในการวางแผนงาน (เฉพาะข้อมูลที่จำเป็นและไม่ระบุตัวตน หากทำได้)" /></ListItem>
-            <ListItem><ListItemText primary="• เปิดเผยต่อหน่วยงานราชการ หากมีคำสั่งตามกฎหมาย" /></ListItem>
-          </List>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            4. มาตรการรักษาความมั่นคงปลอดภัย
-          </Typography>
-          <Typography paragraph>
-            เราใช้มาตรการทางเทคนิคและการบริหารจัดการที่เหมาะสมเพื่อปกป้องข้อมูลของท่าน เช่น การเข้ารหัสข้อมูล (Encryption), การจำกัดสิทธิ์การเข้าถึง (Access Control), และการใช้ระบบยืนยันตัวตน เพื่อป้องกันการสูญหาย เข้าถึง ทำลาย ใช้ ดัดแปลง แก้ไข หรือเปิดเผยข้อมูลโดยมิชอบ
-          </Typography>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            5. คุกกี้และเทคโนโลยีการติดตาม (Cookies & Tracking Technologies)
-          </Typography>
-          <Typography paragraph>
-            เว็บไซต์นี้มีการใช้คุกกี้และเทคโนโลยีที่คล้ายคลึงกัน เพื่อวัตถุประสงค์ดังนี้:
-          </Typography>
-          <List dense sx={{ pl: 2 }}>
-            <ListItem><ListItemText primary="• เพื่อความปลอดภัย:" secondary="เราใช้บริการ Cloudflare Turnstile เพื่อตรวจสอบและป้องกันการโจมตีจากบอท (Bot) หรือสแปม" /></ListItem>
-            <ListItem><ListItemText primary="• เพื่อการทำงานของระบบ:" secondary="เราใช้คุกกี้เพื่อจดจำสถานะการเข้าสู่ระบบของเจ้าหน้าที่ (Session Management) เพื่อให้ท่านใช้งานเว็บไซต์ได้อย่างต่อเนื่อง" /></ListItem>
-          </List>
-          <Typography paragraph>
-            ท่านไม่สามารถปิดการทำงานของคุกกี้เหล่านี้ได้ เนื่องจากเป็นสิ่งจำเป็นต่อความปลอดภัยและการทำงานหลักของระบบ
-          </Typography>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            6. ระยะเวลาในการจัดเก็บข้อมูล
-          </Typography>
-          <Typography paragraph>
-            เราจะจัดเก็บข้อมูลของท่านไว้ตามระยะเวลาที่จำเป็นเพื่อบรรลุวัตถุประสงค์ที่ระบุไว้ในนโยบายนี้:
-          </Typography>
-          <List dense sx={{ pl: 2 }}>
-            <ListItem><ListItemText primary="• ข้อมูลสำหรับการลงทะเบียนและตรวจสอบบัญชี: จะถูกเก็บไว้จนกว่าจะเสร็จสิ้นกระบวนการตรวจสอบบัญชีหลังจบงาน (คาดว่าไม่เกิน 90 วัน)" /></ListItem>
-            <ListItem><ListItemText primary={<b>• ข้อมูลสำหรับการวางแผนงานในปีถัดไป:</b>} secondary="จะถูกจัดเก็บรวบรวมไว้เป็นระยะเวลาไม่เกิน 2 ปี หรือจนกว่าการวางแผนงานครั้งถัดไปจะเสร็จสิ้น เพื่อใช้เป็นฐานข้อมูลอ้างอิงในการดำเนินงานของสมาคมฯ" /></ListItem>
-            <ListItem><ListItemText primary="• ข้อมูลสมาชิกสมาคมฯ: จะถูกจัดเก็บถาวรในฐานข้อมูลสมาชิกของสมาคมฯ (ตามความประสงค์ของท่าน) เพื่อสิทธิประโยชน์ของสมาชิก" /></ListItem>
-          </List>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            7. สิทธิ์ของท่านตาม PDPA
-          </Typography>
-          <Typography paragraph>
-            ท่านมีสิทธิ์ในการขอเข้าถึง ขอรับสำเนา ขอแก้ไข หรือขอให้ลบข้อมูลส่วนบุคคลของท่านได้ (เว้นแต่การลบนั้นจะขัดต่อกฎหมายหรือกระทบต่อสัญญา) โดยสามารถติดต่อผู้ควบคุมข้อมูลส่วนบุคคล
-          </Typography>
-          <Typography paragraph>
-            นอกจากนี้ หากท่านเห็นว่าการประมวลผลข้อมูลส่วนบุคคลของเราไม่สอดคล้องกับ พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562 ท่านมีสิทธิ์ที่จะร้องเรียนต่อสำนักงานคณะกรรมการคุ้มครองข้อมูลส่วนบุคคล (สคส.) ได้
-          </Typography>
-
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            8. ช่องทางการติดต่อ
-          </Typography>
-          <Box sx={{ p: 2, bgcolor: '#e3f2fd', borderRadius: 2, border: '1px dashed #1976d2' }}>
-            <Typography variant="subtitle2" fontWeight="bold">ผู้ควบคุมข้อมูลส่วนบุคคล (Data Controller):</Typography>
-            <Typography variant="body2">คณะผู้จัดงาน "เสือเหลืองคืนถิ่น" และ สมาคมนิสิตเก่าวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</Typography>
-            <Typography variant="body2">สถานที่: คณะวิทยาศาสตร์ จุฬาลงกรณ์มหาวิทยาลัย</Typography>
+          <Box sx={{ p: 2, bgcolor: "#eef4ff", borderRadius: 2, border: "1px solid #b8cdf8" }}>
+            <Typography variant="body2">
+              กรุณาติดต่อผู้จัดกิจกรรมหรือผู้ดูแลระบบที่ระบุในหน้ากิจกรรมนั้น เพื่อใช้สิทธิ PDPA สอบถามเรื่องข้อมูล หรือแจ้งเหตุด้านความปลอดภัย
+            </Typography>
           </Box>
-
         </Paper>
       </Container>
     </Box>

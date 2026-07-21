@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const sqlMirrorOutboxPlugin = require('../utils/sqlMirrorOutboxPlugin');
 const { EVENT_STATUSES } = require('../utils/eventLayout');
 
 const layoutSchema = new mongoose.Schema({
@@ -88,6 +89,8 @@ const defaultEnabledFeatures = () => ({
   donations: false,
   packages: false,
   luckyDraw: false,
+  certificate: false,
+  wallet: false,
 });
 
 const versionSchema = new mongoose.Schema({
@@ -181,5 +184,6 @@ eventSchema.index({ organizationId: 1, eventYear: 1 });
 
 eventSchema.statics.defaultLayouts = defaultLayouts;
 eventSchema.statics.defaultEnabledFeatures = defaultEnabledFeatures;
+eventSchema.plugin(sqlMirrorOutboxPlugin, { domain: 'events', eventPath: '_id' });
 
 module.exports = mongoose.model('Event', eventSchema);

@@ -32,7 +32,7 @@ function featureDisabled(event, key) {
 exports.getAllPackages = async (req, res) => {
   try {
     const eventContext = await getEventContextFromRequest(req, {
-      requireEventIdentity: true,
+      requireEventIdentity: false, // 🌟 Allow global fetching for SystemSettingsPage
       requirePublic: Boolean(req.query?.eventSlug || req.query?.eventId),
       requireAccess: !Boolean(req.query?.eventSlug),
     });
@@ -41,8 +41,8 @@ exports.getAllPackages = async (req, res) => {
       return res.json({ success: true, data: [] });
     }
     const filter = eventContext.eventId
-      ? { isActive: true, eventId: eventContext.eventId }
-      : applyEventYearFilter({ isActive: true }, eventYear);
+      ? { isActive: true, deletedAt: null, eventId: eventContext.eventId }
+      : applyEventYearFilter({ isActive: true, deletedAt: null }, eventYear);
     const packages = await Package.find(filter);
     res.json({ success: true, data: packages });
   } catch (error) {
@@ -79,7 +79,11 @@ exports.updatePackage = async (req, res) => {
       updates.seriesId = null;
       updates.eventId = null;
     }
-    const updatedPackage = await Package.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
+    const updatedPackage = await Package.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: null },
+      { $set: updates },
+      { new: true, runValidators: true }
+    );
     if (!updatedPackage) return res.status(404).json({ error: 'ไม่พบแพ็กเกจ' });
     auditLog({ req, action: 'UPDATE_PACKAGE', detail: `Updated package ID: ${req.params.id}` });
     res.json({ success: true, data: updatedPackage });
@@ -91,8 +95,19 @@ exports.updatePackage = async (req, res) => {
 // ลบแพ็กเกจ (Admin - Soft Delete หรือ Hard Delete)
 exports.deletePackage = async (req, res) => {
   try {
-    await Package.findByIdAndDelete(req.params.id);
-    auditLog({ req, action: 'DELETE_PACKAGE', detail: `Deleted package ID: ${req.params.id}` });
+    const deletedPackage = await Package.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: null },
+      {
+        $set: {
+          isActive: false,
+          deletedAt: new Date(),
+          deletedBy: req.user?._id || null,
+        },
+      },
+      { new: true }
+    );
+    if (!deletedPackage) return res.status(404).json({ success: false, message: 'ไม่พบแพ็กเกจ' });
+    auditLog({ req, action: 'SOFT_DELETE_PACKAGE', detail: `Deleted package ID: ${req.params.id}` });
     res.json({ success: true, message: 'ลบแพ็กเกจสำเร็จ' });
   } catch (error) {
     serverError(res);

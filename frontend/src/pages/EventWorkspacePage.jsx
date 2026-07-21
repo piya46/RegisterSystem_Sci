@@ -79,35 +79,17 @@ function toolPath(path, event) {
   return query ? `${path}?${query}` : path;
 }
 
-function readRecentEvents() {
-  try {
-    const value = JSON.parse(localStorage.getItem(RECENT_EVENTS_KEY) || "[]");
-    return Array.isArray(value) ? value.filter(Boolean).slice(0, 8) : [];
-  } catch {
-    return [];
-  }
-}
-
-function featureEnabled(event, key) {
-  return event?.config?.enabledFeatures?.[key] !== false;
-}
 
 export default function EventWorkspacePage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [catalog, setCatalog] = useState({ events: [], organizations: [], series: [], settings: {} });
-  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
-  const [query, setQuery] = useState("");
-  const [recentEventIds, setRecentEventIds] = useState(readRecentEvents);
 
   const canManageSystem = hasAnyRole(user, ["admin", "org_admin", "event_admin", "event_manager"]);
-  const canManageUsers = hasAnyRole(user, ["admin"]);
-  const canWorkStaff = hasAnyRole(user, ["staff", "admin", "event_admin", "event_manager"]);
 
   const loadCatalog = useCallback(async () => {
-    setLoading(true);
     setMessage("");
     try {
       const res = await getEventCatalog();
@@ -120,8 +102,6 @@ export default function EventWorkspacePage() {
       });
     } catch (error) {
       setMessage(error.response?.data?.message || "โหลดรายการกิจกรรมไม่สำเร็จ");
-    } finally {
-      setLoading(false);
     }
   }, []);
 
@@ -134,49 +114,17 @@ export default function EventWorkspacePage() {
     return null;
   }, [catalog.events, eventId]);
 
-  useEffect(() => {
-    const id = getId(selectedEvent);
-    if (!id) return;
-    setRecentEventIds((prev) => {
-      const next = [id, ...prev.filter((item) => item !== id)].slice(0, 8);
-      localStorage.setItem(RECENT_EVENTS_KEY, JSON.stringify(next));
-      return next;
-    });
-  }, [selectedEvent]);
 
-  const recentEvents = useMemo(
-    () => recentEventIds.map((id) => catalog.events.find((event) => getId(event) === id)).filter(Boolean),
-    [catalog.events, recentEventIds]
-  );
-
-  const workspaceStats = useMemo(() => {
-    const events = catalog.events || [];
-    return {
-      total: events.length,
-      open: events.filter((event) => ["published", "registration_open", "event_day", "active"].includes(event.status)).length,
-      draft: events.filter((event) => event.status === "draft").length,
-      archived: events.filter((event) => event.status === "archived").length,
-    };
-  }, [catalog.events]);
 
   const filteredEvents = useMemo(() => {
-    const keyword = query.trim().toLowerCase();
     const currentId = getId(catalog.settings?.currentEventId);
     return [...(catalog.events || [])]
-      .filter((event) => {
-        if (!keyword) return true;
-        const haystack = [event.name, event.slug, event.eventYear, event.status]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(keyword);
-      })
       .sort((a, b) => {
         if (getId(a) === currentId) return -1;
         if (getId(b) === currentId) return 1;
         return String(b.eventYear || "").localeCompare(String(a.eventYear || ""));
       });
-  }, [catalog.events, catalog.settings?.currentEventId, query]);
+  }, [catalog.events, catalog.settings?.currentEventId]);
 
   const organizationById = useMemo(
     () => Object.fromEntries(catalog.organizations.map((item) => [getId(item), item])),
@@ -196,16 +144,6 @@ export default function EventWorkspacePage() {
     navigate(finalPath);
   };
 
-  const copyPublicLink = async (event = selectedEvent) => {
-    if (!event?.slug) return;
-    const path = event.publicLinks?.landingPath || `/e/${event.slug}`;
-    await navigator.clipboard.writeText(`${window.location.origin}${path}`);
-    setMessage("คัดลอกลิงก์กิจกรรมแล้ว");
-  };
-
-  if (loading) {
-    return <LoadingState label="กำลังเตรียม Event Workspace..." minHeight="80vh" />;
-  }
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "#f6f8fb", py: 3 }}>
@@ -235,193 +173,92 @@ export default function EventWorkspacePage() {
 
         {message && <Alert severity={message.includes("คัดลอก") ? "success" : "error"} sx={{ mb: 2 }} onClose={() => setMessage("")}>{message}</Alert>}
 
-        <Grid container spacing={2.5}>
-          <Grid item xs={12} lg={4}>
-            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff", minHeight: 520 }}>
-              <Stack spacing={1.5} mb={2}>
-                <Box>
-                  <Typography variant="h6" fontWeight={900}>กิจกรรมที่คุณมีสิทธิ์</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    เลือกกิจกรรมก่อนเปิดเครื่องมือ เพื่อป้องกันข้อมูลข้ามงาน
-                  </Typography>
-                </Box>
-                <TextField
-                  size="small"
-                  placeholder="ค้นหาชื่อกิจกรรม, ปี, slug"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
-                />
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  <Chip size="small" label={`${workspaceStats.total} ทั้งหมด`} />
-                  <Chip size="small" color="success" variant="outlined" label={`${workspaceStats.open} เปิดใช้งาน`} />
-                  <Chip size="small" color="warning" variant="outlined" label={`${workspaceStats.draft} ร่าง`} />
-                  <Chip size="small" variant="outlined" label={`${workspaceStats.archived} ย้อนหลัง`} />
-                </Stack>
-              </Stack>
-              <Divider sx={{ mb: 2 }} />
-              {recentEvents.length > 0 && (
-                <Box sx={{ mb: 2 }}>
-                  <Typography variant="overline" color="text.secondary" fontWeight={900}>เปิดล่าสุด</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
-                    {recentEvents.map((event) => {
-                      const id = getId(event);
-                      return (
-                        <Chip
-                          key={id}
-                          label={`${event.name} ${event.eventYear ? `(${event.eventYear})` : ""}`}
-                          avatar={<Avatar src={event.branding?.logoUrl}>{String(event.name || "E").charAt(0)}</Avatar>}
-                          onClick={() => navigate(`/workspace/events/${id}`)}
-                          sx={{ maxWidth: "100%", "& .MuiChip-label": { overflow: "hidden", textOverflow: "ellipsis" } }}
-                        />
-                      );
-                    })}
-                  </Stack>
-                </Box>
-              )}
-              <Stack spacing={1.25}>
-                {catalog.events.length === 0 && (
-                  <Alert severity="info">ยังไม่มีกิจกรรมที่ผูกกับบัญชีนี้</Alert>
-                )}
-                {catalog.events.length > 0 && filteredEvents.length === 0 && (
-                  <Alert severity="info">ไม่พบกิจกรรมที่ตรงกับคำค้นหา</Alert>
-                )}
-                {filteredEvents.map((event) => {
-                  const id = getId(event);
-                  const selected = id === getId(selectedEvent);
-                  const isCurrent = id === getId(catalog.settings?.currentEventId);
-                  return (
-                    <Paper
-                      key={id}
-                      variant="outlined"
-                      onClick={() => navigate(`/workspace/events/${id}`)}
-                      sx={{
-                        p: 1.5,
-                        borderRadius: 2,
-                        cursor: "pointer",
-                        borderColor: selected ? "#ffc107" : "divider",
-                        bgcolor: selected ? "#fff8e1" : "#fff",
-                      }}
-                    >
-                      <Stack direction="row" spacing={1.25} alignItems="center">
-                        <Avatar src={event.branding?.logoUrl} sx={{ bgcolor: event.branding?.primaryColor || "#ffc107", color: "#3e2723" }}>
-                          {String(event.name || "E").charAt(0)}
-                        </Avatar>
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography fontWeight={900} noWrap>{event.name}</Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {event.eventYear} / {seriesById[getId(event.seriesId)]?.name || "-"}
-                          </Typography>
-                        </Box>
-                        <Stack alignItems="flex-end" spacing={0.5}>
-                          {isCurrent && <Chip size="small" color="success" label="ปัจจุบัน" />}
-                          <Chip size="small" variant="outlined" label={event.seriesId ? "งานต่อเนื่อง" : "งานแยกข้อมูล"} />
-                          <Chip size="small" color={statusColors[event.status] || "default"} label={statusLabels[event.status] || event.status} />
-                        </Stack>
-                      </Stack>
-                    </Paper>
-                  );
-                })}
-              </Stack>
-            </Paper>
-          </Grid>
+        <Grid container spacing={3}>
+          {catalog.events.length === 0 && (
+            <Grid item xs={12}>
+              <Alert severity="info">ยังไม่มีกิจกรรมที่ผูกกับบัญชีนี้ ติดต่อ Superadmin เพื่อมอบหมายสิทธิ์</Alert>
+            </Grid>
+          )}
 
-          <Grid item xs={12} lg={8}>
-            {selectedEvent ? (
-              <Stack spacing={2.5}>
-                <Card sx={{ borderRadius: 2 }}>
-                  <CardContent>
-                    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-                      <Stack direction="row" spacing={2} alignItems="center">
-                        <Avatar src={selectedEvent.branding?.logoUrl} sx={{ width: 72, height: 72, bgcolor: selectedEvent.branding?.primaryColor || "#ffc107", color: "#3e2723", fontWeight: 900 }}>
-                          {String(selectedEvent.name || "E").charAt(0)}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="h4" fontWeight={950}>{selectedEvent.name}</Typography>
-                          <Typography color="text.secondary" fontWeight={700}>
-                            {organizationById[getId(selectedEvent.organizationId)]?.name || "-"} / {seriesById[getId(selectedEvent.seriesId)]?.name || "-"}
-                          </Typography>
-                          <Stack direction="row" spacing={1} flexWrap="wrap" mt={1}>
-                            <Chip label={`ปี ${selectedEvent.eventYear}`} />
-                            <Chip color={statusColors[selectedEvent.status] || "default"} label={statusLabels[selectedEvent.status] || selectedEvent.status} />
-                            <Chip variant="outlined" label={selectedEvent.slug} />
-                          </Stack>
-                        </Box>
-                      </Stack>
-                      <Stack direction="row" spacing={1} alignItems="flex-start" flexWrap="wrap">
-                        <Button startIcon={<OpenInNewIcon />} variant="outlined" onClick={() => openTool("/dashboard", selectedEvent, true)}>
-                          เปิด Dashboard แท็บใหม่
-                        </Button>
-                        <Button startIcon={<ContentCopyIcon />} variant="outlined" onClick={() => copyPublicLink(selectedEvent)}>
-                          คัดลอกลิงก์
-                        </Button>
-                        {selectedEvent.publicLinks?.landingPath && (
-                          <Button startIcon={<PublicIcon />} variant="outlined" onClick={() => window.open(selectedEvent.publicLinks.landingPath, "_blank", "noopener,noreferrer")}>
-                            หน้า Public
-                          </Button>
-                        )}
-                      </Stack>
+          {catalog.events.length > 0 && filteredEvents.length === 0 && (
+            <Grid item xs={12}>
+              <Alert severity="info">ไม่พบกิจกรรมที่ตรงกับคำค้นหา</Alert>
+            </Grid>
+          )}
+
+          {filteredEvents.map((event) => {
+            const id = getId(event);
+            const isCurrent = id === getId(catalog.settings?.currentEventId);
+            const participants = Number(event.eventDataCounts?.participants || 0);
+            const donations = Number(event.eventDataCounts?.donations || 0);
+
+            return (
+              <Grid item xs={12} sm={6} md={4} key={id}>
+                <Card
+                  sx={{
+                    borderRadius: 2,
+                    height: "100%",
+                    display: 'flex',
+                    flexDirection: 'column',
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    borderColor: isCurrent ? "#ffc107" : "divider",
+                    borderWidth: isCurrent ? 2 : 1,
+                    borderStyle: "solid",
+                    "&:hover": {
+                      transform: "translateY(-4px)",
+                      boxShadow: 4,
+                      borderColor: "#ffc107"
+                    }
+                  }}
+                  onClick={() => openTool("/dashboard", event)}
+                >
+                  <CardContent sx={{ flexGrow: 1 }}>
+                    <Stack direction="row" spacing={2} alignItems="flex-start" mb={2}>
+                      <Avatar
+                        src={event.branding?.logoUrl}
+                        sx={{
+                          width: 56,
+                          height: 56,
+                          bgcolor: event.branding?.primaryColor || "#ffc107",
+                          color: "#3e2723",
+                          fontWeight: 900
+                        }}
+                      >
+                        {String(event.name || "E").charAt(0)}
+                      </Avatar>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="h6" fontWeight={900} sx={{ lineHeight: 1.2, mb: 0.5 }}>
+                          {event.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block" noWrap>
+                          {organizationById[getId(event.organizationId)]?.name || "-"} / {seriesById[getId(event.seriesId)]?.name || "-"}
+                        </Typography>
+                      </Box>
+                    </Stack>
+
+                    <Stack direction="row" spacing={1} flexWrap="wrap" gap={1} mb={2}>
+                      <Chip size="small" label={`ปี ${event.eventYear}`} />
+                      {isCurrent && <Chip size="small" color="success" label="ปัจจุบัน" />}
+                      <Chip size="small" color={statusColors[event.status] || "default"} label={statusLabels[event.status] || event.status} />
+                      <Chip size="small" variant="outlined" label={event.linkingMode === "isolated" ? "แยกข้อมูล" : "งานต่อเนื่อง"} />
+                    </Stack>
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography variant="caption" color="text.secondary">
+                        ผู้เข้าร่วม: {participants}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        สนับสนุน: {donations}
+                      </Typography>
                     </Stack>
                   </CardContent>
                 </Card>
-
-                <Grid container spacing={2}>
-                  <Grid item xs={12}>
-                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, bgcolor: "#fff" }}>
-                      <Stack direction={{ xs: "column", md: "row" }} spacing={1.5} alignItems={{ xs: "flex-start", md: "center" }}>
-                        <AssignmentTurnedInIcon color="success" />
-                        <Box sx={{ flex: 1 }}>
-                          <Typography fontWeight={900}>ลำดับการทำงานที่แนะนำ</Typography>
-                          <Typography variant="body2" color="text.secondary">
-                            1. เปิด Dashboard เพื่อตรวจภาพรวม  2. ใช้ Check-in Staff/เลือกจุดเมื่ออยู่หน้างาน  3. ใช้ตั้งค่ากิจกรรมและ Layout เฉพาะผู้ดูแลที่ได้รับสิทธิ์
-                          </Typography>
-                        </Box>
-                      </Stack>
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Card sx={{ borderRadius: 2, height: "100%" }}>
-                      <CardContent>
-                        <Typography variant="h6" fontWeight={900} mb={1}>เครื่องมือประจำอีเวนต์</Typography>
-                        <Typography variant="body2" color="text.secondary" mb={2}>
-                          เปิดเหมือน workspace tab โดยส่ง context ของ event ไปกับหน้าเครื่องมือ
-                        </Typography>
-                        <Stack spacing={1.25}>
-                          {featureEnabled(selectedEvent, "dashboard") && <Button startIcon={<DashboardIcon />} variant="contained" onClick={() => openTool("/dashboard")}>Dashboard ของอีเวนต์</Button>}
-                          {canWorkStaff && featureEnabled(selectedEvent, "checkin") && <Button startIcon={<QrCodeIcon />} variant="outlined" onClick={() => openTool("/staff")}>Check-in Staff</Button>}
-                          {canWorkStaff && featureEnabled(selectedEvent, "checkin") && <Button startIcon={<StoreIcon />} variant="outlined" onClick={() => openTool("/staff/select-point")}>เลือกจุดลงทะเบียน</Button>}
-                          {canManageSystem && <Button startIcon={<PeopleIcon />} variant="outlined" onClick={() => openTool("/admin/participants")}>ผู้เข้าร่วม</Button>}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-
-                  <Grid item xs={12} md={6}>
-                    <Card sx={{ borderRadius: 2, height: "100%" }}>
-                      <CardContent>
-                        <Typography variant="h6" fontWeight={900} mb={1}>ตั้งค่าและระบบ</Typography>
-                        <Typography variant="body2" color="text.secondary" mb={2}>
-                          ใช้สำหรับ Superadmin/Admin หรือผู้ดูแลอีเวนต์ที่ได้รับสิทธิ์
-                        </Typography>
-                        <Stack spacing={1.25}>
-                          {canManageSystem && <Button startIcon={<SettingsIcon />} variant="outlined" onClick={() => navigate(`/admin/events/${getId(selectedEvent)}/settings`)}>ตั้งค่ากิจกรรม</Button>}
-                          {canManageSystem && <Button startIcon={<DesignServicesIcon />} variant="outlined" onClick={() => navigate(`/admin/events/${getId(selectedEvent)}/layouts`)}>Layout Builder</Button>}
-                          {canManageSystem && <Button startIcon={<AdminPanelSettingsIcon />} variant="outlined" onClick={() => navigate("/admin/events")}>Event Portal</Button>}
-                          {canManageUsers && <Button startIcon={<PeopleIcon />} variant="outlined" onClick={() => navigate("/admin")}>จัดการผู้ใช้และสิทธิ์</Button>}
-                        </Stack>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
-              </Stack>
-            ) : (
-              <EmptyState
-                title={catalog.events.length ? "เลือกกิจกรรมจากรายการด้านซ้าย" : "ยังไม่มีอีเวนต์ให้เปิดใช้งาน"}
-                description={catalog.events.length ? "ระบบจะเปิดเครื่องมือพร้อม eventId ของกิจกรรมนั้นเท่านั้น เพื่อป้องกันข้อมูลข้ามงาน" : "ติดต่อ Superadmin หรือ Admin เพื่อมอบหมายสิทธิ์ให้กับบัญชีนี้"}
-                icon={<EventAvailableIcon />}
-              />
-            )}
-          </Grid>
+              </Grid>
+            );
+          })}
         </Grid>
       </Container>
     </Box>

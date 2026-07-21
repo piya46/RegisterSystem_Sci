@@ -1,4 +1,5 @@
 const ApiLog = require('../models/apilog');
+const { safeRequestUrl, sanitizeUrlForLogging } = require('../utils/logSanitization');
 
 /**
  * Helper สำหรับบันทึก Audit Log
@@ -26,7 +27,7 @@ module.exports = function auditLog({
     user: actor ? actor.username : user,
     userId: actor ? String(actor._id) : userId,
     method: req?.method || method,
-    url: req?.originalUrl || req?.path || url,
+    url: req ? safeRequestUrl(req) : sanitizeUrlForLogging(url),
     status,
     ip: req?.ip || '',
     userAgent: req?.headers?.['user-agent'] || '',

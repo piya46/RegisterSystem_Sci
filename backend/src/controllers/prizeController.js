@@ -5,6 +5,8 @@ const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
 const { eventScopeFromRequest, getEventContextFromRequest, getCurrentEventYear, normalizeEventYear } = require('../utils/eventYear');
+const { bucketTimestamp, maskDisplayName } = require('../utils/publicPrivacy');
+const auditLog = require('../helpers/auditLog');
 
 const PRIZE_FIELDS = ['name', 'totalQuantity', 'image', 'eventYear'];
 
@@ -48,7 +50,7 @@ exports.listPrizes = async (req, res) => {
     }
     const { eventYear, filter } = eventScope;
     const prizes = await Prize.find(filter)
-      .populate('winners.participantId', 'fields.name fields.department fields.dept registeredPoint')
+      .populate('winners.participantId', 'fields.name fields.department fields.dept registeredPoint registeredPointName')
       .sort({ createdAt: -1 });
     const safePrizes = prizes.map(revealPrize);
     await auditSensitiveAccess({
@@ -72,25 +74,20 @@ exports.listPublicPrizes = async (req, res) => {
     }
     const { eventYear, filter } = eventScope;
     const prizes = await Prize.find(filter)
-      .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint')
+      .populate('winners.participantId', 'fields.name fields.dept fields.department registeredPoint registeredPointName')
       .sort({ createdAt: -1 })
       .lean();
 
-    const maskName = (name = '') => {
-      const cleanName = String(name).trim();
-      if (!cleanName) return 'ไม่ทราบชื่อ';
-      return cleanName.length <= 3 ? `${cleanName[0]}***` : `${cleanName.slice(0, 3)}***`;
-    };
-
     const safePrizes = prizes.map(revealPrize).map((prize) => ({
-      _id: prize._id,
       name: prize.name,
       totalQuantity: prize.totalQuantity,
       remainingQuantity: prize.remainingQuantity,
       winners: (prize.winners || []).map((winner) => ({
-        wonAt: winner.wonAt,
-        participantName: maskName(winner.participantId?.fields?.name),
-        department: winner.participantId?.fields?.department || winner.participantId?.fields?.dept || ''
+        wonAt: bucketTimestamp(winner.wonAt, 1),
+        participantName: maskDisplayName(winner.participantId?.fields?.name),
+        department: String(
+          winner.participantId?.fields?.department || winner.participantId?.fields?.dept || ''
+        ).slice(0, 80),
       }))
     }));
     await auditSensitiveAccess({
@@ -104,6 +101,7 @@ exports.listPublicPrizes = async (req, res) => {
       extra: { masked: true },
     });
 
+    res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=10');
     res.json(safePrizes);
   } catch (err) {
     serverError(res, err);
@@ -136,7 +134,24 @@ exports.createPrize = async (req, res) => {
 
 exports.deletePrize = async (req, res) => {
   try {
-    await Prize.findByIdAndDelete(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'รหัสของรางวัลไม่ถูกต้อง' });
+    }
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    const prize = await Prize.findOne({ _id: req.params.id, eventId: eventContext.eventId });
+    if (!prize) return res.status(404).json({ error: 'ไม่พบของรางวัลในกิจกรรมนี้' });
+    if ((prize.winners || []).length > 0) {
+      return res.status(409).json({ error: 'ไม่สามารถลบรางวัลที่มีผู้ชนะแล้ว กรุณายกเลิกผู้ชนะให้ครบก่อน' });
+    }
+    const deletion = await Prize.deleteOne({
+      _id: prize._id,
+      eventId: eventContext.eventId,
+      'winners.0': { $exists: false },
+    });
+    if (deletion.deletedCount !== 1) {
+      return res.status(409).json({ error: 'รางวัลมีผู้ชนะเพิ่มขึ้นระหว่างดำเนินการ กรุณาตรวจสอบใหม่' });
+    }
+    auditLog({ req, action: 'DELETE_PRIZE', detail: `eventId=${eventContext.eventId}; prizeId=${prize._id}` });
     res.json({ message: 'Deleted' });
   } catch (err) { serverError(res, err); }
 };
@@ -272,57 +287,73 @@ exports.drawPrize = async (req, res) => {
 };
 
 exports.cancelWinner = async (req, res) => {
+  const session = await mongoose.startSession();
   try {
     const { prizeId, winnerId } = req.body;
-    
-    if (!prizeId || !winnerId) {
-      return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน' });
+    if (!mongoose.Types.ObjectId.isValid(prizeId) || !mongoose.Types.ObjectId.isValid(winnerId)) {
+      return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วนหรือรูปแบบไม่ถูกต้อง' });
     }
 
-    const prize = await Prize.findById(prizeId);
-    if (!prize) return res.status(404).json({ error: 'ไม่พบของรางวัล' });
     const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
-    if (featureDisabled(eventContext.event, 'luckyDraw') || String(prize.eventId || '') !== String(eventContext.eventId || '')) {
+    if (featureDisabled(eventContext.event, 'luckyDraw')) {
       return res.status(403).json({ error: 'คุณไม่มีสิทธิ์จัดการรางวัลของกิจกรรมนี้' });
     }
 
-    // 1. จำจำนวนผู้ชนะก่อนลบไว้
-    const originalLength = prize.winners.length;
-
-    // 2. กรองชื่อผู้ที่สละสิทธิ์ออก
-    prize.winners = prize.winners.filter(
-      w => w.participantId.toString() !== winnerId.toString()
-    );
-
-    // 3. ตรวจสอบว่ามีรายชื่อถูกลบออกไป "จริงหรือไม่" 
-    if (prize.winners.length < originalLength) {
-      // คำนวณจำนวนคนที่ลบออก (เผื่อกรณีรายชื่อซ้ำกัน)
-      const removedCount = originalLength - prize.winners.length;
-      
-      // บวกโควต้าคืนตามจำนวนที่ลบออก
-      prize.remainingQuantity += removedCount;
-
-      // 4. ป้องกันจำนวนของรางวัลคงเหลือ เกินจำนวนรางวัลทั้งหมด (Total) ป้องกันการเบิ้ล
-      if (prize.remainingQuantity > prize.totalQuantity) {
-        prize.remainingQuantity = prize.totalQuantity;
+    let updatedPrize = null;
+    await session.withTransaction(async () => {
+      const prize = await Prize.findOne({
+        _id: prizeId,
+        eventId: eventContext.eventId,
+      }).session(session);
+      if (!prize) {
+        const error = new Error('ไม่พบของรางวัลในกิจกรรมนี้');
+        error.statusCode = 404;
+        throw error;
       }
 
-      await prize.save();
+      const originalLength = prize.winners.length;
+      prize.winners = prize.winners.filter(
+        (winner) => String(winner.participantId) !== String(winnerId)
+      );
+      const removedCount = originalLength - prize.winners.length;
+      if (removedCount === 0) {
+        const error = new Error('ไม่พบรายชื่อผู้ชนะท่านนี้ หรือถูกยกเลิกไปแล้ว');
+        error.statusCode = 409;
+        throw error;
+      }
 
-      // 🌟 5. อัปเดตข้อมูล Participant ว่าคนนี้ "สละสิทธิ์" (Blacklist) ไปแล้ว
-      await Participant.findByIdAndUpdate(winnerId, {
-        $set: { isForfeited: true },
-        $unset: { prizeId: 1, prizeWonAt: 1 }
-      });
+      const participant = await Participant.findOneAndUpdate(
+        { _id: winnerId, eventId: eventContext.eventId },
+        {
+          $set: { isForfeited: true },
+          $unset: { prizeId: 1, prizeWonAt: 1 },
+        },
+        { new: true, session }
+      );
+      if (!participant) {
+        const error = new Error('ไม่พบผู้ชนะในกิจกรรมนี้');
+        error.statusCode = 409;
+        throw error;
+      }
 
-      return res.json({ message: "ยกเลิกสิทธิ์สำเร็จ โควต้าถูกคืนแล้ว", prize });
-      
-    } else {
-      // กรณีเผลอกดเบิ้ล หรือไม่มีชื่อนี้แล้ว จะตกมาที่นี่ และไม่โดนบวกโควต้าเพิ่มมั่วๆ ครับ
-      return res.status(400).json({ error: "ไม่พบรายชื่อผู้ชนะท่านนี้ (อาจถูกยกเลิกไปแล้ว)" });
-    }
+      prize.remainingQuantity = Math.min(
+        prize.totalQuantity,
+        prize.remainingQuantity + removedCount
+      );
+      await prize.save({ session });
+      updatedPrize = prize;
+    });
 
+    auditLog({
+      req,
+      action: 'CANCEL_PRIZE_WINNER',
+      detail: `eventId=${eventContext.eventId}; prizeId=${prizeId}; participantId=${winnerId}`,
+    });
+    return res.json({ message: 'ยกเลิกสิทธิ์สำเร็จ โควต้าถูกคืนแล้ว', prize: updatedPrize });
   } catch (err) {
-    serverError(res, err);
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    return serverError(res, err);
+  } finally {
+    session.endSession();
   }
 };

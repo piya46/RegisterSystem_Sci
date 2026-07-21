@@ -1,33 +1,85 @@
 // frontend/src/App.jsx
-import React from "react";
-import { BrowserRouter as Router, Routes, Route, useLocation } from "react-router-dom";
-import { Box, Typography } from "@mui/material";
-import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import NotFoundPage from "./pages/NotFoundPage";
-import AdminPage from "./pages/AdminPage";
-import RegistrationPointPage from "./pages/RegistrationPointPage";
-import SystemSettingsPage from "./pages/SystemSettingsPage";
+import React, { Suspense, lazy } from "react";
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Box, Typography, CircularProgress, Button } from "@mui/material";
 import ProtectedRoute from "./components/ProtectedRoute";
-import ProfilePage from "./pages/ProfilePage";
-import CheckinStaffPage from "./pages/CheckinStaffPage";
-import KioskPage from "./pages/KioskPage";
-import SelectPointPage from './pages/SelectPointPage';
-import AdminParticipantsPage from './pages/AdminParticipantsPage';
-import PreRegistrationPage from './pages/PreRegistrationPage';
-import DonationListPage from './pages/DonationListPage';
-import CronStatusPage from "./pages/CronStatusPage";
-import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
-import TermsPage from './pages/TermsPage';
-import SessionManagerPage from "./pages/SessionManagerPage";
-import KioskJoinPage from "./pages/KioskJoinPage";
-import PublicReportPage from "./pages/PublicReportPage";
-import LuckyDrawPage from "./pages/LuckyDrawPage";
-import PublicDashboardPage from "./pages/PublicDashboardPage";
-import SelfRegisterPage from "./pages/SelfRegisterPage";
-import PublicLuckyDrawPage from "./pages/PublicLuckyDrawPage"; // 🌟 [เพิ่มนำเข้า]
-import EventPlatformPage from "./pages/EventPlatformPage";
-import EventWorkspacePage from "./pages/EventWorkspacePage";
+
+const LoginPage = lazy(() => import("./pages/LoginPage"));
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage"));
+const AdminPage = lazy(() => import("./pages/AdminPage"));
+const RegistrationPointPage = lazy(() => import("./pages/RegistrationPointPage"));
+const SystemSettingsPage = lazy(() => import("./pages/SystemSettingsPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const CheckinStaffPage = lazy(() => import("./pages/CheckinStaffPage"));
+const KioskPage = lazy(() => import("./pages/KioskPage"));
+const SelectPointPage = lazy(() => import('./pages/SelectPointPage'));
+const AdminParticipantsPage = lazy(() => import('./pages/AdminParticipantsPage'));
+const PreRegistrationPage = lazy(() => import('./pages/PreRegistrationPage'));
+const DonationListPage = lazy(() => import('./pages/DonationListPage'));
+const CronStatusPage = lazy(() => import("./pages/CronStatusPage"));
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'));
+const TermsPage = lazy(() => import('./pages/TermsPage'));
+const SessionManagerPage = lazy(() => import("./pages/SessionManagerPage"));
+const KioskJoinPage = lazy(() => import("./pages/KioskJoinPage"));
+const KioskDiagnosticPage = lazy(() => import("./pages/KioskDiagnosticPage"));
+const PublicReportPage = lazy(() => import("./pages/PublicReportPage"));
+const LuckyDrawPage = lazy(() => import("./pages/LuckyDrawPage"));
+const PublicDashboardPage = lazy(() => import("./pages/PublicDashboardPage"));
+const SelfRegisterPage = lazy(() => import("./pages/SelfRegisterPage"));
+const PublicLuckyDrawPage = lazy(() => import("./pages/PublicLuckyDrawPage"));
+const EventPlatformPage = lazy(() => import("./pages/EventPlatformPage"));
+const EventWorkspacePage = lazy(() => import("./pages/EventWorkspacePage"));
+const WalletPage = lazy(() => import("./pages/WalletPage"));
+const GuestWalletPage = lazy(() => import("./pages/GuestWalletPage"));
+const VerifyPage = lazy(() => import("./pages/VerifyPage"));
+const CertificateDownloadPage = lazy(() => import("./pages/CertificateDownloadPage"));
+const UserLoginPage = lazy(() => import("./pages/UserLoginPage"));
+const UserHomePage = lazy(() => import("./pages/UserHomePage"));
+const LineCallbackPage = lazy(() => import("./pages/LineCallbackPage"));
+
+const EventAdminLayout = lazy(() => import("./components/EventAdminLayout"));
+const EventSettingsPage = lazy(() => import("./pages/EventSettingsPage"));
+const EventLayoutsPage = lazy(() => import("./pages/EventLayoutsPage"));
+
+class GlobalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Global Error:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100vh" p={3}>
+          <Typography variant="h5" color="error" gutterBottom>ขออภัย เกิดข้อผิดพลาดในระบบ</Typography>
+          <Typography variant="body1" color="text.secondary" align="center" mb={3}>
+            กรุณาลองรีเฟรชหน้าเว็บ หรือกลับไปที่หน้าหลัก
+          </Typography>
+          <Button variant="contained" onClick={() => window.location.href = '/'}>
+            กลับหน้าหลัก
+          </Button>
+        </Box>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const LegacyParticipantsRedirect = () => {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const eventId = searchParams.get('eventId');
+  if (eventId) {
+    return <Navigate to={`/admin/events/${eventId}/participants`} replace />;
+  }
+  return <Navigate to="/admin/events" replace />;
+};
 
 const withShell = (roles, page) => (
   <ProtectedRoute roles={roles} shell>{page}</ProtectedRoute>
@@ -40,45 +92,76 @@ function AppFrame() {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <Box sx={{ flex: 1 }}>
-        <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<PreRegistrationPage />} />
-            <Route path="/e/:eventSlug" element={<PreRegistrationPage mode="landing" />} />
-            <Route path="/e/:eventSlug/register" element={<PreRegistrationPage />} />
-            <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-            <Route path="/terms-of-service" element={<TermsPage />} />
+        <GlobalErrorBoundary>
+          <Suspense fallback={<Box display="flex" justifyContent="center" alignItems="center" height="100vh"><CircularProgress /></Box>}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<PreRegistrationPage />} />
+              <Route path="/e/:eventSlug" element={<PreRegistrationPage mode="landing" />} />
+              <Route path="/e/:eventSlug/register" element={<PreRegistrationPage />} />
+              <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+              <Route path="/terms-of-service" element={<TermsPage />} />
+              <Route path="/verify" element={<VerifyPage />} />
+              <Route path="/verify/:id" element={<VerifyPage />} />
+              <Route path="/user/login" element={<UserLoginPage />} />
+              <Route path="/user/home" element={<UserHomePage />} />
+              <Route path="/user/profile" element={<UserHomePage />} />
+              <Route path="/user/security" element={<UserHomePage />} />
+              <Route path="/user/line/callback" element={<LineCallbackPage />} />
 
-            <Route path="/public/report" element={<PublicReportPage />} />
-            <Route path="/public/dashboard" element={<PublicDashboardPage />} />
-            <Route path="/public/lucky-draw" element={<PublicLuckyDrawPage />} /> {/* 🌟 [เพิ่ม Route] */}
-            <Route path="/kiosk/join" element={<KioskJoinPage />} />
-            <Route path="/self-register" element={<SelfRegisterPage />} />
+              <Route path="/public/report" element={<PublicReportPage />} />
+              <Route path="/public/dashboard" element={<PublicDashboardPage />} />
+              <Route path="/public/lucky-draw" element={<PublicLuckyDrawPage />} />
+              <Route path="/kiosk/join" element={<KioskJoinPage />} />
+              <Route path="/kiosk/diagnostic" element={<KioskDiagnosticPage />} />
+              <Route path="/self-register" element={<SelfRegisterPage />} />
 
-            <Route path="/dashboard" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <DashboardPage embedded />)} />
-            <Route path="/workspace" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
-            <Route path="/workspace/events/:eventId" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
-            <Route path="/profile" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <ProfilePage />)} />
-            <Route path="/settings" element={withShell(["admin"], <SystemSettingsPage />)} />
-            <Route path="/admin" element={withShell(["admin"], <AdminPage />)} />
-            <Route path="/registration-points" element={withShell(["admin"], <RegistrationPointPage />)} />
-            <Route path="/admin/events" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="portal" />)} />
-            <Route path="/admin/events/migration" element={withShell(["admin"], <EventPlatformPage section="migration" />)} />
-            <Route path="/admin/events/:eventId/settings" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="settings" />)} />
-            <Route path="/admin/events/:eventId/layouts" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="layouts" />)} />
-            <Route path="/admin/lucky-draw" element={withShell(["admin"], <LuckyDrawPage />)} />
+              <Route path="/dashboard" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <DashboardPage embedded />)} />
+              <Route path="/workspace" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
+              <Route path="/workspace/events/:eventId" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"], <EventWorkspacePage />)} />
+              <Route path="/profile" element={withShell(["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff", "kiosk"], <ProfilePage />)} />
+              <Route path="/settings" element={withShell(["admin"], <SystemSettingsPage />)} />
+              <Route path="/admin" element={withShell(["admin"], <AdminPage />)} />
+              <Route path="/registration-points" element={withShell(["admin"], <RegistrationPointPage />)} />
+              <Route path="/admin/events" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="portal" />)} />
+              <Route path="/admin/events/new" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventPlatformPage section="create" />)} />
+              <Route path="/admin/events/migration" element={withShell(["admin"], <EventPlatformPage section="migration" />)} />
 
-            <Route path="/staff" element={withShell(["admin", "staff"], <CheckinStaffPage />)} />
-            <Route path="/kiosk" element={<ProtectedRoute roles={["kiosk", "admin", "staff"]}><KioskPage /></ProtectedRoute>} />
-            <Route path="/select-point" element={withShell(["kiosk", "staff", "admin"], <SelectPointPage />)} />
-            <Route path="/admin/participants" element={withShell(["admin"], <AdminParticipantsPage />)} />
-            <Route path="/admin/donations" element={withShell(["admin"], <DonationListPage />)} />
-            <Route path="/staff/select-point" element={withShell(["admin", "staff"], <SelectPointPage mode="staff" />)} />
-            <Route path="/admin/cron-status" element={withShell(["admin"], <CronStatusPage />)} />
-            <Route path="/admin/sessions" element={withShell(["admin"], <SessionManagerPage />)} />
+              {/* 🌟 New Event Admin Layout Routes */}
+              <Route path="/admin/events/:eventId" element={withShell(["admin", "org_admin", "event_admin", "event_manager"], <EventAdminLayout />)}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardPage embedded />} />
+                <Route path="settings" element={<EventSettingsPage />} />
+                <Route path="layouts" element={<EventLayoutsPage />} />
+                <Route path="participants" element={<AdminParticipantsPage />} />
+                <Route path="lucky-draw" element={<LuckyDrawPage />} />
+                <Route path="donations" element={<DonationListPage />} />
+              </Route>
 
-            <Route path="/unauthorized" element={<Box p={5} textAlign="center"><Typography variant="h5">คุณไม่มีสิทธิ์เข้าถึงหน้านี้</Typography></Box>} />
-            <Route path="*" element={<NotFoundPage />} />
-        </Routes>
+              {/* 🌟 Legacy Redirect */}
+              <Route path="/admin/participants" element={<LegacyParticipantsRedirect />} />
+
+              <Route path="/staff" element={withShell(["admin", "staff"], <CheckinStaffPage />)} />
+              <Route path="/kiosk" element={<ProtectedRoute roles={["kiosk", "admin", "staff"]}><KioskPage /></ProtectedRoute>} />
+              <Route path="/select-point" element={withShell(["kiosk", "staff", "admin"], <SelectPointPage />)} />
+              <Route path="/staff/select-point" element={withShell(["admin", "staff"], <SelectPointPage mode="staff" />)} />
+              <Route path="/admin/cron-status" element={withShell(["admin"], <CronStatusPage />)} />
+              <Route path="/admin/sessions" element={withShell(["admin"], <SessionManagerPage />)} />
+
+              {/* Wallet Routes */}
+              <Route path="/wallet" element={<WalletPage />} />
+              <Route path="/liff/wallet" element={<WalletPage />} />
+              <Route path="/liff/profile" element={<UserHomePage />} />
+              <Route path="/guest-wallet" element={<GuestWalletPage />} />
+              <Route path="/guest-wallet/:token" element={<GuestWalletPage />} />
+              <Route path="/certificate/download" element={<CertificateDownloadPage />} />
+              <Route path="/certificate/download/:verificationId" element={<CertificateDownloadPage />} />
+
+              <Route path="/unauthorized" element={<Box p={5} textAlign="center"><Typography variant="h5">คุณไม่มีสิทธิ์เข้าถึงหน้านี้</Typography></Box>} />
+              <Route path="*" element={<NotFoundPage />} />
+            </Routes>
+          </Suspense>
+        </GlobalErrorBoundary>
       </Box>
 
       {showFooter && (

@@ -121,10 +121,10 @@ export default function CheckinStaffPage() {
   const [showFollowersDialog, setShowFollowersDialog] = useState(false);
 
   useEffect(() => {
-    listEnabledRegistrationPoints()
+    listEnabledRegistrationPoints(eventParams)
       .then(res => setPointList(res.data || res))
       .catch(() => {});
-  }, []);
+  }, [eventParams]);
 
   useEffect(() => {
     setSearch(initialQuery);
@@ -180,7 +180,7 @@ export default function CheckinStaffPage() {
       const res = await searchParticipants({ q: search, ...eventParams });
       const enriched = (res.data || []).map(p => ({
         ...p,
-        registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
+        registeredPointName: p.registeredPointName || pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
       }));
       if (enriched.length) {
         setParticipants(enriched);
@@ -210,7 +210,7 @@ export default function CheckinStaffPage() {
       const res = await searchParticipants({ q: qrText, ...eventParams });
       const enriched = (res.data || []).map(p => ({
         ...p,
-        registeredPointName: pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
+        registeredPointName: p.registeredPointName || pointList.find(pt => pt._id === p.registeredPoint)?.name || p.registeredPoint
       }));
 
       if (enriched.length) {

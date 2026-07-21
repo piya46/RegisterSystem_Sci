@@ -13,13 +13,17 @@ function escapeHtml(value) {
 /**
  * ส่งอีเมล E-Ticket พร้อม QR Code (ปรับโฉมใหม่สวยงาม Modern Gold Theme)
  */
-exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
+exports.sendTicketMail = async function sendTicketMail(toEmail, participant, { event = null } = {}) {
   try {
     const qrText = participant.qrCode || participant._id || 'no-code';
     const name = escapeHtml(participant.fields?.name || "-");
     const year = escapeHtml(participant.fields?.date_year || "-");
     const dept = escapeHtml(participant.fields?.dept || "-");
     const safeQrText = escapeHtml(qrText);
+    const eventNameText = String(event?.name || 'กิจกรรม').replace(/[\r\n]+/g, ' ').trim();
+    const eventName = escapeHtml(eventNameText);
+    const contactEmail = String(event?.config?.contactEmail || process.env.SUPPORT_EMAIL || '').trim();
+    const hasContactEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail);
 
     const qrImageCid = 'ticket-qr';
     const qrImageSrc = `cid:${qrImageCid}`;
@@ -31,7 +35,9 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
     });
     
     // ลิงก์สำหรับติดต่อแจ้งปัญหา
-    const contactUrl = `mailto:piyaton56@gmail.com?subject=${encodeURIComponent(`Help Ticket ${qrText}`)}`;
+    const contactUrl = hasContactEmail
+      ? `mailto:${encodeURIComponent(contactEmail)}?subject=${encodeURIComponent(`ช่วยเหลือ E-Ticket: ${eventNameText}`)}`
+      : '';
 
     const html = `
       <!DOCTYPE html>
@@ -50,7 +56,7 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
                 🎟 บัตรเข้าร่วมงาน
               </h1>
               <p style="margin: 8px 0 0; color: rgba(255,255,255,0.9); font-size: 16px; font-weight: 500;">
-                งานคืนเหย้า "เสือเหลืองคืนถิ่น"
+                ${eventName}
               </p>
             </div>
 
@@ -101,8 +107,8 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
             </div>
 
             <div style="background-color: #3E2723; color: #BCAAA4; padding: 25px; text-align: center; font-size: 12px;">
-              <p style="margin: 0 0 10px;">พบปัญหาในการใช้งาน? <a href="${contactUrl}" style="color: #FFC107; text-decoration: none;">ติดต่อทีมงาน</a></p>
-              <p style="margin: 0; opacity: 0.7;">&copy; 2026 Register System Sci. All rights reserved.</p>
+              ${hasContactEmail ? `<p style="margin: 0 0 10px;">พบปัญหาในการใช้งาน? <a href="${contactUrl}" style="color: #FFC107; text-decoration: none;">ติดต่อทีมงาน</a></p>` : ''}
+              <p style="margin: 0; opacity: 0.7;">&copy; ${new Date().getFullYear()} ${eventName}</p>
             </div>
           </div>
         </div>
@@ -112,7 +118,7 @@ exports.sendTicketMail = async function sendTicketMail(toEmail, participant) {
 
     return sendMail(
       toEmail,
-      `🎫 E-Ticket ของคุณ: ${name}`,
+      `E-Ticket: ${eventNameText}`,
       `นี่คือ E-Ticket สำหรับเข้างานของคุณ (${qrText}) กรุณาเปิดดูในโหมด HTML`,
       html,
       {

@@ -4,16 +4,30 @@ import React, { useEffect, useRef, forwardRef, useImperativeHandle } from "react
 const SCRIPT_URL = "https://challenges.cloudflare.com/turnstile/v0/api.js";
 const SCRIPT_ID = "cf-turnstile-script";
 
+const waitForTurnstile = () => new Promise((resolve, reject) => {
+  if (window.turnstile) return resolve(window.turnstile);
+
+  const startedAt = Date.now();
+  const intervalId = window.setInterval(() => {
+    if (window.turnstile) {
+      window.clearInterval(intervalId);
+      resolve(window.turnstile);
+      return;
+    }
+    if (Date.now() - startedAt > 10000) {
+      window.clearInterval(intervalId);
+      reject(new Error("Turnstile script load timeout"));
+    }
+  }, 50);
+});
+
 /**
  * Global Helper to inject Cloudflare script only once.
  */
 const injectScript = () => {
   return new Promise((resolve, reject) => {
     if (document.getElementById(SCRIPT_ID)) {
-      // Script already exists, check if loaded
-      if (window.turnstile) return resolve(window.turnstile);
-      // Wait for it (simple polling or just resolve and let widget handle wait)
-      return resolve(window.turnstile); 
+      return waitForTurnstile().then(resolve).catch(reject);
     }
 
     const script = document.createElement("script");
@@ -57,10 +71,12 @@ const Turnstile = forwardRef(({
 }, ref) => {
   const containerRef = useRef(null);
   const widgetId = useRef(null);
+  const pendingExecute = useRef(false);
 
   // Expose methods to Parent via Ref
   useImperativeHandle(ref, () => ({
     reset: () => {
+      pendingExecute.current = false;
       if (window.turnstile && widgetId.current) {
         window.turnstile.reset(widgetId.current);
       }
@@ -68,6 +84,8 @@ const Turnstile = forwardRef(({
     execute: () => {
       if (window.turnstile && widgetId.current) {
         window.turnstile.execute(widgetId.current);
+      } else {
+        pendingExecute.current = true;
       }
     },
     getResponse: () => {
@@ -122,6 +140,11 @@ const Turnstile = forwardRef(({
             // window.turnstile.reset(widgetId.current);
           },
         });
+
+        if (pendingExecute.current && widgetId.current) {
+          pendingExecute.current = false;
+          window.turnstile.execute(widgetId.current);
+        }
 
       } catch (err) {
         console.error("Turnstile Load Failed:", err);

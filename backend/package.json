@@ -6,18 +6,34 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "find src -name '*.js' -exec node --check {} \\;",
+    "test": "find src test -name '*.js' -exec node --check {} \\; && node --test test/*.test.js",
     "backfill:privacy-year": "node src/scripts/backfillPrivacyAndEventYear.js",
     "backfill:event-refs": "node src/scripts/backfillEventReferences.js",
     "migrate:legacy-events": "node src/scripts/backfillEventReferences.js",
     "grant:superadmin": "node src/scripts/grantSuperadmin.js",
-    "rotate:field-encryption": "node src/scripts/rotateFieldEncryptionKey.js"
+    "migrate:registration-points": "node src/scripts/migrate_registration_points_scope.js",
+    "migrate:participant-points": "node src/scripts/migrate_participant_registered_points.js",
+    "migrate:participant-fields": "node src/scripts/migrate_participant_fields_scope.js",
+    "migrate:certificate-verification": "node src/scripts/migrateCertificateVerificationIds.js",
+    "rotate:field-encryption": "node src/scripts/rotateFieldEncryptionKey.js",
+    "migrate:sql-schema": "node src/scripts/migrateSqlSchema.js",
+    "backfill:sql-mirror": "node src/scripts/backfillSqlMirror.js",
+    "replay:sql-mirror": "node src/scripts/replaySqlMirrorDeadLetters.js",
+    "verify:sql-mirror": "node src/scripts/verifySqlMirrorIntegration.js",
+    "estimate:gcs-cost": "node src/scripts/estimateGcsCost.js",
+    "configure:gcs-bucket": "node src/scripts/configureGcsBucket.js",
+    "cleanup:stored-objects": "node src/scripts/cleanupStoredObjects.js",
+    "migrate:object-storage": "node src/scripts/migrateLegacyObjectsToStorage.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "dependencies": {
+    "@google-cloud/storage": "^7.21.0",
     "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "compression": "^1.8.1",
@@ -33,16 +49,21 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.3",
     "ms": "^2.1.3",
-    "multer": "^2.0.2",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.0",
     "node-cron": "^4.2.1",
     "nodemailer": "^9.0.1",
     "pdfkit": "^0.17.2",
     "pdfkit-table": "^0.1.99",
     "qrcode": "^1.5.4",
-    "uuid": "^11.1.0",
+    "sharp": "^0.35.3",
+    "uuid": "^11.1.1",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
   }
 }

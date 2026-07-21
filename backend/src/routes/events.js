@@ -9,6 +9,7 @@ router.use(auth);
 router.get('/current', requirePermission('event:read'), controller.getCurrentEvent);
 router.get('/catalog', requirePermission('event:read'), controller.getCatalog);
 router.get('/migration-preview', requirePermission('event:manage'), controller.getMigrationPreview);
+router.get('/:id', requirePermission('event:read'), controller.getEventById);
 router.post('/migrate-legacy', requirePermission('event:manage'), controller.runLegacyMigration);
 
 router.post('/organizations', requirePermission('organization:manage'), controller.createOrganization);
@@ -19,6 +20,7 @@ router.put('/series/:id', requirePermission('event:manage'), controller.updateSe
 
 router.post('/', requirePermission('event:manage'), controller.createEvent);
 router.put('/:id', requirePermission('event:manage'), controller.updateEvent);
+router.delete('/:id', requirePermission('event:manage'), controller.deleteEvent);
 router.post('/:id/activate', requirePermission('event:manage'), controller.activateEvent);
 router.post('/:id/publish', requirePermission('layout:manage'), controller.publishEvent);
 router.post('/:id/status', requirePermission('event:manage'), controller.updateEventStatus);

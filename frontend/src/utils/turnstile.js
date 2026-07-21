@@ -1,17 +1,19 @@
-// src/utils/turnstile.js
 const SITE_KEY = import.meta.env.VITE_CF_TURNSTILE_SITE_KEY || import.meta.env.VITE_TURNSTILE_SITE_KEY;
 
 let scriptReadyPromise = null;
-let widgetId = null;
-let containerEl = null;
 
-function waitTurnstileLoaded() {
+function waitTurnstileLoaded(timeoutMs) {
   if (window.turnstile) return Promise.resolve();
   if (!scriptReadyPromise) {
-    scriptReadyPromise = new Promise((resolve) => {
+    scriptReadyPromise = new Promise((resolve, reject) => {
+      const startedAt = Date.now();
       const check = () => {
-        if (window.turnstile) resolve();
-        else setTimeout(check, 50);
+        if (window.turnstile) return resolve();
+        if (Date.now() - startedAt >= timeoutMs) {
+          scriptReadyPromise = null;
+          return reject(new Error('Turnstile script load timeout'));
+        }
+        window.setTimeout(check, 50);
       };
       check();
     });
@@ -19,79 +21,65 @@ function waitTurnstileLoaded() {
   return scriptReadyPromise;
 }
 
-function ensureContainer() {
-  if (!containerEl) {
-    containerEl = document.createElement('div');
-    containerEl.id = 'turnstile-invisible-container';
-    Object.assign(containerEl.style, {
-      position: 'fixed',
-      width: '0px',
-      height: '0px',
-      overflow: 'hidden',
-      opacity: '0',
-      pointerEvents: 'none',
-      bottom: '0',
-      right: '0',
-      zIndex: '-1',
-    });
-    document.body.appendChild(containerEl);
-  }
-  return containerEl;
+function safeAction(value) {
+  const action = String(value || '').trim();
+  return /^[a-z0-9_-]{1,32}$/i.test(action) ? action : 'generic';
 }
 
-/**
- * getTurnstileToken(action?: string, timeoutMs?: number)
- * - เรนเดอร์ invisible widget หนึ่งตัว (reuse ได้) แล้ว execute เพื่อรับโทเค็น
- * - คืน Promise<string> เป็น cfToken
- */
 export async function getTurnstileToken(action = 'generic', timeoutMs = 10000) {
-  if (!SITE_KEY) {
-    // ถ้าไม่ได้ตั้งค่าไว้ ให้ผ่าน (หลังบ้านจะเป็นด่านสุดท้าย)
-    return '';
-  }
-  await waitTurnstileLoaded();
-  const mount = ensureContainer();
+  if (!SITE_KEY) return '';
+  await waitTurnstileLoaded(timeoutMs);
 
-  if (widgetId == null) {
-    widgetId = window.turnstile.render(mount, {
-      sitekey: SITE_KEY,
-      size: 'invisible',
-      retry: 'auto',
-      'error-callback': () => {},
-    });
-  }
+  const mount = document.createElement('div');
+  Object.assign(mount.style, {
+    position: 'fixed',
+    width: '1px',
+    height: '1px',
+    overflow: 'hidden',
+    opacity: '0',
+    pointerEvents: 'none',
+    bottom: '0',
+    right: '0',
+  });
+  document.body.appendChild(mount);
 
-  // Execute และรอโทเค็น
   return new Promise((resolve, reject) => {
-    let done = false;
-    const tid = setTimeout(() => {
-      if (!done) {
-        done = true;
-        reject(new Error('Turnstile timeout'));
+    let widgetId = null;
+    let completed = false;
+    const cleanup = () => {
+      if (widgetId !== null && window.turnstile) {
+        try { window.turnstile.remove(widgetId); } catch {
+          // The widget may already have removed itself after an error.
+        }
       }
-    }, timeoutMs);
+      mount.remove();
+    };
+    const finish = (callback, value) => {
+      if (completed) return;
+      completed = true;
+      window.clearTimeout(timeoutId);
+      cleanup();
+      callback(value);
+    };
+    const timeoutId = window.setTimeout(
+      () => finish(reject, new Error('Turnstile timeout')),
+      timeoutMs
+    );
 
     try {
-      window.turnstile.execute(widgetId, {
-        action,
-        callback: (token) => {
-          if (!done) {
-            done = true;
-            clearTimeout(tid);
-            resolve(token);
-          }
-        },
-        'error-callback': () => {
-          if (!done) {
-            done = true;
-            clearTimeout(tid);
-            reject(new Error('Turnstile error'));
-          }
-        },
+      widgetId = window.turnstile.render(mount, {
+        sitekey: SITE_KEY,
+        size: 'invisible',
+        execution: 'execute',
+        appearance: 'interaction-only',
+        action: safeAction(action),
+        callback: (token) => finish(resolve, token),
+        'error-callback': () => finish(reject, new Error('Turnstile error')),
+        'expired-callback': () => finish(reject, new Error('Turnstile token expired')),
       });
-    } catch (e) {
-      clearTimeout(tid);
-      reject(e);
+      window.turnstile.execute(widgetId);
+    } catch (error) {
+      finish(reject, error);
     }
   });
 }

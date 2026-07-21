@@ -1,0 +1,10 @@
+# Deployment, security, migration, and environment changes require platform ownership review.
+/.github/ @piya46
+/Dockerfile @piya46
+/.dockerignore @piya46
+/scripts/ @piya46
+/deploy/ @piya46
+/backend/src/config/ @piya46
+/backend/src/sql/ @piya46
+/backend/src/utils/secretProvider.js @piya46
+/docs/*RUNBOOK.md @piya46

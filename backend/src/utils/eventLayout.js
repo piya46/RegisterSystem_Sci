@@ -58,7 +58,9 @@ function sanitizeUrl(value) {
   if (url.startsWith('/') && !url.startsWith('//')) return url;
   try {
     const parsed = new URL(url);
-    if (['https:', 'http:'].includes(parsed.protocol)) return parsed.toString();
+    if (['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password) {
+      return parsed.toString();
+    }
   } catch {
     return '';
   }
@@ -249,10 +251,10 @@ function sanitizeBranding(value = {}) {
 
 function sanitizePublicLinks(value = {}) {
   return {
-    landingPath: clampShortText(value.landingPath),
-    registrationPath: clampShortText(value.registrationPath),
-    checkinPath: clampShortText(value.checkinPath),
-    reportPath: clampShortText(value.reportPath),
+    landingPath: sanitizeUrl(value.landingPath),
+    registrationPath: sanitizeUrl(value.registrationPath),
+    checkinPath: sanitizeUrl(value.checkinPath),
+    reportPath: sanitizeUrl(value.reportPath),
   };
 }
 

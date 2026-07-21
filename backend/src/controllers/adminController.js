@@ -1,4 +1,5 @@
 const Admin = require('../models/admin');
+const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const auditLog = require('../helpers/auditLog');
 const { sendResetPasswordMail } = require('../utils/sendTicketMail');
@@ -12,6 +13,22 @@ const sendMail = require('../utils/sendMail');
 const { getOtpTemplate } = require('../utils/emailTemplates');
 const { serverError } = require('../utils/httpResponses');
 const { isAdminLike, isSuperadmin } = require('../utils/permissions');
+const {
+  claimAvatarObject,
+  deleteStoredObjectByReference,
+  quarantineAvatarObject,
+  storeImage,
+} = require('../utils/objectStorage');
+
+async function cleanupAvatarObject(reference, adminId) {
+  if (!reference) return;
+  try {
+    await deleteStoredObjectByReference(reference);
+  } catch (error) {
+    await quarantineAvatarObject(reference, adminId).catch(() => {});
+    throw error;
+  }
+}
 
 function isStrongPassword(password) {
   return typeof password === 'string' && password.length >= 8;
@@ -60,21 +77,6 @@ function assertCanWriteSensitiveUserAccess(req, res, payload = {}, targetUser = 
   return true;
 }
 
-function isValidImageSignature(filePath, mimeType) {
-  const buffer = fs.readFileSync(filePath);
-  if (mimeType === 'image/jpeg') {
-    return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
-  }
-  if (mimeType === 'image/png') {
-    return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-  }
-  if (mimeType === 'image/gif') {
-    const signature = buffer.subarray(0, 6).toString('ascii');
-    return signature === 'GIF87a' || signature === 'GIF89a';
-  }
-  return false;
-}
-
 exports.createAdmin = async (req,res) => {
   try {
     const {username, password, role, email, fullName, permissions, organizationIds, eventIds} = req.body;
@@ -88,10 +90,10 @@ exports.createAdmin = async (req,res) => {
     const passwordHash = await bcrypt.hash(password, Number(process.env.BCRYPT_SALT_ROUNDS) || 12);
     const admin = new Admin({ username, passwordHash, role, email, fullName, permissions, organizationIds, eventIds });
     await admin.save();
-    
+
     auditLog({ req, action: 'CREATE_ADMIN', detail: `username=${username}` });
     logger.info(`[ADMIN][${req.user?.username || 'System'}] CREATE_ADMIN username=${username}`);
-    
+
     res.json({ message: 'Admin created', admin: { ...admin.toObject(), passwordHash: undefined } });
   } catch (err) {
     logger.error(`Create Admin Error: ${err.message}`);
@@ -101,7 +103,7 @@ exports.createAdmin = async (req,res) => {
 
 exports.listAdmins = async (req, res) => {
   try {
-    
+
     const admins = await Admin.find({}, '-passwordHash');
     auditLog({ req, action: 'LIST_ADMINS', detail: `Count=${admins.length}` });
     res.json(admins);
@@ -114,14 +116,14 @@ exports.listAdmins = async (req, res) => {
 exports.deleteAdmin = async (req, res) => {
   try {
     const targetId = req.params.id;
-    const admin = await Admin.findById(targetId);
-    
+    const admin = await Admin.findById(targetId).select('+avatarObjectRef');
+
     if (!admin) {
       auditLog({ req, action: 'DELETE_ADMIN_FAIL', detail: `targetId=${targetId} not found`, status: 404 });
       return res.status(404).json({ error: 'User not found' });
     }
 
-  
+
     if (req.user && req.user._id.toString() === targetId) {
       return res.status(400).json({ error: "You can't delete yourself!" });
     }
@@ -136,9 +138,18 @@ exports.deleteAdmin = async (req, res) => {
         return res.status(403).json({ error: 'ไม่สามารถลบบัญชี Superadmin ได้จากหน้านี้' });
     }
 
- 
+
     await Admin.findByIdAndDelete(targetId);
-    
+    // Force session revocation for deleted admin
+    await Session.updateMany({ userId: targetId }, { revoked: true });
+    if (admin.avatarObjectRef) {
+      await cleanupAvatarObject(admin.avatarObjectRef, admin._id).catch((cleanupError) => {
+        console.error('[Admin] Deleted account avatar cleanup failed:', {
+          code: String(cleanupError.code || 'ADMIN_AVATAR_CLEANUP_FAILED').slice(0, 80),
+        });
+      });
+    }
+
     res.json({ message: 'User deleted successfully' });
     auditLog({ req, action: 'DELETE_ADMIN', detail: `targetId=${targetId}` });
   } catch (err) {
@@ -156,7 +167,7 @@ exports.updateAdmin = async (req, res) => {
       return res.status(404).json({ error: 'Admin not found' });
     }
     if (!assertCanWriteSensitiveUserAccess(req, res, { role, permissions }, targetUser)) return;
-    
+
     const updateData = { role, email, fullName };
     if (permissions !== undefined) updateData.permissions = permissions;
     if (organizationIds !== undefined) updateData.organizationIds = organizationIds;
@@ -170,7 +181,11 @@ exports.updateAdmin = async (req, res) => {
       updateData,
       { new: true }
     );
-    auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}` });
+
+    // Force session revocation for security on any profile/role/permission update
+    await Session.updateMany({ userId: req.params.id }, { revoked: true });
+
+    auditLog({ req, action: 'UPDATE_ADMIN', detail: `targetId=${req.params.id}, role=${role}` });
     res.json({ message: 'Admin updated', admin });
   } catch (err) {
     serverError(res);
@@ -196,9 +211,9 @@ exports.requestActionOtp = async (req, res) => {
         const htmlContent = getOtpTemplate(otp, ref, operator.username, 'Admin Confirm');
 
         await sendMail(
-            operator.email, 
-            `🔐 รหัส OTP ยืนยันรายการ (Ref: ${ref})`, 
-            `รหัส OTP: ${otp} (Ref: ${ref})`, 
+            operator.email,
+            `🔐 รหัส OTP ยืนยันรายการ (Ref: ${ref})`,
+            `รหัส OTP: ${otp} (Ref: ${ref})`,
             htmlContent
         );
 
@@ -234,9 +249,9 @@ exports.resetPassword = async (req, res) => {
     if (isTargetAdmin) {
         // 🔒 กรณีแก้ให้ Admin: ต้องใช้ OTP ของ Operator
         if (!otp) {
-            return res.status(400).json({ 
-                error: 'REQUIRE_OTP', 
-                message: 'การรีเซตรหัสผ่าน Admin ต้องยืนยัน OTP ของคุณก่อน' 
+            return res.status(400).json({
+                error: 'REQUIRE_OTP',
+                message: 'การรีเซตรหัสผ่าน Admin ต้องยืนยัน OTP ของคุณก่อน'
             });
         }
 
@@ -259,7 +274,7 @@ exports.resetPassword = async (req, res) => {
         operator.actionExpires = undefined;
         operator.actionAttempts = 0;
         await operator.save();
-    } 
+    }
     // 🔓 กรณีแก้ให้ Staff/Kiosk: ไม่ต้องทำอะไรเพิ่ม (ผ่านได้เลย)
 
     // บันทึกรหัสผ่านใหม่
@@ -268,12 +283,12 @@ exports.resetPassword = async (req, res) => {
     await targetUser.save();
     await Session.updateMany({ userId: targetUser._id }, { revoked: true });
 
-    auditLog({ 
-        req, 
-        action: 'ADMIN_RESET_PWD', 
-        detail: `Target: ${targetUser.username} (${isTargetAdmin ? 'Admin' : 'Staff'})` 
+    auditLog({
+        req,
+        action: 'ADMIN_RESET_PWD',
+        detail: `Target: ${targetUser.username} (${isTargetAdmin ? 'Admin' : 'Staff'})`
     });
-    
+
     // ส่งอีเมลแจ้งเจ้าตัวว่ารหัสเปลี่ยนแล้ว
     try {
       await sendResetPasswordMail(targetUser.email, targetUser.username);
@@ -350,34 +365,71 @@ exports.updateStaff = async (req, res) => {
 };
 
 exports.uploadAvatar = async (req, res) => {
+  let stored = null;
+  let persisted = false;
+  let dbSession = null;
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    if (!isValidImageSignature(req.file.path, req.file.mimetype)) {
-      fs.unlinkSync(req.file.path);
-      return res.status(400).json({ error: "Invalid image file" });
-    }
 
-    const admin = await Admin.findById(req.user._id);
+    const admin = await Admin.findById(req.user._id).select('+avatarObjectRef');
     if (!admin) return res.status(404).json({ error: "User not found" });
 
-    if (admin.avatarUrl) {
-      const oldPath = path.join(__dirname, "..", "uploads", "avatars", admin.avatarUrl);
-      if (fs.existsSync(oldPath)) {
-        fs.unlinkSync(oldPath);
+    stored = await storeImage({
+      buffer: req.file.buffer,
+      declaredMimeType: req.file.mimetype,
+      purpose: 'avatar',
+      uploadedBy: admin._id,
+    });
+
+    let oldObjectRef = '';
+    let oldLegacyAvatar = '';
+    dbSession = await mongoose.startSession();
+    await dbSession.withTransaction(async () => {
+      const currentAdmin = await Admin.findById(req.user._id).select('+avatarObjectRef').session(dbSession);
+      if (!currentAdmin) {
+        const error = new Error('User not found');
+        error.statusCode = 404;
+        throw error;
+      }
+      oldObjectRef = currentAdmin.avatarObjectRef;
+      oldLegacyAvatar = currentAdmin.avatarUrl && !currentAdmin.avatarUrl.includes('/')
+        ? currentAdmin.avatarUrl
+        : '';
+      await claimAvatarObject(stored.reference, { adminId: currentAdmin._id, session: dbSession });
+      currentAdmin.avatarUrl = stored.url;
+      currentAdmin.avatarObjectRef = stored.reference;
+      await currentAdmin.save({ session: dbSession });
+    });
+    persisted = true;
+
+    if (oldObjectRef) {
+      await cleanupAvatarObject(oldObjectRef, admin._id).catch((cleanupError) => {
+        console.error('[Admin] Replaced avatar cleanup deferred:', {
+          code: String(cleanupError.code || 'REPLACED_AVATAR_CLEANUP_FAILED').slice(0, 80),
+        });
+      });
+    }
+    if (oldLegacyAvatar) {
+      const oldPath = path.join(__dirname, "..", "uploads", "avatars", oldLegacyAvatar);
+      try {
+        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+      } catch (cleanupError) {
+        console.error('Legacy avatar cleanup failed:', { code: cleanupError.code || 'LEGACY_AVATAR_CLEANUP_FAILED' });
       }
     }
 
-    admin.avatarUrl = req.file.filename;
-    await admin.save();
-
     res.json({
       message: "Avatar uploaded successfully",
-      filename: req.file.filename,
-      url: `/uploads/avatars/${req.file.filename}`
+      reference: stored.reference,
+      url: stored.url,
+      optimization: stored.optimization,
     });
   } catch (err) {
-    console.error("Upload Avatar Error:", err);
-    res.status(500).json({ error: "Failed to upload avatar" });
+    if (!persisted && stored?.reference) await deleteStoredObjectByReference(stored.reference).catch(() => {});
+    console.error("Upload Avatar Error:", { code: err.code || 'AVATAR_UPLOAD_FAILED' });
+    res.status(err.statusCode || 500).json({ error: err.statusCode ? err.message : "Failed to upload avatar" });
+  } finally {
+    if (dbSession) dbSession.endSession();
   }
 };
 

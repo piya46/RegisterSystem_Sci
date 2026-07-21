@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const sqlMirrorOutboxPlugin = require('../utils/sqlMirrorOutboxPlugin');
 
 const eventSeriesSchema = new mongoose.Schema({
   organizationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true, index: true },
@@ -15,5 +16,6 @@ const eventSeriesSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 eventSeriesSchema.index({ organizationId: 1, slug: 1 }, { unique: true });
+eventSeriesSchema.plugin(sqlMirrorOutboxPlugin, { domain: 'event_series', eventPath: null });
 
 module.exports = mongoose.model('EventSeries', eventSeriesSchema);

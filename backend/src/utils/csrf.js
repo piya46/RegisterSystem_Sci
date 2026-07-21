@@ -7,9 +7,17 @@ const EXEMPT_PATHS = new Set([
   '/api/auth/google-login',
   '/api/auth/forgot-password',
   '/api/auth/reset-password-otp',
+  '/api/participant-auth/email/request-otp',
+  '/api/participant-auth/email/verify-otp',
+  '/api/participant-auth/line/start',
+  '/api/participant-auth/line/login',
+  '/api/participant-auth/liff/verify',
   '/api/participants/public',
   '/api/participants/resend-ticket',
   '/api/public/request-short-session',
+  '/api/public/certificates/verify',
+  '/api/public/certificates/payload',
+  '/api/uploads/public',
 ]);
 
 function csrfSecret() {

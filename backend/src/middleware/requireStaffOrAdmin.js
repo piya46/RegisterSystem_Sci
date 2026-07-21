@@ -1,4 +1,4 @@
-const { isAdminLike } = require('../utils/permissions');
+const { hasPermission, isAdminLike } = require('../utils/permissions');
 
 module.exports = function requireStaffOrAdmin(req, res, next) {
   const roles = Array.isArray(req.user?.role) ? req.user.role : [];
@@ -8,7 +8,7 @@ module.exports = function requireStaffOrAdmin(req, res, next) {
     return res.status(401).json({ error: 'ต้องเข้าสู่ระบบด้วยบัญชีเจ้าหน้าที่' });
   }
 
-  if (isAdminLike(req.user) || roles.includes('staff')) {
+  if (isAdminLike(req.user) || roles.includes('staff') || hasPermission(req.user, 'participant:manage')) {
     return next();
   }
 

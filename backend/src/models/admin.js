@@ -11,6 +11,7 @@ const adminSchema = new mongoose.Schema({
     fullName: {type: "String", required: true},
     registrationPoints: [{ type: mongoose.Schema.Types.ObjectId, ref: 'RegistrationPoint' }],
     avatarUrl: { type: String, default: "" },
+    avatarObjectRef: { type: String, default: "", select: false },
 
     googleId: { type: String, default: null },
 

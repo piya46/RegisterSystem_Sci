@@ -1,5 +1,5 @@
 // src/pages/ParticipantFieldManager.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Box, Card, CardContent, Typography, Button, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, IconButton, Switch, Chip, Stack, Tooltip, Dialog, DialogTitle, DialogContent,
@@ -27,12 +27,17 @@ import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 export default function ParticipantFieldManager() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
+  const eventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const eventParams = useMemo(() => eventContextToParams(eventContext), [eventContext]);
+  const hasEventScope = Boolean(eventParams.eventId || eventParams.eventSlug);
 
   // data
   const [fields, setFields] = useState([]);
@@ -52,6 +57,19 @@ export default function ParticipantFieldManager() {
   const [busyId, setBusyId] = useState(null);
   const [busyReorder, setBusyReorder] = useState(false);
 
+  // ===== Fetch =====
+  const fetchData = useCallback(() => {
+    setFetching(true);
+    api
+      .listParticipantFields(eventParams)
+      .then((res) => {
+        const rows = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        setFields(rows);
+      })
+      .catch(() => setFields([]))
+      .finally(() => setFetching(false));
+  }, [eventParams]);
+
   // ===== Permission Guard =====
   useEffect(() => {
     if (loading) return;
@@ -65,30 +83,16 @@ export default function ParticipantFieldManager() {
       return;
     }
     fetchData();
-    // eslint-disable-next-line
-  }, [user, loading]);
-
-  // ===== Fetch =====
-  const fetchData = () => {
-    setFetching(true);
-    api
-      .listParticipantFields()
-      .then((res) => {
-        const rows = (res.data || []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        setFields(rows);
-      })
-      .catch(() => setFields([]))
-      .finally(() => setFetching(false));
-  };
+  }, [user, loading, navigate, fetchData]);
 
   // ===== CRUD =====
   const handleSave = async (data) => {
     try {
       if (editData?._id) {
-        await api.updateParticipantField(editData._id, data);
+        await api.updateParticipantField(editData._id, { ...data, ...eventParams });
         setSnackbar({ open: true, message: "บันทึกสำเร็จ", severity: "success" });
       } else {
-        await api.createParticipantField(data);
+        await api.createParticipantField({ ...data, ...eventParams });
         setSnackbar({ open: true, message: "เพิ่มสำเร็จ", severity: "success" });
       }
       setDialogOpen(false);
@@ -98,11 +102,12 @@ export default function ParticipantFieldManager() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (field) => {
+    if (field?.inherited && hasEventScope) return;
     if (!window.confirm("ลบฟิลด์นี้ถาวร? ข้อมูลที่เกี่ยวข้องอาจสูญหาย")) return;
-    setBusyId(id);
+    setBusyId(field._id);
     try {
-      await api.deleteParticipantField(id);
+      await api.deleteParticipantField(field._id, eventParams);
       setSnackbar({ open: true, message: "ลบสำเร็จ", severity: "success" });
       fetchData();
     } catch {
@@ -113,9 +118,10 @@ export default function ParticipantFieldManager() {
   };
 
   const toggleEnabled = async (field) => {
+    if (field?.inherited && hasEventScope) return;
     setBusyId(field._id);
     try {
-      await api.updateParticipantField(field._id, { enabled: !field.enabled });
+      await api.updateParticipantField(field._id, { enabled: !field.enabled, ...eventParams });
       fetchData();
     } finally {
       setBusyId(null);
@@ -128,11 +134,12 @@ export default function ParticipantFieldManager() {
     const a = fields[index];
     const b = fields[index + direction];
     if (!a || !b) return;
+    if (hasEventScope && (a.inherited || b.inherited)) return;
 
     setBusyReorder(true);
     try {
-      await api.updateParticipantField(a._id, { order: b.order });
-      await api.updateParticipantField(b._id, { order: a.order });
+      await api.updateParticipantField(a._id, { order: b.order, ...eventParams });
+      await api.updateParticipantField(b._id, { order: a.order, ...eventParams });
       fetchData();
     } finally {
       setBusyReorder(false);
@@ -277,21 +284,26 @@ export default function ParticipantFieldManager() {
                 </TableRow>
               )}
 
-              {filtered.map((f, idx) => (
+              {filtered.map((f, idx) => {
+                const readOnlyInherited = hasEventScope && f.inherited;
+                return (
                 <TableRow key={f._id} hover>
                   <TableCell align="center">
                     <Stack direction="column" alignItems="center">
-                        <IconButton size="small" onClick={() => moveField(findIndexById(filtered, f._id, fields), -1)} disabled={isFirst(filtered, f, fields) || busyReorder}>
+                        <IconButton size="small" onClick={() => moveField(findIndexById(filtered, f._id, fields), -1)} disabled={readOnlyInherited || isFirst(filtered, f, fields) || busyReorder}>
                             <ArrowUpwardIcon fontSize="inherit" />
                         </IconButton>
                         <Typography variant="caption" fontWeight="bold">{f.order ?? idx + 1}</Typography>
-                        <IconButton size="small" onClick={() => moveField(findIndexById(filtered, f._id, fields), 1)} disabled={isLast(filtered, f, fields) || busyReorder}>
+                        <IconButton size="small" onClick={() => moveField(findIndexById(filtered, f._id, fields), 1)} disabled={readOnlyInherited || isLast(filtered, f, fields) || busyReorder}>
                             <ArrowDownwardIcon fontSize="inherit" />
                         </IconButton>
                     </Stack>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="subtitle2" fontWeight="bold">{f.label}</Typography>
+                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                      <Typography variant="subtitle2" fontWeight="bold">{f.label}</Typography>
+                      {readOnlyInherited && <Chip label="Global" size="small" variant="outlined" />}
+                    </Stack>
                     {f.type === 'select' && f.options?.length > 0 && (
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
                             ตัวเลือก: {f.options.slice(0, 3).join(", ")}{f.options.length > 3 ? "..." : ""}
@@ -320,24 +332,29 @@ export default function ParticipantFieldManager() {
                         checked={!!f.enabled}
                         onChange={() => toggleEnabled(f)}
                         color="success"
-                        disabled={busyId === f._id}
+                        disabled={readOnlyInherited || busyId === f._id}
                         size="small"
                     />
                   </TableCell>
                   <TableCell align="center">
-                    <Tooltip title="แก้ไข">
-                        <IconButton onClick={() => { setEditData(f); setDialogOpen(true); }} color="primary">
+                    <Tooltip title={readOnlyInherited ? "ฟิลด์กลาง แก้ไขได้จาก global settings" : "แก้ไข"}>
+                        <span>
+                        <IconButton onClick={() => { setEditData(f); setDialogOpen(true); }} color="primary" disabled={readOnlyInherited}>
                             <EditTwoToneIcon />
                         </IconButton>
+                        </span>
                     </Tooltip>
-                    <Tooltip title="ลบ">
-                        <IconButton onClick={() => handleDelete(f._id)} color="error" disabled={busyId === f._id}>
+                    <Tooltip title={readOnlyInherited ? "ฟิลด์กลาง แก้ไขได้จาก global settings" : "ลบ"}>
+                        <span>
+                        <IconButton onClick={() => handleDelete(f)} color="error" disabled={readOnlyInherited || busyId === f._id}>
                             <DeleteTwoToneIcon />
                         </IconButton>
+                        </span>
                     </Tooltip>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>

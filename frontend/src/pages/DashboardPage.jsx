@@ -35,7 +35,7 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพิ่ม] ไอคอนถ้วยรางวัลสำหรับ Lucky Draw
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import { EmptyState } from "../components/FeedbackStates";
 import getAvatarUrl from "../utils/getAvatarUrl";
@@ -44,6 +44,23 @@ import { downloadCsv } from "../utils/exportCsv";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 import { PieChart, Pie, Cell, Legend, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as ReTooltip } from "recharts";
+
+const registrationTypeLabel = (type) => {
+  switch (type) {
+    case 'online':
+      return 'ออนไลน์';
+    case 'onsite_staff':
+      return 'หน้างานโดยเจ้าหน้าที่';
+    case 'onsite_kiosk':
+      return 'หน้างานผ่าน Kiosk';
+    case 'self_register':
+      return 'ลงทะเบียนเองผ่าน QR';
+    case 'onsite':
+      return 'หน้างาน';
+    default:
+      return type || '-';
+  }
+};
 
 // --- Custom Components ---
 class ChartErrorBoundary extends React.Component {
@@ -67,40 +84,7 @@ class ChartErrorBoundary extends React.Component {
   }
 }
 
-// การ์ดสถิติแบบใหม่
-const StatCard = ({ title, value, subtext, icon, color1, color2, textColor = "#fff", loading }) => (
-  <Card sx={{
-    flex: 1,
-    background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
-    color: textColor,
-    position: 'relative',
-    overflow: 'hidden',
-    transition: 'all 0.3s ease',
-    border: 'none',
-    boxShadow: '0 8px 20px rgba(0,0,0,0.1)',
-    '&:hover': { transform: 'translateY(-5px)', boxShadow: '0 12px 28px rgba(0,0,0,0.2)' }
-  }}>
-    <Box sx={{ position: 'absolute', right: -20, bottom: -20, opacity: 0.15, transform: 'rotate(-20deg)', pointerEvents: 'none' }}>
-      {icon && React.cloneElement(icon, { sx: { fontSize: 120, color: textColor } })}
-    </Box>
-    <CardContent sx={{ position: 'relative', zIndex: 1, textAlign: "left", p: 3 }}>
-      <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-        <Box sx={{ bgcolor: 'rgba(255,255,255,0.2)', borderRadius: '50%', p: 0.5, display: 'flex' }}>
-          {icon && React.cloneElement(icon, { sx: { fontSize: 20, color: textColor } })}
-        </Box>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ opacity: 0.95, letterSpacing: 0.5 }}>{title}</Typography>
-      </Stack>
-      {loading ? (
-        <Skeleton variant="text" width="60%" height={50} sx={{ bgcolor: 'rgba(255,255,255,0.2)' }} />
-      ) : (
-        <Typography variant="h4" fontWeight={900} sx={{ textShadow: '0 2px 4px rgba(0,0,0,0.1)', mt: 0.5 }}>
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </Typography>
-      )}
-      {subtext && <Typography variant="caption" sx={{ opacity: 0.85, mt: 0.5, display: 'block', fontWeight: 500 }}>{subtext}</Typography>}
-    </CardContent>
-  </Card>
-);
+import StatCard from '../components/StatCard';
 
 const MAIN_MENU = [
   { label: "เลือกกิจกรรม", icon: <EventAvailableIcon />, path: "/workspace", roles: ["admin", "org_admin", "event_admin", "event_manager", "auditor", "staff"] },
@@ -167,10 +151,12 @@ export default function DashboardPage({ embedded = false }) {
 
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
+  const { eventId: routeEventId } = useParams();
+
   useEffect(() => {
     setEventYear(urlEventContext.eventYear || '');
-    setEventId(urlEventContext.eventId || '');
-  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+    setEventId(routeEventId || urlEventContext.eventId || '');
+  }, [routeEventId, urlEventContext.eventId, urlEventContext.eventYear]);
 
   const eventParams = useMemo(
     () => eventContextToParams({ eventId, eventYear }),
@@ -233,12 +219,12 @@ export default function DashboardPage({ embedded = false }) {
           'คณะ/หน่วยงาน': f.dept || '-',
           'ปีรุ่น': f.date_year || '-',
           'สถานะ': statusMap[item.status] || item.status,
-          'ประเภทการลงทะเบียน': item.registrationType === 'onsite' ? 'หน้างาน' : 'ออนไลน์',
+          'ประเภทการลงทะเบียน': registrationTypeLabel(item.registrationType),
           'จำนวนผู้ติดตาม': item.followers || 0,
           'ความช่วยเหลือพิเศษ': item.specialAssistance || '-',
           'เวลาลงทะเบียน': item.registeredAt ? new Date(item.registeredAt).toLocaleString('th-TH') : '-',
           'เวลาเช็คอิน': item.checkedInAt ? new Date(item.checkedInAt).toLocaleString('th-TH') : 'ยังไม่เช็คอิน',
-          'จุดลงทะเบียน': item.registeredPoint === 'Online' ? 'ระบบออนไลน์' : (item.registeredPoint || '-')
+          'จุดลงทะเบียน': item.registeredPointName || (item.registeredPoint === 'Online' ? 'ระบบออนไลน์' : (item.registeredPoint || '-'))
         };
       });
 
@@ -625,32 +611,44 @@ export default function DashboardPage({ embedded = false }) {
               <Card sx={{ flex: 1 }}>
                 <CardContent>
                   <Typography variant="h6" fontWeight={800} gutterBottom>สัดส่วนสถานะการเข้างาน</Typography>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie data={statusPieData} cx="50%" cy="50%" innerRadius={70} outerRadius={95} paddingAngle={5} dataKey="value">
-                        <Cell fill="#66BB6A" />
-                        <Cell fill="#BDBDBD" />
-                        <Cell fill="#EF5350" />
-                      </Pie>
-                      <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                      <Legend verticalAlign="bottom" iconType="circle" />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {statusPieData.some(d => d.value > 0) ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie data={statusPieData} cx="50%" cy="50%" innerRadius={70} outerRadius={95} paddingAngle={5} dataKey="value">
+                          <Cell fill="#66BB6A" />
+                          <Cell fill="#BDBDBD" />
+                          <Cell fill="#EF5350" />
+                        </Pie>
+                        <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                        <Legend verticalAlign="bottom" iconType="circle" />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box sx={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                       <Typography color="text.secondary">ไม่มีข้อมูล</Typography>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
               <Card sx={{ flex: 1 }}>
                 <CardContent>
                   <Typography variant="h6" fontWeight={800} gutterBottom>ช่องทางลงทะเบียน</Typography>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie data={channelPieData} cx="50%" cy="50%" outerRadius={95} dataKey="value" paddingAngle={2}>
-                        <Cell fill="#42A5F5" />
-                        <Cell fill="#FFCA28" />
-                      </Pie>
-                      <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                      <Legend verticalAlign="bottom" iconType="circle" />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  {channelPieData.some(d => d.value > 0) ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie data={channelPieData} cx="50%" cy="50%" outerRadius={95} dataKey="value" paddingAngle={2}>
+                          <Cell fill="#42A5F5" />
+                          <Cell fill="#FFCA28" />
+                        </Pie>
+                        <ReTooltip contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
+                        <Legend verticalAlign="bottom" iconType="circle" />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Box sx={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                       <Typography color="text.secondary">ไม่มีข้อมูล</Typography>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             </Stack>
@@ -659,19 +657,25 @@ export default function DashboardPage({ embedded = false }) {
             <Card sx={{ mb: 4 }}>
               <CardContent>
                 <Typography variant="h6" fontWeight={800} gutterBottom>แนวโน้มการเช็คอินหน้างาน (รายชั่วโมง)</Typography>
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={checkinByHourData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
-                    <XAxis dataKey="_id" axisLine={false} tickLine={false} tick={{ fill: '#9E9E9E', fontSize: 12 }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9E9E9E', fontSize: 12 }} />
-                    <ReTooltip cursor={{ fill: 'rgba(0,0,0,0.02)' }} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
-                    <Bar dataKey={checkinHourKey} fill="#FFC107" radius={[6, 6, 0, 0]} barSize={40}>
-                      {checkinByHourData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#FFC107' : '#FFB300'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                {checkinByHourData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={320}>
+                    <BarChart data={checkinByHourData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
+                      <XAxis dataKey="_id" axisLine={false} tickLine={false} tick={{ fill: '#9E9E9E', fontSize: 12 }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9E9E9E', fontSize: 12 }} />
+                      <ReTooltip cursor={{ fill: 'rgba(0,0,0,0.02)' }} contentStyle={{ borderRadius: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }} />
+                      <Bar dataKey={checkinHourKey} fill="#FFC107" radius={[6, 6, 0, 0]} barSize={40}>
+                        {checkinByHourData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#FFC107' : '#FFB300'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <Box sx={{ height: 320, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                     <EmptyState title="ไม่มีข้อมูล" description="ยังไม่มีผู้เช็คอินเข้างาน" icon={<AccessTimeIcon />} />
+                  </Box>
+                )}
               </CardContent>
             </Card>
 

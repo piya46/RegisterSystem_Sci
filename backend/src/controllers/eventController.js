@@ -17,8 +17,14 @@ const {
   sanitizeBranding,
   sanitizeLayoutConfig,
   sanitizePublicLinks,
+  sanitizeUrl,
 } = require('../utils/eventLayout');
 const { hasRole, isAdminLike, isSuperadmin } = require('../utils/permissions');
+const {
+  claimEventPublicObject,
+  parsePublicObjectId,
+  unlinkEventPublicObject,
+} = require('../utils/objectStorage');
 
 const ORGANIZATION_FIELDS = ['name', 'slug', 'description', 'status', 'securityPolicy', 'metadata'];
 const SERIES_FIELDS = ['organizationId', 'name', 'slug', 'description', 'status', 'defaultLinkingMode', 'metadata'];
@@ -56,6 +62,15 @@ const SETTINGS_CONFIG_FIELDS = [
   'preRegEndDate',
   'kioskStartDate',
   'kioskEndDate',
+  'bankAccountName',
+  'bankAccountNumber',
+  'bankName',
+  'paymentQrUrl',
+];
+const EVENT_MEDIA_FIELDS = [
+  { section: 'branding', key: 'logoUrl', field: 'branding.logoUrl', purpose: 'event_media' },
+  { section: 'branding', key: 'coverImageUrl', field: 'branding.coverImageUrl', purpose: 'event_media' },
+  { section: 'config', key: 'paymentQrUrl', field: 'config.paymentQrUrl', purpose: 'payment_qr' },
 ];
 const FEATURE_DEFAULTS = {
   registration: true,
@@ -65,6 +80,8 @@ const FEATURE_DEFAULTS = {
   donations: false,
   packages: false,
   luckyDraw: false,
+  certificate: false,
+  wallet: false,
 };
 const LEGACY_FEATURE_DEFAULTS = {
   registration: true,
@@ -74,6 +91,8 @@ const LEGACY_FEATURE_DEFAULTS = {
   donations: true,
   packages: true,
   luckyDraw: true,
+  certificate: true,
+  wallet: true,
 };
 
 function featuresForEvent(event) {
@@ -172,7 +191,51 @@ function settingsToEventConfig(settings) {
   if (config.registrationReuseEventIds !== undefined) {
     config.registrationReuseEventIds = cleanObjectIdList(config.registrationReuseEventIds);
   }
+  for (const key of ['bankAccountName', 'bankAccountNumber', 'bankName']) {
+    if (config[key] !== undefined) config[key] = clampShortText(config[key]);
+  }
+  if (config.paymentQrUrl !== undefined) config.paymentQrUrl = sanitizeUrl(config.paymentQrUrl);
   return config;
+}
+
+function externalEventMediaAllowed() {
+  return ['true', '1', 'yes', 'on'].includes(String(process.env.EVENT_MEDIA_ALLOW_EXTERNAL_URLS || '').toLowerCase());
+}
+
+async function reconcileEventMediaLinks({ current, payload, eventId, session }) {
+  for (const descriptor of EVENT_MEDIA_FIELDS) {
+    const section = payload[descriptor.section];
+    if (!section || !Object.prototype.hasOwnProperty.call(section, descriptor.key)) continue;
+    const previousUrl = String(current?.[descriptor.section]?.[descriptor.key] || '').trim();
+    const nextUrl = String(section[descriptor.key] || '').trim();
+    const previousId = parsePublicObjectId(previousUrl);
+    const nextId = parsePublicObjectId(nextUrl);
+
+    if (nextUrl) {
+      if (!nextId && nextUrl !== previousUrl && !externalEventMediaAllowed()) {
+        const error = new Error('กรุณาอัปโหลดรูปภาพผ่านระบบจัดเก็บไฟล์ของกิจกรรม');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (nextId) {
+        const claimed = await claimEventPublicObject(nextUrl, {
+          eventId,
+          purpose: descriptor.purpose,
+          field: descriptor.field,
+          session,
+        });
+        section[descriptor.key] = claimed.url;
+      }
+    }
+
+    if (previousId && previousId !== nextId) {
+      await unlinkEventPublicObject(previousUrl, {
+        eventId,
+        field: descriptor.field,
+        session,
+      });
+    }
+  }
 }
 
 async function countRowsByEventIds(eventIds = []) {
@@ -189,6 +252,19 @@ async function countRowsByEventIds(eventIds = []) {
     }, {});
   }));
   return result;
+}
+
+async function countRowsForEventId(eventId) {
+  const countsByDataset = await countRowsByEventIds([eventId]);
+  const id = String(eventId);
+  return LEGACY_DATASETS.reduce((acc, { key }) => {
+    acc[key] = countsByDataset[key]?.[id] || 0;
+    return acc;
+  }, {});
+}
+
+function totalEventRows(counts = {}) {
+  return Object.values(counts).reduce((sum, count) => sum + Number(count || 0), 0);
 }
 
 function eventConfigToSettings(event) {
@@ -566,14 +642,52 @@ function prepareEventPayload(body) {
 }
 
 function publicEventPayload(event) {
-  const landingPath = event.publicLinks?.landingPath || `/e/${event.slug}`;
-  const registrationPath = event.publicLinks?.registrationPath || `/e/${event.slug}/register`;
-  const checkinPath = event.publicLinks?.checkinPath || `/e/${event.slug}/checkin`;
-  const reportPath = event.publicLinks?.reportPath || `/e/${event.slug}/report`;
+  const canonicalPath = (value, fallback, eventPathPattern) => {
+    const sanitized = sanitizeUrl(value);
+    if (!sanitized || eventPathPattern.test(sanitized)) return fallback;
+    return sanitized;
+  };
+  const landingPath = canonicalPath(
+    event.publicLinks?.landingPath,
+    `/e/${event.slug}`,
+    /^\/e\/[^/?#]+\/?(?:[?#].*)?$/u
+  );
+  const registrationPath = canonicalPath(
+    event.publicLinks?.registrationPath,
+    `/e/${event.slug}/register`,
+    /^\/e\/[^/?#]+\/register\/?(?:[?#].*)?$/u
+  );
+  const checkinPath = canonicalPath(
+    event.publicLinks?.checkinPath,
+    `/e/${event.slug}/checkin`,
+    /^\/e\/[^/?#]+\/checkin\/?(?:[?#].*)?$/u
+  );
+  const reportPath = canonicalPath(
+    event.publicLinks?.reportPath,
+    `/e/${event.slug}/report`,
+    /^\/e\/[^/?#]+\/report\/?(?:[?#].*)?$/u
+  );
+  const enabledFeatures = featuresForEvent(event);
+  const layoutPayload = (key, fallbackConfig) => {
+    const layout = event.layouts?.[key] || {};
+    const version = Number.parseInt(layout.version, 10);
+    return {
+      version: Number.isSafeInteger(version) && version > 0 ? version : 1,
+      config: sanitizeLayoutConfig(key, layout.config || fallbackConfig),
+    };
+  };
+  const landingPage = layoutPayload('landingPage', { blocks: [] });
+  landingPage.config.blocks = landingPage.config.blocks.map((block) => {
+    const actionKey = block.type === 'hero'
+      ? 'primaryActionUrl'
+      : block.type === 'cta'
+        ? 'buttonUrl'
+        : null;
+    if (!actionKey || !/^\/e\/[^/?#]+\/register(?:[?#].*)?$/u.test(block[actionKey] || '')) return block;
+    return { ...block, [actionKey]: registrationPath };
+  });
+
   return {
-    _id: event._id,
-    organizationId: event.organizationId,
-    seriesId: event.seriesId,
     name: event.name,
     slug: event.slug,
     eventYear: event.eventYear,
@@ -581,32 +695,34 @@ function publicEventPayload(event) {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     timezone: event.timezone,
-    branding: event.branding || {},
+    branding: sanitizeBranding(event.branding || {}),
     config: {
       enableRegister: event.config?.enableRegister !== false,
       maintenanceMode: event.config?.maintenanceMode === true,
-      contactEmail: event.config?.contactEmail || '',
-      welcomeMessage: event.config?.welcomeMessage || '',
+      contactEmail: clampShortText(event.config?.contactEmail),
+      welcomeMessage: clampShortText(event.config?.welcomeMessage),
       preRegStartDate: event.config?.preRegStartDate || null,
       preRegEndDate: event.config?.preRegEndDate || null,
       enablePickup: event.config?.enablePickup !== false,
       enableDelivery: event.config?.enableDelivery !== false,
-      enabledFeatures: featuresForEvent(event),
+      enabledFeatures,
       allowRegistrationReuse: event.config?.allowRegistrationReuse === true,
-      registrationReuseMode: ['manual-linked', 'series-linked'].includes(event.config?.registrationReuseMode)
-        ? event.config.registrationReuseMode
-        : 'series-linked',
-      registrationReuseRequiresOtp: true,
+      ...(enabledFeatures.donations ? {
+        bankAccountName: clampShortText(event.config?.bankAccountName),
+        bankAccountNumber: clampShortText(event.config?.bankAccountNumber),
+        bankName: clampShortText(event.config?.bankName),
+        paymentQrUrl: sanitizeUrl(event.config?.paymentQrUrl),
+      } : {}),
     },
     publication: {
       publishedAt: event.publication?.publishedAt || null,
       consentVersion: event.publication?.consentVersion || '',
       requireConsent: event.publication?.requireConsent !== false,
     },
-    publicLinks: { landingPath, registrationPath, checkinPath, reportPath },
+    publicLinks: sanitizePublicLinks({ landingPath, registrationPath, checkinPath, reportPath }),
     layouts: {
-      landingPage: event.layouts?.landingPage || { version: 1, config: { blocks: [] } },
-      registrationForm: event.layouts?.registrationForm || { version: 1, config: { sections: [], fields: [] } },
+      landingPage,
+      registrationForm: layoutPayload('registrationForm', { sections: [], fields: [] }),
     },
   };
 }
@@ -630,6 +746,7 @@ function addVersionHistory(event, { kind, snapshot, userId, note = '' }) {
 exports.ensureDefaultCatalog = ensureDefaultCatalog;
 exports.getLegacyMigrationPreviewData = getLegacyMigrationPreview;
 exports.migrateLegacyEventData = migrateLegacyEventData;
+exports.publicEventPayload = publicEventPayload;
 
 exports.getCurrentEvent = async (req, res) => {
   try {
@@ -637,6 +754,59 @@ exports.getCurrentEvent = async (req, res) => {
     res.json({ success: true, data: catalog.event });
   } catch (error) {
     serverError(res);
+  }
+};
+
+exports.getEventById = async (req, res) => {
+  try {
+    const eventId = String(req.params.id || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(400).json({ success: false, message: 'รหัสกิจกรรมไม่ถูกต้อง' });
+    }
+    const event = await Event.findById(eventId);
+    if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
+    return res.json({ success: true, data: event });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+exports.getPublicCurrentEvent = async (req, res) => {
+  try {
+    const settings = await SystemSetting.findOne().select('currentEventId').lean();
+    if (!settings?.currentEventId) {
+      return res.status(404).json({ success: false, message: 'ยังไม่ได้กำหนดกิจกรรมสาธารณะปัจจุบัน' });
+    }
+
+    const event = await Event.findById(settings.currentEventId).lean();
+    if (!event || !isPublicEventStatus(event.status)) {
+      return res.status(404).json({ success: false, message: 'กิจกรรมปัจจุบันยังไม่เปิดเผยแพร่' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    return res.json({ success: true, data: publicEventPayload(event) });
+  } catch (error) {
+    return serverError(res, error);
+  }
+};
+
+exports.getPublicEventById = async (req, res) => {
+  try {
+    const eventId = String(req.params.eventId || '').trim();
+    if (!mongoose.Types.ObjectId.isValid(eventId)) {
+      return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดเผยแพร่' });
+    }
+
+    const event = await Event.findById(eventId).lean();
+    if (!event || !isPublicEventStatus(event.status)) {
+      return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดเผยแพร่' });
+    }
+
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
+    return res.json({ success: true, data: publicEventPayload(event) });
+  } catch (error) {
+    return serverError(res, error);
   }
 };
 
@@ -648,6 +818,7 @@ exports.getPublicEventBySlug = async (req, res) => {
       return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม หรือกิจกรรมยังไม่เปิดเผยแพร่' });
     }
 
+    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=60');
     res.json({ success: true, data: publicEventPayload(event) });
   } catch (error) {
     serverError(res, error);
@@ -808,6 +979,7 @@ exports.updateSeries = async (req, res) => {
 };
 
 exports.createEvent = async (req, res) => {
+  const dbSession = await mongoose.startSession();
   try {
     const payload = prepareEventPayload(req.body);
     if (!canAccessOrganization(req.user, payload.organizationId)) {
@@ -815,6 +987,7 @@ exports.createEvent = async (req, res) => {
     }
     const sourceEventId = req.body.cloneFromEventId;
     const cloneParts = Array.isArray(req.body.cloneParts) ? req.body.cloneParts : [];
+    let cloneBaseline = {};
 
     if (sourceEventId && cloneParts.length > 0) {
       const sourceEvent = await Event.findById(sourceEventId);
@@ -833,10 +1006,24 @@ exports.createEvent = async (req, res) => {
         }
         if (cloneParts.includes('layouts')) payload.layouts = sourceEvent.layouts;
         if (cloneParts.includes('templates')) payload.templates = sourceEvent.templates;
+        cloneBaseline = {
+          branding: cloneParts.includes('branding') ? sourceEvent.branding : {},
+          config: cloneParts.includes('config') ? sourceEvent.config : {},
+        };
       }
     }
 
-    const event = await Event.create(payload);
+    const event = new Event(payload);
+    await dbSession.withTransaction(async () => {
+      await reconcileEventMediaLinks({
+        current: cloneBaseline,
+        payload,
+        eventId: event._id,
+        session: dbSession,
+      });
+      event.set(payload);
+      await event.save({ session: dbSession });
+    });
     auditLog({ req, action: 'CREATE_EVENT', detail: `Created event ${event._id}` });
     res.status(201).json({ success: true, data: event });
   } catch (error) {
@@ -844,32 +1031,53 @@ exports.createEvent = async (req, res) => {
       return res.status(409).json({ success: false, message: 'slug กิจกรรมนี้ถูกใช้แล้วในซีรีส์นี้' });
     }
     serverError(res, error);
+  } finally {
+    dbSession.endSession();
   }
 };
 
 exports.updateEvent = async (req, res) => {
+  const dbSession = await mongoose.startSession();
   try {
-    const payload = prepareEventPayload(req.body);
-    delete payload.status;
     const current = await Event.findById(req.params.id);
     if (!current) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
     if (!requireEventScope(req, res, current)) return;
-    if (payload.config) {
-      payload.config = {
-        ...(current.config || {}),
-        ...payload.config,
-        enabledFeatures: {
-          ...((current.config || {}).enabledFeatures || {}),
-          ...(payload.config.enabledFeatures || {}),
-        },
-      };
-      if (payload.config.enabledFeatures.registration === false) payload.config.enableRegister = false;
-    }
-    const event = await Event.findByIdAndUpdate(
-      req.params.id,
-      { $set: payload },
-      { new: true, runValidators: true }
-    );
+    let event;
+    await dbSession.withTransaction(async () => {
+      const payload = prepareEventPayload(req.body);
+      delete payload.status;
+      const transactionalCurrent = await Event.findById(req.params.id).session(dbSession);
+      if (!transactionalCurrent) {
+        const error = new Error('ไม่พบกิจกรรม');
+        error.statusCode = 404;
+        throw error;
+      }
+      if (req.body.branding !== undefined) {
+        payload.branding = sanitizeBranding({
+          ...(transactionalCurrent.branding?.toObject?.() || transactionalCurrent.branding || {}),
+          ...(req.body.branding || {}),
+        });
+      }
+      if (payload.config) {
+        payload.config = {
+          ...(transactionalCurrent.config || {}),
+          ...payload.config,
+          enabledFeatures: {
+            ...((transactionalCurrent.config || {}).enabledFeatures || {}),
+            ...(payload.config.enabledFeatures || {}),
+          },
+        };
+        if (payload.config.enabledFeatures.registration === false) payload.config.enableRegister = false;
+      }
+      await reconcileEventMediaLinks({
+        current: transactionalCurrent,
+        payload,
+        eventId: transactionalCurrent._id,
+        session: dbSession,
+      });
+      transactionalCurrent.set(payload);
+      event = await transactionalCurrent.save({ session: dbSession });
+    });
     if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
     auditLog({ req, action: 'UPDATE_EVENT', detail: `Updated event ${event._id}` });
     res.json({ success: true, data: event });
@@ -877,6 +1085,42 @@ exports.updateEvent = async (req, res) => {
     if (error.code === 11000) {
       return res.status(409).json({ success: false, message: 'slug กิจกรรมนี้ถูกใช้แล้วในซีรีส์นี้' });
     }
+    serverError(res, error);
+  } finally {
+    dbSession.endSession();
+  }
+};
+
+exports.deleteEvent = async (req, res) => {
+  try {
+    const event = await Event.findById(req.params.id);
+    if (!event) return res.status(404).json({ success: false, message: 'ไม่พบกิจกรรม' });
+    if (!requireEventScope(req, res, event)) return;
+
+    const settings = await getSettingsReadOnly();
+    if (String(settings.currentEventId || '') === String(event._id)) {
+      return res.status(409).json({
+        success: false,
+        message: 'ไม่สามารถลบรอบกิจกรรมปัจจุบันได้ กรุณาตั้งรอบอื่นเป็นปัจจุบันหรือเก็บย้อนหลังแทน',
+      });
+    }
+
+    const counts = await countRowsForEventId(event._id);
+    if (totalEventRows(counts) > 0) {
+      auditLog({ req, action: 'DELETE_EVENT_BLOCKED', detail: `eventId=${event._id} has rows`, status: 409 });
+      return res.status(409).json({
+        success: false,
+        message: 'รอบกิจกรรมนี้มีข้อมูลผู้เข้าร่วมหรือข้อมูลประกอบอยู่แล้ว จึงลบไม่ได้เพื่อรักษารายงานและ Audit Log กรุณาใช้เก็บย้อนหลังแทน',
+        data: { counts },
+      });
+    }
+
+    event.status = 'archived';
+    event.archivedAt = new Date();
+    await event.save();
+    auditLog({ req, action: 'ARCHIVE_EVENT', detail: `Archived empty event ${event._id}` });
+    res.json({ success: true, data: event, message: 'เก็บรอบกิจกรรมย้อนหลังสำเร็จ' });
+  } catch (error) {
     serverError(res, error);
   }
 };

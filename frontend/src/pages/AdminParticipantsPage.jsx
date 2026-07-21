@@ -9,7 +9,7 @@ import {
   Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';
@@ -34,7 +34,7 @@ import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
 import { QRCodeSVG } from 'qrcode.react';
 
-import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
+import { downloadPdfReport, listParticipants, deleteParticipant, updateParticipant, resendParticipantTicket, listPrizes, createPrize, deletePrize, cancelPrizeWinner, restorePrizeRight } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
 import { EmptyState } from '../components/FeedbackStates';
 import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
@@ -66,9 +66,11 @@ export default function AdminParticipantsPage() {
   const urlEventContext = React.useMemo(() => eventContextFromSearch(location.search), [location.search]);
   const initialQuery = React.useMemo(() => new URLSearchParams(location.search).get('q') || '', [location.search]);
 
+  const { eventId: routeEventId } = useParams();
+
   const [activeTab, setActiveTab] = useState(0);
   const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
-  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
+  const [eventId, setEventId] = useState(routeEventId || urlEventContext.eventId || '');
 
   // States: Participants
   const [participants, setParticipants] = useState([]);
@@ -106,8 +108,8 @@ export default function AdminParticipantsPage() {
 
   useEffect(() => {
     setEventYear(urlEventContext.eventYear || '');
-    setEventId(urlEventContext.eventId || '');
-  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+    setEventId(routeEventId || urlEventContext.eventId || '');
+  }, [routeEventId, urlEventContext.eventId, urlEventContext.eventYear]);
 
   useEffect(() => {
     setSearch(initialQuery);
@@ -188,7 +190,7 @@ export default function AdminParticipantsPage() {
   const handleDelete = async (id) => {
     if (!window.confirm('ยืนยันการลบผู้เข้าร่วม?')) return;
     try {
-      await deleteParticipant(id);
+      await deleteParticipant(id, eventParams);
       setSnackbar({ open: true, message: 'ลบข้อมูลสำเร็จ', severity: 'success' });
       fetchParticipants();
     } catch { setSnackbar({ open: true, message: 'ลบไม่สำเร็จ', severity: 'error' }); }
@@ -211,7 +213,7 @@ export default function AdminParticipantsPage() {
 
   const handleSaveEdit = async () => {
     try {
-      await updateParticipant(editId, { fields: editFields, followers: Number(editFollowers), tags: editTags });
+      await updateParticipant(editId, { fields: editFields, followers: Number(editFollowers), tags: editTags }, eventParams);
       setSnackbar({ open: true, message: 'บันทึกการแก้ไขแล้ว', severity: 'success' });
       handleCloseDialog();
       fetchParticipants();
@@ -235,10 +237,10 @@ export default function AdminParticipantsPage() {
   };
 
   const handleResend = async (participant) => {
-    if (!participant.fields.phone) { setSnackbar({ open: true, message: 'ไม่พบเบอร์โทรศัพท์', severity: 'warning' }); return; }
+    if (!participant.fields.email) { setSnackbar({ open: true, message: 'ไม่พบอีเมล', severity: 'warning' }); return; }
     setResendLoadingId(participant._id);
     try {
-      const res = await resendTicket({ phone: participant.fields.phone });
+      const res = await resendParticipantTicket(participant._id, eventParams);
       if (res.data?.sent) setSnackbar({ open: true, message: 'ส่ง E-Ticket สำเร็จ', severity: 'success' });
       else setSnackbar({ open: true, message: res.data?.message || 'ส่งไม่สำเร็จ', severity: 'warning' });
     } catch { setSnackbar({ open: true, message: 'เกิดข้อผิดพลาดในการส่ง', severity: 'error' }); }
@@ -246,10 +248,10 @@ export default function AdminParticipantsPage() {
   };
 
   const handleBulkResend = async () => {
-    const validParticipants = filteredParticipants.filter(p => p.fields.email && p.fields.phone);
+    const validParticipants = filteredParticipants.filter(p => p.fields.email);
 
     if (validParticipants.length === 0) {
-      setSnackbar({ open: true, message: 'ไม่พบผู้เข้าร่วมที่มีอีเมลและเบอร์โทรศัพท์ในรายการปัจจุบัน', severity: 'warning' });
+      setSnackbar({ open: true, message: 'ไม่พบผู้เข้าร่วมที่มีอีเมลในรายการปัจจุบัน', severity: 'warning' });
       return;
     }
 
@@ -266,7 +268,7 @@ export default function AdminParticipantsPage() {
       setResendLoadingId(p._id);
 
       try {
-        const res = await resendTicket({ phone: p.fields.phone });
+        const res = await resendParticipantTicket(p._id, eventParams);
         if (res.data?.sent) {
           successCount++;
         } else {
@@ -322,14 +324,14 @@ export default function AdminParticipantsPage() {
   const handleDeletePrize = async (id) => {
     if (!window.confirm("ยืนยันการลบของรางวัลชิ้นนี้ออกจากระบบ?")) return;
     try {
-      await deletePrize(id);
+      await deletePrize(id, eventParams);
       setSnackbar({ open: true, message: 'ลบของรางวัลแล้ว', severity: 'success' });
       fetchPrizes();
     } catch { setSnackbar({ open: true, message: 'ลบรางวัลไม่สำเร็จ', severity: 'error' }); }
   };
 
   const handleRevokePrize = async (prizeId, winnerId) => {
-    if (!window.confirm("ยืนยันการยกเลิกสิทธิ์ผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัล และผู้ใช้ท่านนี้จะมีสิทธิ์จับรางวัลใหม่อีกครั้ง")) return;
+    if (!window.confirm("ยืนยันการยกเลิกผู้โชคดีท่านนี้? \nระบบจะคืนโควตารางวัลและพักสิทธิ์การสุ่ม จนกว่าเจ้าหน้าที่จะกดคืนสิทธิ์")) return;
     try {
       await cancelPrizeWinner(prizeId, winnerId, eventParams);
       setSnackbar({ open: true, message: 'ยกเลิกสิทธิ์และดึงโควต้าคืนสำเร็จ', severity: 'success' });
@@ -342,7 +344,7 @@ export default function AdminParticipantsPage() {
   const handleRestoreRight = async (id) => {
     if (!window.confirm("ยืนยันการคืนสิทธิ์ให้ผู้เข้าร่วมท่านนี้?\nระบบจะปลดล็อกให้เขากลับไปมีชื่อในการสุ่มรางวัลอีกครั้ง")) return;
     try {
-      await restorePrizeRight(id);
+      await restorePrizeRight(id, eventParams);
       setSnackbar({ open: true, message: 'คืนสิทธิ์สำเร็จ ผู้เข้าร่วมสามารถลุ้นรางวัลได้แล้ว', severity: 'success' });
       fetchParticipants();
     } catch {

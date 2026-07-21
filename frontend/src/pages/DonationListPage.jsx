@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   TextField, Button, IconButton, Typography, Stack, Chip, InputAdornment, LinearProgress,
-  Card, CardContent, Grid, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, MenuItem, FormControl, InputLabel, Select
+  Card, CardContent, Grid, Dialog, DialogTitle, DialogContent, DialogActions, Tooltip, MenuItem, FormControl, InputLabel, Select, CircularProgress, Alert
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -16,34 +16,38 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import AddBoxIcon from '@mui/icons-material/AddBox';
 import InsertPhotoIcon from '@mui/icons-material/InsertPhoto';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
-import { getDonationSummary, updateDonation, deleteDonation, createDonation } from '../utils/api';
+import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import CloseIcon from '@mui/icons-material/Close';
+import { getDonationSummary, updateDonation, deleteDonation, createDonation, createIdempotencyKey, getStoredObjectAccess, uploadDonationSlip } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { EmptyState } from '../components/FeedbackStates';
-import { appendQuery, eventContextFromSearch, eventContextToParams } from '../utils/eventContext';
 
 export default function DonationListPage() {
-  const location = useLocation();
-  const urlEventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const { eventId: paramEventId } = useParams();
   const [donations, setDonations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [eventYear, setEventYear] = useState(urlEventContext.eventYear || '');
-  const [eventId, setEventId] = useState(urlEventContext.eventId || '');
-  
+  // In the nested layout, eventId comes from URL path.
+  // eventYear could still be passed or left empty if not strict.
+  const [eventYear] = useState('');
+  const [eventId, setEventId] = useState(paramEventId || '');
+
   const [openDialog, setOpenDialog] = useState(false);
   const [formData, setFormData] = useState({});
   const [isEditing, setIsEditing] = useState(false);
+  const [uploadingSlip, setUploadingSlip] = useState(false);
+  const [dialogError, setDialogError] = useState('');
+  const [createRequestKey, setCreateRequestKey] = useState(() => createIdempotencyKey());
 
   const navigate = useNavigate();
 
   useEffect(() => {
-    setEventYear(urlEventContext.eventYear || '');
-    setEventId(urlEventContext.eventId || '');
-  }, [urlEventContext.eventId, urlEventContext.eventYear]);
+    if (paramEventId) setEventId(paramEventId);
+  }, [paramEventId]);
 
   const eventParams = useMemo(
-    () => eventContextToParams({ eventId, eventYear }),
+    () => ({ eventId, eventYear }),
     [eventId, eventYear]
   );
 
@@ -84,37 +88,82 @@ export default function DonationListPage() {
   const displayTotalCount = filteredDonations.length;
 
   const handleOpenDialog = (donation = null) => {
+    setDialogError('');
     if (donation) {
       setIsEditing(true);
       setFormData(donation);
     } else {
       setIsEditing(false);
+      setCreateRequestKey(createIdempotencyKey());
       setFormData({ firstName: '', lastName: '', amount: '', transferDateTime: new Date().toISOString().slice(0, 16), isPackage: false, packageType: '', size: '', slipUrl: '', address: '', pickupMethod: 'DELIVERY', ...eventParams });
     }
     setOpenDialog(true);
   };
 
   const handleSave = async () => {
+    setDialogError('');
     try {
       if (isEditing) {
         await updateDonation(formData._id, formData);
       } else {
-        await createDonation(formData);
+        await createDonation(formData, createRequestKey);
       }
       setOpenDialog(false);
       fetchDonations();
-    } catch {
-      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+    } catch (error) {
+      setDialogError(error.response?.data?.message || "เกิดข้อผิดพลาดในการบันทึกข้อมูล");
+    }
+  };
+
+  const handleSlipUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !eventId) return;
+    setUploadingSlip(true);
+    setDialogError('');
+    try {
+      const response = await uploadDonationSlip(file, eventId);
+      setFormData((current) => ({ ...current, slipUrl: response.data?.reference || '' }));
+    } catch (error) {
+      setDialogError(error.response?.data?.message || 'อัปโหลดสลิปไม่สำเร็จ');
+    } finally {
+      setUploadingSlip(false);
     }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm("คุณแน่ใจหรือไม่ที่จะลบรายการนี้?")) return;
     try {
-      await deleteDonation(id);
+      await deleteDonation(id, eventParams);
       fetchDonations();
     } catch {
       alert("เกิดข้อผิดพลาดในการลบข้อมูล");
+    }
+  };
+
+  const handleOpenSlip = async (slipUrl) => {
+    if (!slipUrl) return;
+    if (!String(slipUrl).startsWith('object://')) {
+      try {
+        const legacyUrl = new URL(String(slipUrl), window.location.origin);
+        if (!['http:', 'https:'].includes(legacyUrl.protocol)) throw new Error('Unsafe legacy slip URL');
+        window.open(legacyUrl.href, '_blank', 'noopener,noreferrer');
+      } catch {
+        alert('ลิงก์สลิปเดิมไม่ปลอดภัยหรือไม่ถูกต้อง');
+      }
+      return;
+    }
+    const tab = window.open('about:blank', '_blank');
+    if (tab) tab.opener = null;
+    try {
+      const response = await getStoredObjectAccess(slipUrl);
+      const accessUrl = response.data?.url;
+      if (!accessUrl) throw new Error('Missing stored object access URL');
+      if (tab) tab.location.replace(accessUrl);
+      else window.location.assign(accessUrl);
+    } catch {
+      if (tab) tab.close();
+      alert('ไม่สามารถเปิดรูปสลิปได้ กรุณาลองใหม่');
     }
   };
 
@@ -131,7 +180,7 @@ export default function DonationListPage() {
         'วิธีรับ': d.pickupMethod === 'DELIVERY' ? 'จัดส่ง' : d.pickupMethod === 'PICKUP' ? 'รับหน้างาน' : '-',
         'ที่อยู่จัดส่ง': d.address || '-',
         'ยอดเงิน': d.amount || 0,
-        'ลิงก์สลิป': d.slipUrl || '-',
+        'แนบสลิป': d.slipUrl ? 'มี' : 'ไม่มี',
         'ช่องทาง': d.source
     }));
     downloadCsv(`Donations_${new Date().toISOString().slice(0,10)}.csv`, dataToExport);
@@ -139,7 +188,7 @@ export default function DonationListPage() {
 
   if (!eventId) {
     return (
-      <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
+      <Box sx={{ p: { xs: 2, md: 4 } }}>
         <Box sx={{ maxWidth: 900, mx: "auto" }}>
           <EmptyState
             title="เลือกกิจกรรมก่อนดูผู้สนับสนุน"
@@ -154,10 +203,9 @@ export default function DonationListPage() {
   }
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f5f5f5", p: { xs: 2, md: 4 } }}>
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
       <Box sx={{ maxWidth: 1300, mx: "auto" }}>
         <Stack direction={{ xs: 'column', sm: 'row' }} alignItems="center" spacing={2} sx={{ mb: 3 }}>
-          <IconButton onClick={() => navigate(appendQuery('/dashboard', eventParams))} sx={{ bgcolor: '#fff' }}><ArrowBackIcon /></IconButton>
           <Box sx={{ flex: 1 }}>
             <Typography variant="h5" fontWeight="bold" sx={{ color: '#2e7d32', display: 'flex', alignItems: 'center', gap: 1 }}>
               <VolunteerActivismIcon /> จัดการรายชื่อผู้สนับสนุน
@@ -228,7 +276,7 @@ export default function DonationListPage() {
                   </TableCell>
                   <TableCell align="right" sx={{ color: '#2e7d32', fontWeight: 800 }}>฿{row.amount?.toLocaleString()}</TableCell>
                   <TableCell align="center">
-                    {row.slipUrl ? <Tooltip title="ดูสลิป"><IconButton component="a" href={row.slipUrl} target="_blank" color="info"><InsertPhotoIcon /></IconButton></Tooltip> : <Typography variant="caption" color="text.secondary">-</Typography>}
+                    {row.slipUrl ? <Tooltip title="ดูสลิป"><IconButton onClick={() => handleOpenSlip(row.slipUrl)} color="info"><InsertPhotoIcon /></IconButton></Tooltip> : <Typography variant="caption" color="text.secondary">-</Typography>}
                   </TableCell>
                   <TableCell align="center">
                     <IconButton onClick={() => handleOpenDialog(row)} color="primary"><EditIcon /></IconButton>
@@ -275,10 +323,24 @@ export default function DonationListPage() {
                   {formData.pickupMethod === 'DELIVERY' && <Grid item xs={12}><TextField label="ที่อยู่จัดส่งแบบเต็ม" multiline rows={2} fullWidth value={formData.address || ''} onChange={(e) => setFormData({...formData, address: e.target.value})} /></Grid>}
                 </>
               )}
-              <Grid item xs={12}><TextField label="URL รูปสลิปโอนเงิน (ถ้ามี)" fullWidth value={formData.slipUrl || ''} onChange={(e) => setFormData({...formData, slipUrl: e.target.value})} helperText="ใส่ลิงก์รูปภาพสลิปที่อัปโหลดไว้ (เช่น Google Drive หรือ Imgur)" /></Grid>
+              <Grid item xs={12}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <Button component="label" variant="outlined" startIcon={uploadingSlip ? <CircularProgress size={18} /> : <CloudUploadIcon />} disabled={uploadingSlip}>
+                    แนบสลิป
+                    <input type="file" hidden accept="image/jpeg,image/png,image/gif,image/webp" onChange={handleSlipUpload} />
+                  </Button>
+                  {formData.slipUrl && (
+                    <>
+                      <Button startIcon={<InsertPhotoIcon />} onClick={() => handleOpenSlip(formData.slipUrl)}>ดูสลิป</Button>
+                      <Tooltip title="นำสลิปออก"><IconButton aria-label="นำสลิปออก" onClick={() => setFormData((current) => ({ ...current, slipUrl: '' }))}><CloseIcon /></IconButton></Tooltip>
+                    </>
+                  )}
+                </Stack>
+              </Grid>
+              {dialogError && <Grid item xs={12}><Alert severity="error">{dialogError}</Alert></Grid>}
             </Grid>
           </DialogContent>
-          <DialogActions sx={{ p: 2 }}><Button onClick={() => setOpenDialog(false)} color="inherit">ยกเลิก</Button><Button onClick={handleSave} variant="contained" color="success">บันทึก</Button></DialogActions>
+          <DialogActions sx={{ p: 2 }}><Button onClick={() => setOpenDialog(false)} color="inherit">ยกเลิก</Button><Button onClick={handleSave} variant="contained" color="success" disabled={uploadingSlip}>บันทึก</Button></DialogActions>
         </Dialog>
       </Box>
     </Box>

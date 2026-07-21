@@ -9,10 +9,10 @@ export default function KioskJoinPage() {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const token = hashParams.get('token');
     if (token) {
+      window.history.replaceState(null, '', window.location.pathname);
       localStorage.removeItem('kioskToken');
       sessionStorage.setItem('kioskToken', token);
-      // Reload so AuthProvider re-checks /auth/me with the new scoped token.
-      window.location.replace('/kiosk');
+      window.location.replace('/kiosk/diagnostic');
     } else {
       navigate('/login');
     }

@@ -1,5 +1,5 @@
 // frontend/src/pages/AdminPage.jsx
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
   Box, Typography, Card, CardContent, Button,
   Table, TableBody, TableCell, TableContainer,
@@ -78,6 +78,8 @@ const stringAvatar = (name) => {
   return { children: n.charAt(0).toUpperCase() };
 };
 
+const entityId = (value) => String(value?._id || value?.id || value || "");
+
 const AUTO_REFRESH_SEC = 10;
 
 export default function AdminPage() {
@@ -99,6 +101,7 @@ export default function AdminPage() {
   const intervalRef = useRef(null);
   const navigate = useNavigate();
   const [pointsList, setPointsList] = useState([]);
+  const [eventCatalog, setEventCatalog] = useState({ organizations: [], events: [] });
 
   const fetchAdmins = useCallback(() => {
     if (!user) return;
@@ -112,9 +115,19 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!user) return;
-    api.listRegistrationPoints()
-      .then(res => setPointsList(res.data || res || []))
-      .catch(err => console.error("Load points failed", err));
+    Promise.all([
+      api.listRegistrationPoints(),
+      api.getEventCatalog(),
+    ])
+      .then(([pointsRes, catalogRes]) => {
+        setPointsList(pointsRes.data || pointsRes || []);
+        const data = catalogRes.data?.data || {};
+        setEventCatalog({
+          organizations: data.organizations || [],
+          events: data.events || [],
+        });
+      })
+      .catch(err => console.error("Load access catalog failed", err));
   }, [user]);
 
   useEffect(() => {
@@ -189,6 +202,43 @@ export default function AdminPage() {
   const canManageSystemRoles = userRoles.includes("superadmin");
   const canEdit = !!user && (canManageSystemRoles || userRoles.includes("admin"));
   const progressValue = (1 - (refreshCountdown - 1) / (AUTO_REFRESH_SEC - 1)) * 100;
+  const organizationsById = useMemo(
+    () => Object.fromEntries((eventCatalog.organizations || []).map((item) => [entityId(item), item])),
+    [eventCatalog.organizations]
+  );
+  const eventsById = useMemo(
+    () => Object.fromEntries((eventCatalog.events || []).map((item) => [entityId(item), item])),
+    [eventCatalog.events]
+  );
+
+  const renderAccessScope = (admin) => {
+    const roles = Array.isArray(admin.role) ? admin.role : [admin.role].filter(Boolean);
+    if (roles.some((role) => ["superadmin", "admin"].includes(role))) {
+      return <Chip size="small" color="warning" variant="outlined" label="ทุกระบบ" sx={{ mt: 0.75, fontWeight: 800 }} />;
+    }
+    const orgIds = (admin.organizationIds || []).map(entityId).filter(Boolean);
+    const eventIds = (admin.eventIds || []).map(entityId).filter(Boolean);
+    if (orgIds.length > 0) {
+      return (
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mt={0.75}>
+          {orgIds.slice(0, 2).map((id) => <Chip key={id} size="small" label={organizationsById[id]?.name || "หน่วยงาน"} />)}
+          {orgIds.length > 2 && <Chip size="small" label={`+${orgIds.length - 2}`} />}
+        </Stack>
+      );
+    }
+    if (eventIds.length > 0) {
+      return (
+        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap mt={0.75}>
+          {eventIds.slice(0, 2).map((id) => {
+            const event = eventsById[id];
+            return <Chip key={id} size="small" color="info" variant="outlined" label={event ? `${event.name} ${event.eventYear || ""}` : "รอบกิจกรรม"} />;
+          })}
+          {eventIds.length > 2 && <Chip size="small" label={`+${eventIds.length - 2}`} />}
+        </Stack>
+      );
+    }
+    return <Chip size="small" color="error" variant="outlined" label="ยังไม่กำหนด scope" sx={{ mt: 0.75, fontWeight: 800 }} />;
+  };
 
   return (
     <Box sx={{
@@ -429,6 +479,7 @@ export default function AdminPage() {
                               : (
                                 <Chip label={admin.role} size="small" />
                               )}
+                            {renderAccessScope(admin)}
                           </TableCell>
 
                           <TableCell align="center">
@@ -498,6 +549,7 @@ export default function AdminPage() {
         initialData={editData}
         isEdit={!!editData}
         pointsList={pointsList}
+        eventCatalog={eventCatalog}
         canManageSystemRoles={canManageSystemRoles}
       />
 

@@ -6,19 +6,40 @@ const Participant = require('../models/participant');
 const Admin = require('../models/admin');
 const RegistrationPoint = require('../models/registrationPoint');
 const Event = require('../models/event');
+const SystemSetting = require('../models/SystemSetting');
 const RegistrationReuseChallenge = require('../models/registrationReuseChallenge');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const auditLog = require('../helpers/auditLog');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError } = require('../utils/httpResponses');
-const { eventScopeFromRequest } = require('../utils/eventYear');
-const { participantFieldMatch, revealParticipantObject } = require('../utils/fieldEncryption');
+const {
+  assertEventRegistrationOpen,
+  eventScopeFromRequest,
+  getEventContextFromRequest,
+  normalizeEventYear,
+} = require('../utils/eventYear');
+const { decryptValue, participantFieldMatch, revealParticipantObject } = require('../utils/fieldEncryption');
 const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp');
 const sendMail = require('../utils/sendMail');
+const { normalizeCertificateVerificationId } = require('../utils/certificateVerification');
+const { ensureCertificateVerificationId } = require('../services/certificateVerificationService');
+const verifyTurnstile = require('../utils/verifyTurnstile');
+const {
+  bucketTimestamp,
+  coarsenCategoryCounts,
+  maskDisplayName,
+} = require('../utils/publicPrivacy');
 
 const TOKEN_ISSUER = 'psevent';
 const MAX_SELF_REGISTER_WINDOW_MS = 24 * 60 * 60 * 1000;
-const PUBLIC_CACHE_TTL_MS = Number(process.env.PUBLIC_CACHE_TTL_MS || 30000);
+function boundedNumberEnv(name, fallback, minimum, maximum) {
+  const parsed = Number(process.env[name]);
+  const value = Number.isFinite(parsed) ? parsed : fallback;
+  return Math.trunc(Math.min(Math.max(value, minimum), maximum));
+}
+const PUBLIC_CACHE_TTL_MS = boundedNumberEnv('PUBLIC_CACHE_TTL_MS', 30000, 1000, 300000);
+const PUBLIC_REPORT_MAX_ROWS = boundedNumberEnv('PUBLIC_REPORT_MAX_ROWS', 100, 1, 500);
+const PUBLIC_AGGREGATE_MIN_GROUP_SIZE = boundedNumberEnv('PUBLIC_AGGREGATE_MIN_GROUP_SIZE', 3, 2, 20);
 const publicCache = new Map();
 const REUSE_CHALLENGE_TTL_MS = 10 * 60 * 1000;
 const REUSE_GENERIC_RESPONSE = {
@@ -35,8 +56,8 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-function cacheKey(req, name, eventYear) {
-  return `${name}:${eventYear || 'current'}:${req.originalUrl || req.url}`;
+function cacheKey(name, { eventId = null, eventYear = '' } = {}) {
+  return `${name}:${eventId ? String(eventId) : `year:${eventYear || 'unknown'}`}`;
 }
 
 function getCached(key) {
@@ -52,14 +73,33 @@ function setCached(key, value) {
   publicCache.set(key, { value, expiresAt: Date.now() + PUBLIC_CACHE_TTL_MS });
 }
 
-async function assertPointAccess(user, pointId, res) {
+function pointMatchesEvent(point, eventContext) {
+  if (!eventContext?.eventId || !point?.eventId) return true;
+  return String(point.eventId) === String(eventContext.eventId);
+}
+
+async function assertPointAccess(user, pointId, res, { eventContext = null, deviceId = '', mode = 'staff' } = {}) {
   const point = await RegistrationPoint.findById(pointId);
   if (!point || point.enabled !== true) {
     res.status(400).json({ error: 'ไม่พบจุดลงทะเบียน หรือจุดนี้ถูกปิดใช้งาน' });
     return false;
   }
+  if (!pointMatchesEvent(point, eventContext)) {
+    res.status(403).json({ error: 'จุดลงทะเบียนนี้ไม่ได้อยู่ในกิจกรรมที่เลือก' });
+    return false;
+  }
+  if (mode === 'kiosk' && point.type !== 'kiosk' && point.kioskPolicy?.allowKioskMode !== true) {
+    res.status(403).json({ error: 'จุดลงทะเบียนนี้ยังไม่ได้เปิดใช้งาน Kiosk mode' });
+    return false;
+  }
+  if (Array.isArray(point.deviceIds) && point.deviceIds.length > 0 && !point.deviceIds.includes(String(deviceId || '').trim())) {
+    res.status(403).json({ error: 'อุปกรณ์นี้ไม่ได้รับอนุญาตให้ใช้จุดลงทะเบียนนี้' });
+    return false;
+  }
 
-  if (!canRegisterAtPoint(user, pointId)) {
+  const allowedByPoint = Array.isArray(point.allowedStaff)
+    && point.allowedStaff.some((staffId) => String(staffId) === String(user?._id));
+  if (!canRegisterAtPoint(user, pointId) && !allowedByPoint) {
     res.status(403).json({ error: 'คุณไม่มีสิทธิ์สร้างลิงก์สำหรับจุดลงทะเบียนนี้' });
     return false;
   }
@@ -69,16 +109,12 @@ async function assertPointAccess(user, pointId, res) {
 
 async function eventForReuse(slug) {
   const event = await Event.findOne({ slug: String(slug || '').trim().toLowerCase() });
-  if (!event || !['registration_open', 'active'].includes(event.status)) {
+  if (!event) {
     const error = new Error('กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน');
     error.statusCode = 404;
     throw error;
   }
-  if (event.config?.maintenanceMode === true || event.config?.enableRegister === false) {
-    const error = new Error('กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน');
-    error.statusCode = 403;
-    throw error;
-  }
+  assertEventRegistrationOpen(event);
   if (event.config?.allowRegistrationReuse !== true) {
     const error = new Error('กิจกรรมนี้ยังไม่เปิดใช้การดึงข้อมูลลงทะเบียนเดิม');
     error.statusCode = 403;
@@ -129,6 +165,11 @@ exports.requestRegistrationReuseOtp = async (req, res) => {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ success: false, message: 'กรุณาระบุอีเมลให้ถูกต้อง' });
     }
+    const isHuman = await verifyTurnstile(req.body?.cfToken, req.ip, { expectedAction: 'registration_reuse' });
+    if (!isHuman && process.env.NODE_ENV === 'production') {
+      return res.status(400).json({ success: false, message: 'ไม่ผ่านการตรวจสอบความปลอดภัย กรุณาลองใหม่อีกครั้ง' });
+    }
+    res.setHeader('Cache-Control', 'no-store');
     const { participant, sourceEvent } = await findReusableParticipant(event, email);
     if (!participant) {
       auditLog({ req, action: 'REGISTRATION_REUSE_OTP_REQUEST_NOT_FOUND', detail: `eventId=${event._id}`, status: 200 });
@@ -169,24 +210,44 @@ exports.confirmRegistrationReuseOtp = async (req, res) => {
   try {
     const event = await eventForReuse(req.params.slug);
     const { challengeId, otp } = req.body || {};
-    const challenge = await RegistrationReuseChallenge.findById(challengeId);
-    if (!challenge || String(challenge.targetEventId) !== String(event._id) || challenge.usedAt || challenge.expiresAt < new Date()) {
+    if (!mongoose.Types.ObjectId.isValid(challengeId) || !/^\d{8}$/.test(String(otp || ''))) {
+      return res.status(400).json({ success: false, message: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง' });
+    }
+    res.setHeader('Cache-Control', 'no-store');
+    const now = new Date();
+    const activeFilter = {
+      _id: challengeId,
+      targetEventId: event._id,
+      usedAt: null,
+      expiresAt: { $gt: now },
+      attempts: { $lt: 5 },
+    };
+    const challenge = await RegistrationReuseChallenge.findOne(activeFilter);
+    if (!challenge) {
       return res.status(400).json({ success: false, message: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง' });
     }
     if (challenge.attempts >= 5) {
       return res.status(429).json({ success: false, message: 'กรอกรหัสผิดเกินจำนวนครั้งที่กำหนด กรุณาขอรหัสใหม่' });
     }
     if (!verifyOTP(otp, challenge.otpHash)) {
-      challenge.attempts += 1;
-      await challenge.save();
+      const attempt = await RegistrationReuseChallenge.updateOne(activeFilter, { $inc: { attempts: 1 } });
+      if (attempt.modifiedCount !== 1) {
+        return res.status(400).json({ success: false, message: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง' });
+      }
       return res.status(400).json({ success: false, message: 'รหัส OTP ไม่ถูกต้อง' });
     }
-    const participant = await Participant.findById(challenge.participantId).select('+secureIndex +secureSearch');
+    const consumedChallenge = await RegistrationReuseChallenge.findOneAndUpdate(
+      activeFilter,
+      { $set: { usedAt: now } },
+      { new: true }
+    );
+    if (!consumedChallenge) {
+      return res.status(400).json({ success: false, message: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง' });
+    }
+    const participant = await Participant.findById(consumedChallenge.participantId).select('+secureIndex +secureSearch');
     if (!participant || participant.isDeleted) {
       return res.status(404).json({ success: false, message: 'ไม่พบข้อมูลเดิมที่สามารถดึงมาใช้ได้' });
     }
-    challenge.usedAt = new Date();
-    await challenge.save();
     const safe = revealParticipantObject(participant);
     await auditSensitiveAccess({
       req,
@@ -216,12 +277,15 @@ exports.confirmRegistrationReuseOtp = async (req, res) => {
 
 exports.generateKioskToken = async (req, res) => {
   try {
-    const { pointId } = req.body;
+    const { pointId, deviceId } = req.body;
     if (!pointId) return res.status(400).json({ error: 'ต้องระบุ Registration Point' });
-    if (!(await assertPointAccess(req.user, pointId, res))) return;
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (!(await assertPointAccess(req.user, pointId, res, { eventContext, deviceId, mode: 'kiosk' }))) return;
+    const eventId = eventContext.eventId ? String(eventContext.eventId) : null;
+    const eventYear = normalizeEventYear(eventContext.eventYear);
 
     const token = jwt.sign(
-      { role: 'kiosk_device', pointId, createdBy: req.user._id },
+      { role: 'kiosk_device', pointId, eventId, eventYear, deviceId: deviceId || '', createdBy: req.user._id },
       process.env.JWT_SECRET,
       { expiresIn: '12h', audience: 'kiosk-device', issuer: TOKEN_ISSUER }
     );
@@ -229,15 +293,88 @@ exports.generateKioskToken = async (req, res) => {
   } catch (err) { serverError(res, err); }
 };
 
+exports.verifyKioskToken = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: 'ไม่พบ Kiosk token' });
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET, {
+      audience: 'kiosk-device',
+      issuer: TOKEN_ISSUER,
+    });
+    if (decoded.role !== 'kiosk_device' || !decoded.pointId) {
+      return res.status(403).json({ success: false, message: 'Token ไม่ถูกต้องสำหรับ Kiosk' });
+    }
+
+    const point = await RegistrationPoint.findById(decoded.pointId).lean();
+    if (!point || point.enabled !== true) {
+      return res.status(403).json({ success: false, message: 'จุดลงทะเบียนนี้ถูกปิดใช้งานหรือไม่พบในระบบ' });
+    }
+    if (point.eventId && decoded.eventId && String(point.eventId) !== String(decoded.eventId)) {
+      return res.status(403).json({ success: false, message: 'Kiosk token ไม่ตรงกับกิจกรรมของจุดลงทะเบียน' });
+    }
+    if (point.type !== 'kiosk' && point.kioskPolicy?.allowKioskMode !== true) {
+      return res.status(403).json({ success: false, message: 'จุดลงทะเบียนนี้ยังไม่ได้เปิดใช้งาน Kiosk mode' });
+    }
+    if (Array.isArray(point.deviceIds) && point.deviceIds.length > 0 && !point.deviceIds.includes(String(decoded.deviceId || '').trim())) {
+      return res.status(403).json({ success: false, message: 'อุปกรณ์นี้ไม่ได้รับอนุญาตให้ใช้ Kiosk token นี้' });
+    }
+
+    const settings = await SystemSetting.findOne().lean();
+    const now = new Date();
+    if (settings?.maintenanceMode === true) {
+      return res.status(403).json({ success: false, message: 'ระบบกำลังปิดปรับปรุง' });
+    }
+    if (settings?.kioskStartDate && now < new Date(settings.kioskStartDate)) {
+      return res.status(403).json({ success: false, message: `ยังไม่ถึงเวลาเปิด Kiosk (${new Date(settings.kioskStartDate).toLocaleString('th-TH')})` });
+    }
+    if (settings?.kioskEndDate && now > new Date(settings.kioskEndDate)) {
+      return res.status(403).json({ success: false, message: 'หมดเวลาใช้งาน Kiosk แล้ว' });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        pointId: String(point._id),
+        pointName: point.name,
+        pointType: point.type,
+        eventId: decoded.eventId || '',
+        eventYear: decoded.eventYear || '',
+        deviceId: decoded.deviceId || '',
+        expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : null,
+        serverTime: now,
+        kioskPolicy: point.kioskPolicy || {},
+        warnings: point.type !== 'kiosk' && point.kioskPolicy?.allowKioskMode === true ? ['registration point allows kiosk mode by policy'] : [],
+      }
+    });
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(403).json({ success: false, message: 'Kiosk token หมดอายุ กรุณาสร้างใหม่' });
+    }
+    if (err.name === 'JsonWebTokenError' || err.name === 'NotBeforeError') {
+      return res.status(403).json({ success: false, message: 'Kiosk token ไม่ถูกต้อง' });
+    }
+    serverError(res, err);
+  }
+};
+
 exports.getPublicReport = async (req, res) => {
   try {
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false, status: 'checkedIn' }, { requireEventIdentity: true, requirePublic: true, requireAccess: false });
-    const { eventYear, filter } = eventScope;
-    const key = cacheKey(req, 'publicReport', eventYear);
+    const { eventId, eventYear, filter } = eventScope;
+    const key = cacheKey('publicReport', { eventId, eventYear });
     const cached = getCached(key);
+    res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
     if (cached) return res.json(cached);
 
-    const participants = (await Participant.find(filter, 'fields.name fields.fullName fields.fullname fields.department fields.dept registeredPoint checkedInAt tags').lean())
+    const [totalCheckedIn, participantRows] = await Promise.all([
+      Participant.countDocuments(filter),
+      Participant.find(
+        filter,
+        'fields.name fields.fullName fields.fullname fields.department fields.dept registeredPoint registeredPointName checkedInAt'
+      ).sort({ checkedInAt: -1 }).limit(PUBLIC_REPORT_MAX_ROWS).lean(),
+    ]);
+    const participants = participantRows
       .map(revealParticipantObject);
     await auditSensitiveAccess({
       req,
@@ -252,17 +389,15 @@ exports.getPublicReport = async (req, res) => {
 
     const maskedData = participants.map(p => {
       const name = p.fields?.name || p.fields?.fullName || p.fields?.fullname || '';
-      let maskedName = name ? name.substring(0, 3) + '***' : 'Unknown';
       return {
-        name: maskedName,
-        department: p.fields?.department || p.fields?.dept || '',
-        point: p.registeredPoint,
-        checkedInAt: p.checkedInAt,
-        tags: p.tags || []
+        name: maskDisplayName(name),
+        department: String(p.fields?.department || p.fields?.dept || '').slice(0, 80),
+        point: String(p.registeredPointName || p.registeredPoint || '').slice(0, 80),
+        checkedInAt: bucketTimestamp(p.checkedInAt, 15),
       };
     });
 
-    const payload = { totalCheckedIn: maskedData.length, data: maskedData };
+    const payload = { totalCheckedIn, displayedCount: maskedData.length, data: maskedData };
     setCached(key, payload);
     res.json(payload);
   } catch (err) { serverError(res, err); }
@@ -271,9 +406,10 @@ exports.getPublicReport = async (req, res) => {
 exports.getPublicDashboardStats = async (req, res) => {
   try {
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false, status: 'checkedIn' }, { requireEventIdentity: true, requirePublic: true, requireAccess: false });
-    const { eventYear, filter } = eventScope;
-    const key = cacheKey(req, 'publicDashboard', eventYear);
+    const { eventId, eventYear, filter } = eventScope;
+    const key = cacheKey('publicDashboard', { eventId, eventYear });
     const cached = getCached(key);
+    res.setHeader('Cache-Control', 'public, max-age=15, stale-while-revalidate=30');
     if (cached) return res.json(cached);
 
     const participants = (await Participant.find(
@@ -308,8 +444,8 @@ exports.getPublicDashboardStats = async (req, res) => {
       totalCheckedIn,
       totalFollowers,
       totalAttendees: totalCheckedIn + totalFollowers,
-      deptStats: Object.keys(deptCount).map(k => ({ name: k, count: deptCount[k] })).sort((a, b) => b.count - a.count),
-      yearStats: Object.keys(yearCount).map(k => ({ name: k, count: yearCount[k] })).sort((a, b) => b.count - a.count),
+      deptStats: coarsenCategoryCounts(deptCount, PUBLIC_AGGREGATE_MIN_GROUP_SIZE),
+      yearStats: coarsenCategoryCounts(yearCount, PUBLIC_AGGREGATE_MIN_GROUP_SIZE),
       updatedAt: new Date()
     };
     setCached(key, payload);
@@ -327,7 +463,10 @@ exports.generateSelfRegisterLink = async (req, res) => {
       return res.status(400).json({ error: 'กรุณาระบุจุดลงทะเบียน และเวลาเริ่มต้น-สิ้นสุด ให้ครบถ้วน' });
     }
 
-    if (!(await assertPointAccess(req.user, pointId, res))) return;
+    const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (!(await assertPointAccess(req.user, pointId, res, { eventContext }))) return;
+    const eventId = eventContext.eventId ? String(eventContext.eventId) : null;
+    const eventYear = normalizeEventYear(eventContext.eventYear);
 
     const fromDate = new Date(validFrom);
     const untilDate = new Date(validUntil);
@@ -360,6 +499,8 @@ exports.generateSelfRegisterLink = async (req, res) => {
     const payload = {
       role: 'self_register_master',
       pointId,
+      eventId,
+      eventYear,
       staffId: targetStaff._id,
       nbf: Math.floor(fromDate.getTime() / 1000),
       exp: Math.floor(untilDate.getTime() / 1000)
@@ -393,12 +534,18 @@ exports.requestShortSession = async (req, res) => {
 
     // ออก Session ใหม่ให้อายุแค่ 15 นาที สำหรับกรอกข้อมูล 1 คน
     const shortToken = jwt.sign(
-      { role: 'self_register_session', pointId: decoded.pointId, staffId: decoded.staffId },
+      {
+        role: 'self_register_session',
+        pointId: decoded.pointId,
+        eventId: decoded.eventId || null,
+        eventYear: decoded.eventYear || '',
+        staffId: decoded.staffId,
+      },
       process.env.JWT_SECRET,
       { expiresIn: '15m', audience: 'self-register-session', issuer: TOKEN_ISSUER }
     );
 
-    res.json({ shortToken, pointId: decoded.pointId });
+    res.json({ shortToken, pointId: decoded.pointId, eventId: decoded.eventId || null, eventYear: decoded.eventYear || '' });
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'QR Code นี้หมดเวลาการใช้งานแล้ว' });
@@ -407,5 +554,158 @@ exports.requestShortSession = async (req, res) => {
       return res.status(403).json({ error: 'ยังไม่ถึงเวลาเปิดให้ใช้งาน QR Code นี้' });
     }
     res.status(403).json({ error: 'QR Code ไม่ถูกต้อง หรือถูกยกเลิกแล้ว' });
+  }
+};
+
+function certificateDisplayName(fields = {}) {
+  const candidates = ['name', 'fullName', 'fullname', 'displayName'];
+  for (const field of candidates) {
+    if (fields[field] === undefined || fields[field] === null || fields[field] === '') continue;
+    const value = decryptValue(fields[field]);
+    if (value) return String(value).trim();
+  }
+  return '';
+}
+
+function certificateError(message, statusCode, code) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
+}
+
+function allowLegacyCertificateParticipantId() {
+  return process.env.ALLOW_LEGACY_CERTIFICATE_PARTICIPANT_ID === 'true';
+}
+
+async function loadCertificateParticipant(rawVerificationId) {
+  const verificationId = normalizeCertificateVerificationId(rawVerificationId);
+  let participant = null;
+
+  if (verificationId) {
+    participant = await Participant.findOne({ certificateVerificationId: verificationId })
+      .select('+certificateVerificationId fields status qrCode eventId eventYear checkedInAt isRevoked isDeleted')
+      .populate('eventId', 'name eventYear branding config.enabledFeatures.certificate');
+  } else if (
+    allowLegacyCertificateParticipantId()
+    && mongoose.Types.ObjectId.isValid(String(rawVerificationId || ''))
+  ) {
+    participant = await Participant.findById(rawVerificationId)
+      .select('+certificateVerificationId fields status qrCode eventId eventYear checkedInAt isRevoked isDeleted')
+      .populate('eventId', 'name eventYear branding config.enabledFeatures.certificate');
+  }
+
+  if (!participant || participant.isDeleted) {
+    throw certificateError('ไม่พบเอกสาร หรือรหัสตรวจสอบไม่ถูกต้อง', 404, 'CERTIFICATE_NOT_FOUND');
+  }
+
+  if (participant.isRevoked) {
+    throw certificateError(
+      'เอกสารฉบับนี้ถูกเพิกถอนโดยผู้ดูแลระบบแล้ว (Revoked Document)',
+      403,
+      'CERTIFICATE_REVOKED'
+    );
+  }
+
+  if (participant.status !== 'checkedIn') {
+    throw certificateError(
+      'ผู้เข้าร่วมรายนี้ยังไม่ผ่านเงื่อนไขการออกเกียรติบัตร',
+      400,
+      'CERTIFICATE_NOT_ELIGIBLE'
+    );
+  }
+
+  if (participant.eventId?.config?.enabledFeatures?.certificate === false) {
+    throw certificateError(
+      'กิจกรรมนี้ยังไม่ได้เปิดใช้งานเกียรติบัตร',
+      403,
+      'CERTIFICATE_DISABLED'
+    );
+  }
+
+  return participant;
+}
+
+function certificatePayload(participant, { verificationId = null } = {}) {
+  const payload = {
+    name: certificateDisplayName(participant.fields || {}),
+    eventName: participant.eventId?.name || 'Unknown Event',
+    eventYear: participant.eventId?.eventYear || participant.eventYear || '',
+    ticketCode: participant.qrCode,
+    checkInTime: participant.checkedInAt,
+    backgroundImageUrl: participant.eventId?.branding?.coverImageUrl || '',
+  };
+  if (verificationId) payload.verificationId = verificationId;
+  return payload;
+}
+
+exports.verifyCertificate = async (req, res) => {
+  try {
+    const rawVerificationId = req.body?.verificationId || req.params?.verificationId;
+    const participant = await loadCertificateParticipant(rawVerificationId);
+
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_CERTIFICATE_VERIFY',
+      purpose: 'public_certificate_verification',
+      resource: 'participants',
+      eventYear: participant.eventYear || participant.eventId?.eventYear || '',
+      recordCount: 1,
+      fields: ['participant.fields.name'],
+      extra: { participantId: String(participant._id), public: true },
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      success: true,
+      status: 'valid',
+      data: certificatePayload(participant),
+    });
+  } catch (err) {
+    if (err.statusCode) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(err.statusCode).json({
+        success: false,
+        status: err.code === 'CERTIFICATE_REVOKED' ? 'revoked' : 'invalid',
+        code: err.code || 'CERTIFICATE_INVALID',
+        message: err.message,
+      });
+    }
+    console.error('Verify Certificate Error:', err);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
+  }
+};
+
+exports.getCertificatePayload = async (req, res) => {
+  try {
+    const rawVerificationId = req.body?.verificationId || req.params?.verificationId;
+    const participant = await loadCertificateParticipant(rawVerificationId);
+    const verificationId = await ensureCertificateVerificationId(participant);
+
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_CERTIFICATE_PAYLOAD',
+      purpose: 'public_certificate_download_payload',
+      resource: 'participants',
+      eventYear: participant.eventYear || participant.eventId?.eventYear || '',
+      recordCount: 1,
+      fields: ['participant.fields.name'],
+      extra: { participantId: String(participant._id), public: true },
+    });
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, data: certificatePayload(participant, { verificationId }) });
+  } catch (err) {
+    if (err.statusCode) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(err.statusCode).json({
+        success: false,
+        status: err.code === 'CERTIFICATE_REVOKED' ? 'revoked' : 'invalid',
+        code: err.code || 'CERTIFICATE_INVALID',
+        message: err.message,
+      });
+    }
+    console.error('Certificate Payload Error:', err);
+    res.status(500).json({ success: false, message: 'Internal Server Error' });
   }
 };

@@ -6,6 +6,7 @@ const CronLog = require('../models/cronLog');
 const logger = require('../utils/logger');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { getCurrentEventYear } = require('../utils/eventYear');
+const { boolEnv } = require('../utils/cloudCostGuardrail');
 
 const runBackupTask = async () => {
   const jobName = 'Auto PDF Report (Mon-Wed-Fri)';
@@ -63,12 +64,27 @@ const runBackupTask = async () => {
 };
 
 const initScheduler = () => {
+  const configured = Boolean(
+    process.env.GOOGLE_CLIENT_ID
+    && process.env.GOOGLE_CLIENT_SECRET
+    && process.env.GOOGLE_REFRESH_TOKEN
+    && process.env.GOOGLE_DRIVE_FOLDER_ID
+  );
+  if (!boolEnv('REPORT_SCHEDULER_ENABLED', configured)) {
+    logger.info('[Scheduler] Disabled');
+    return null;
+  }
+  if (!configured) {
+    throw new Error('Google Drive credentials are required when REPORT_SCHEDULER_ENABLED=true');
+  }
+
   // จันทร์(1), พุธ(3), ศุกร์(5) เวลา 19:00 น.
-  cron.schedule('0 19 * * 1,3,5', () => {
+  const task = cron.schedule('0 19 * * 1,3,5', () => {
     runBackupTask();
   }, { scheduled: true, timezone: "Asia/Bangkok" });
   
   logger.info('[Scheduler] Initialized: Mon, Wed, Fri at 19:00');
+  return task;
 };
 
 module.exports = initScheduler;

@@ -4,7 +4,7 @@ import {
   Box, Container, Paper, Stack, Typography, Avatar, Chip, Divider, TextField, MenuItem, Button, Fab, Tooltip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, FormControl, RadioGroup, FormControlLabel, Radio, Collapse, Card, CardContent, InputAdornment, Switch, Backdrop, LinearProgress
 } from "@mui/material";
 
-// Icons 
+// Icons
 import LockOpenIcon from "@mui/icons-material/LockOpen";
 import LockIcon from "@mui/icons-material/Lock";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
@@ -30,19 +30,20 @@ import Confetti from 'react-confetti';
 import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listEnabledRegistrationPoints } from "../utils/api";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import Turnstile from "../components/Turnstile";
-import useAuth from "../hooks/useAuth"; 
+import useAuth from "../hooks/useAuth";
 import { eventContextToParams } from "../utils/eventContext";
 
-const IDLE_TIMEOUT_MS = 60000; 
+const DEFAULT_IDLE_TIMEOUT_SECONDS = 60;
+const DEFAULT_SUCCESS_RESET_SECONDS = 5;
 
-const MourningRibbon = () => ( 
+const MourningRibbon = () => (
   <Box sx={{ position: "absolute", top: 0, left: 0, zIndex: 9999, pointerEvents: "none", width: { xs: 80, md: 120 }, height: { xs: 80, md: 120 } }}>
     <img src="/ribbon.svg" alt="Mourning Ribbon" style={{ width: "100%", height: "100%", objectFit: "contain", filter: "drop-shadow(2px 2px 3px rgba(0,0,0,0.5))" }} />
-  </Box> 
+  </Box>
 );
 
 export default function KioskPage({ isSelfRegisterMode = false, forcePointId = null }) {
-  const { user } = useAuth(); 
+  const { user } = useAuth();
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
   const [result, setResult] = useState(null);
@@ -50,9 +51,10 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const [fetchingFields, setFetchingFields] = useState(true);
 
   const [systemStatus, setSystemStatus] = useState({ isOpen: true, message: "" });
-  const [pointName, setPointName] = useState(""); 
+  const [pointName, setPointName] = useState("");
+  const [runtimePolicy, setRuntimePolicy] = useState({});
   const [membershipOption, setMembershipOption] = useState(null);
-  const [followersCount, setFollowersCount] = useState(""); 
+  const [followersCount, setFollowersCount] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [errorDialog, setErrorDialog] = useState({ open: false, title: "", msg: "", type: "error" });
 
@@ -66,12 +68,12 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const [kioskMode, setKioskMode] = useState(false);
   const eventParams = useMemo(
     () => eventContextToParams({
-      eventId: searchParams.get("eventId") || "",
-      eventYear: searchParams.get("eventYear") || "",
+      eventId: searchParams.get("eventId") || user?.eventId || "",
+      eventYear: searchParams.get("eventYear") || user?.eventYear || "",
     }),
-    [searchParams]
+    [searchParams, user?.eventId, user?.eventYear]
   );
-  
+
   const selectedPoint = forcePointId || searchParams.get("point") || (user?.authScope === 'kiosk_device' ? user?.registrationPoint : null);
 
   const [exitOpen, setExitOpen] = useState(false);
@@ -80,7 +82,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const [exitError, setExitError] = useState("");
   const [verifyingExit, setVerifyingExit] = useState(false);
   const [countdownProgress, setCountdownProgress] = useState(100);
-  
+
   const lastActivityRef = useRef(Date.now());
 
   const handleVerify = useCallback((token) => { setCfToken(token); }, []);
@@ -88,13 +90,13 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
 
   useEffect(() => {
     if (!selectedPoint) { navigate("/select-point"); return; }
-    
+
     const loadInitData = async () => {
       try {
         const [resSet, resFields, resPoints] = await Promise.all([
             getSystemSettings(),
-            listParticipantFields(),
-            listEnabledRegistrationPoints()
+            listParticipantFields(eventParams),
+            listEnabledRegistrationPoints(eventParams)
         ]);
 
         const set = resSet.data?.data;
@@ -102,7 +104,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
           const now = new Date();
           const start = set.kioskStartDate ? new Date(set.kioskStartDate) : null;
           const end = set.kioskEndDate ? new Date(set.kioskEndDate) : null;
-          
+
           if (set.maintenanceMode) {
              setSystemStatus({ isOpen: false, message: "ระบบกำลังปิดปรับปรุงชั่วคราว ขออภัยในความไม่สะดวก" });
           } else if (start && now < start) {
@@ -111,12 +113,13 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
              setSystemStatus({ isOpen: false, message: "หมดเวลาลงทะเบียนหน้างาน (Kiosk) แล้ว" });
           }
         }
-        
+
         setFields(resFields.data || []);
 
         const allPoints = resPoints.data || resPoints || [];
         const currentPoint = allPoints.find(p => p._id === selectedPoint || p.id === selectedPoint);
         setPointName(currentPoint?.name || selectedPoint);
+        setRuntimePolicy(currentPoint?.kioskPolicy || {});
 
       } catch (err) {
         console.error(err);
@@ -125,48 +128,51 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
       }
     };
     loadInitData();
-  }, [selectedPoint, navigate]);
+  }, [selectedPoint, navigate, eventParams]);
 
   useEffect(() => {
-    if (isSelfRegisterMode) return; 
+    if (isSelfRegisterMode) return;
 
+    const idleTimeoutMs = (Number(runtimePolicy.idleTimeoutSeconds) || DEFAULT_IDLE_TIMEOUT_SECONDS) * 1000;
     const handleActivity = () => { lastActivityRef.current = Date.now(); };
     window.addEventListener("mousemove", handleActivity);
     window.addEventListener("keydown", handleActivity);
     window.addEventListener("touchstart", handleActivity);
-    
+
     const timer = setInterval(() => {
-      if (Date.now() - lastActivityRef.current > IDLE_TIMEOUT_MS) {
+      if (Date.now() - lastActivityRef.current > idleTimeoutMs) {
         if (Object.keys(form).length > 0 || membershipOption !== null || reviewOpen || result || followersCount !== "") {
             handleReset();
         }
         lastActivityRef.current = Date.now();
       }
     }, 1000);
-    return () => { 
-        window.removeEventListener("mousemove", handleActivity); 
-        window.removeEventListener("keydown", handleActivity); 
-        window.removeEventListener("touchstart", handleActivity); 
-        clearInterval(timer); 
+    return () => {
+        window.removeEventListener("mousemove", handleActivity);
+        window.removeEventListener("keydown", handleActivity);
+        window.removeEventListener("touchstart", handleActivity);
+        clearInterval(timer);
     };
-  }, [form, membershipOption, reviewOpen, result, followersCount, isSelfRegisterMode]);
+  }, [form, membershipOption, reviewOpen, result, followersCount, isSelfRegisterMode, runtimePolicy.idleTimeoutSeconds]);
 
   useEffect(() => {
       if (result && !isSelfRegisterMode) {
+          const successResetMs = (Number(runtimePolicy.successResetSeconds) || DEFAULT_SUCCESS_RESET_SECONDS) * 1000;
+          const step = 100 / Math.max(1, Math.ceil(successResetMs / 100));
           setCountdownProgress(100);
           const interval = setInterval(() => {
               setCountdownProgress(prev => {
                   if (prev <= 0) {
                       clearInterval(interval);
-                      handleReset(); 
+                      handleReset();
                       return 0;
                   }
-                  return prev - 2; 
+                  return Math.max(0, prev - step);
               });
-          }, 100); 
+          }, 100);
           return () => clearInterval(interval);
       }
-  }, [result, isSelfRegisterMode]);
+  }, [result, isSelfRegisterMode, runtimePolicy.successResetSeconds]);
 
   const fieldGroups = useMemo(() => {
     const all = (fields || []).filter(f => f?.enabled !== false).sort((a,b) => (a.order ?? 0) - (b.order ?? 0));
@@ -182,19 +188,19 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
 
   function openFullscreen() { const elem = document.documentElement; if (elem.requestFullscreen) elem.requestFullscreen(); }
   function closeFullscreen() { if (document.exitFullscreen) document.exitFullscreen(); }
-  
+
   useEffect(() => { if (kioskMode && !isSelfRegisterMode) openFullscreen(); }, [kioskMode, isSelfRegisterMode]);
 
-  const handleReset = () => { 
-      setForm({}); setMembershipOption(null); setFollowersCount(""); 
+  const handleReset = () => {
+      setForm({}); setMembershipOption(null); setFollowersCount("");
       setResult(null); setReviewOpen(false); setExitOpen(false); setErrors({});
-      window.scrollTo({ top: 0, behavior: 'smooth' }); 
+      window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleInput = useCallback((e) => {
     const { name, value } = e.target;
     if (name === 'date_year') {
-      const nums = value.replace(/[^\d]/g, '').slice(0, 4); 
+      const nums = value.replace(/[^\d]/g, '').slice(0, 4);
       setErrors(prev => {
           if (nums.length === 4) {
               const yearInt = parseInt(nums, 10);
@@ -204,7 +210,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
           if (prev[name]) { const next = { ...prev }; delete next[name]; return next; }
           return prev;
       });
-      setForm((f) => ({ ...f, [name]: nums })); 
+      setForm((f) => ({ ...f, [name]: nums }));
       return;
     }
     setErrors(prev => { if (prev[name]) { const next = { ...prev }; delete next[name]; return next; } return prev; });
@@ -249,16 +255,16 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         const finalConsent = (membershipOption === 'existing' || membershipOption === 'new') ? 'agreed' : 'disagreed';
         const finalForm = { ...form };
         if (membershipOption === 'none') { finalForm['usr_add'] = "-"; finalForm['usr_add_post'] = "-"; }
-        
-        const res = await registerOnsiteByKiosk({ 
-            ...finalForm, 
-            followers: count, 
-            cfToken, 
-            consent: finalConsent, 
+
+        const res = await registerOnsiteByKiosk({
+            ...finalForm,
+            followers: count,
+            cfToken,
+            consent: finalConsent,
             registrationPoint: selectedPoint,
             ...eventParams
         });
-        
+
         setResult(res.data?.participant || res.data || res);
 
         if (isSelfRegisterMode) sessionStorage.removeItem('kioskToken');
@@ -281,7 +287,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         localStorage.removeItem('kioskToken');
         sessionStorage.removeItem('kioskToken');
         window.close();
-    } catch (err) { setExitError(err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); } 
+    } catch (err) { setExitError(err.response?.data?.error || "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"); }
     finally { setVerifyingExit(false); }
   };
 
@@ -310,7 +316,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
       <Box sx={{ minHeight: "100vh", bgcolor: "#f8f9fa", position: 'relative', overflowX: 'hidden' }}>
         <MourningRibbon />
         <Confetti width={window.innerWidth} height={window.innerHeight} recycle={false} numberOfPieces={300} gravity={0.2} />
-        
+
         {!isSelfRegisterMode && (
           <LinearProgress variant="determinate" value={countdownProgress} color="success" sx={{ height: 8, position: 'absolute', top: 0, left: 0, right: 0, zIndex: 9999 }} />
         )}
@@ -323,7 +329,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
             <Typography variant="h3" gutterBottom fontWeight="900" color="success.main" sx={{ letterSpacing: 0.5 }}>ลงทะเบียนสำเร็จ!</Typography>
             <Typography variant="h6" color="text.secondary">ยินดีต้อนรับเข้าสู่งาน "เสือเหลืองคืนถิ่น"</Typography>
           </Box>
-          
+
           <Motion.div initial={{ opacity: 0, y: 50 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, delay: 0.2 }}>
             <Card elevation={8} sx={{ borderRadius: 4, overflow: 'hidden', background: '#fff', border: '1px solid #4caf50' }}>
               <Box sx={{ background: '#4caf50', color: 'white', p: 3, textAlign: 'center' }}>
@@ -357,7 +363,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
               </CardContent>
             </Card>
           </Motion.div>
-          
+
           <Box sx={{ textAlign: 'center', mt: 6 }}>
             {isSelfRegisterMode ? (
               <Box>
@@ -374,8 +380,8 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
             )}
           </Box>
 
-          {!isSelfRegisterMode && (!kioskMode ? 
-            <Tooltip title="เปิดโหมด Kiosk (Fullscreen)"><Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab></Tooltip> 
+          {!isSelfRegisterMode && (!kioskMode ?
+            <Tooltip title="เปิดโหมด Kiosk (Fullscreen)"><Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}><LockOpenIcon /></Fab></Tooltip>
             : <Tooltip title="ปลดล็อคเครื่อง"><Fab color="secondary" onClick={() => { setExitUsername(""); setExitPassword(""); setExitError(""); setExitOpen(true); }} sx={{ position: "fixed", right: 24, bottom: 24, opacity: 0.3, '&:hover':{opacity: 1} }}><LockIcon /></Fab></Tooltip>
           )}
         </Container>
@@ -387,7 +393,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
     <Box sx={{ minHeight: "100vh", background: "radial-gradient(1200px 600px at 20% -10%, #fff7db 0%, transparent 60%), radial-gradient(1200px 600px at 120% 110%, #e3f2fd 0%, transparent 60%), linear-gradient(135deg,#fff8e1 0%,#fffde7 100%)", py: { xs: 3, md: 6 }, position: 'relative' }}>
       <MourningRibbon />
       <Container maxWidth="sm">
-        
+
         <Motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
           <Paper elevation={4} sx={{ p: { xs: 2.5, md: 3 }, mb: 3, borderRadius: 4, background: "linear-gradient(135deg, rgba(255,243,224,.95) 0%, rgba(227,242,253,.95) 100%)", boxShadow: "0 14px 36px rgba(255,193,7,0.25)", border: "1px solid rgba(255,193,7,.35)", position: 'relative' }}>
             {user && !isSelfRegisterMode && (
@@ -397,7 +403,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
               <Avatar src="/logo.svg" alt="Logo" sx={{ width: 90, height: 90, bgcolor: "#fff", border: "2px solid rgba(255,193,7,.7)", boxShadow: "0 4px 12px rgba(255,193,7,.35)" }} />
               <Box>
                 <Typography variant="h6" fontWeight={900} color="primary" sx={{ letterSpacing: .5, lineHeight: 1.3 }}>
-                    ลงทะเบียนหน้างาน <br /> 
+                    ลงทะเบียนหน้างาน <br />
                     "เสือเหลืองคืนถิ่น"
                 </Typography>
                 <Chip icon={<LocationOnIcon sx={{ color: '#fff !important' }} />} label={`จุดลงทะเบียน: ${pointName || "ไม่ระบุ"}`} size="small" sx={{ bgcolor: '#F57F17', color: '#fff', fontWeight: '800', mt: 1, px: 0.5, boxShadow: '0 2px 8px rgba(245, 127, 23, 0.4)' }} />
@@ -411,7 +417,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         ) : (
           <Motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.2 }}>
             <Box component="form" onSubmit={handleCheckInfo} noValidate sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-                
+
                 <FormSection title="ข้อมูลส่วนตัว / การศึกษา" icon={<AccountCircleIcon />}>
                   {fieldGroups.personal.map(f => <FieldInput key={f.name} field={f} value={form[f.name] ?? ""} onChange={handleInput} errorText={errors[f.name]} />)}
                   {fieldGroups.others.map(f => <FieldInput key={f.name} field={f} value={form[f.name] ?? ""} onChange={handleInput} errorText={errors[f.name]} />)}
@@ -453,7 +459,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
                 </Paper>
 
                 <Turnstile ref={turnstileRef} size="invisible" execution="execute" action="kiosk_register" onVerify={handleVerify} onError={handleError} />
-                
+
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2} mt={1}>
                   <Button type="submit" variant="contained" color="warning" size="large" disabled={loading || Object.keys(errors).length > 0} fullWidth sx={{ py: 1.5, borderRadius: 3, fontSize: '1rem', fontWeight: 800, boxShadow: "0 6px 20px rgba(255,193,7,.4)" }} startIcon={loading ? <CircularProgress size={24} color="inherit" /> : <FactCheckIcon fontSize="large" />}>
                     {loading ? "กำลังประมวลผล..." : "ตรวจสอบข้อมูลการลงทะเบียน"}
@@ -477,7 +483,7 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
                 <InfoRow label="ภาควิชา" value={form.dept} />
                 <InfoRow label="ปีที่เข้าศึกษา (พ.ศ.)" value={form.date_year} />
                 <InfoRow label="เบอร์โทรศัพท์" value={form.phone} />
-                
+
                 {(membershipOption === 'existing' || membershipOption === 'new') && (
                     <Box sx={{ p: 1.5, bgcolor: "#f5f5f5", borderRadius: 2 }}>
                         <Typography variant="caption" fontWeight={800} color="primary">ที่อยู่:</Typography>
@@ -510,20 +516,20 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
         </DialogContent>
       </Dialog>
 
-      {!isSelfRegisterMode && (!kioskMode ? 
+      {!isSelfRegisterMode && (!kioskMode ?
         <Tooltip title="เปิดโหมด Kiosk (ป้องกันผู้ใช้ออกจากหน้าจอ)">
            <Fab color="primary" onClick={() => { setKioskMode(true); setResult(null); }} sx={{ position: "fixed", right: 24, bottom: 24 }}>
              <LockOpenIcon />
            </Fab>
-        </Tooltip> 
-        : 
+        </Tooltip>
+        :
         <Tooltip title="ปลดล็อคเครื่อง (เจ้าหน้าที่)">
            <Fab color="secondary" onClick={() => { setExitUsername(""); setExitPassword(""); setExitError(""); setExitOpen(true); }} sx={{ position: "fixed", right: 24, bottom: 24, opacity: 0.2, transition: 'opacity 0.3s', '&:hover':{ opacity: 1 } }}>
              <LockIcon />
            </Fab>
         </Tooltip>
       )}
-      
+
       <Dialog open={exitOpen} onClose={() => setExitOpen(false)} PaperProps={{ sx: { borderRadius: 4 } }}>
           <DialogTitle sx={{display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#FFEBEE', color: '#C62828', fontWeight: 800}}>
             <SupervisorAccountIcon /> Supervisor Unlock
@@ -601,11 +607,11 @@ const FieldInput = React.memo(({ field, value, onChange, errorText }) => {
   );
 });
 
-function InfoRow({ label, value }) { 
+function InfoRow({ label, value }) {
     return (
         <Stack direction="row" justifyContent="space-between" spacing={1} sx={{ mb: 1, borderBottom: '1px dashed #eee', pb: 1 }}>
             <Typography sx={{ fontWeight: 700, color: 'text.secondary' }}>{label}:</Typography>
             <Typography sx={{ fontWeight: 600, textAlign: 'right', wordBreak: 'break-word' }}>{value || "-"}</Typography>
         </Stack>
-    ); 
+    );
 }

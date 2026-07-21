@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
-const requireAdmin = require('../middleware/requireAdmin');
+const requirePermission = require('../middleware/requirePermission');
 const requireKioskOrStaff = require('../middleware/requireKioskOrStaff');
 const requireStaffOrAdmin = require('../middleware/requireStaffOrAdmin');
 const requireRegistrationActor = require('../middleware/requireRegistrationActor');
@@ -18,22 +18,23 @@ router.post('/public', participantController.createParticipant);
 // 2. ลงทะเบียน onsite (staff, kiosk เท่านั้น)
 router.post('/register-onsite', auth, requireRegistrationActor, participantController.createParticipantByStaff);
 
-// 3. ตรวจสอบ/ค้นหา/รายงาน (admin เท่านั้น)
-router.get('/', auth, requireAdmin, participantController.listParticipants);
+// 3. ตรวจสอบ/ค้นหา/รายงาน ตามสิทธิ์ระดับกิจกรรม
+router.get('/', auth, requirePermission('participant:manage'), participantController.listParticipants);
 router.get('/search', auth, requireStaffOrAdmin, participantController.searchParticipants);
-router.put('/restore-prize/:id', auth, requireAdmin, participantController.restorePrizeRight);
-router.put('/:id', auth, requireAdmin, participantController.updateParticipant);
-router.delete('/:id', auth, requireAdmin, participantController.deleteParticipant);
+router.put('/restore-prize/:id', auth, requirePermission('participant:manage'), participantController.restorePrizeRight);
+router.put('/:id', auth, requirePermission('participant:manage'), participantController.updateParticipant);
+router.delete('/:id', auth, requirePermission('participant:manage'), participantController.deleteParticipant);
 
 // 4. check-in (staff, kiosk เท่านั้น)
 router.post('/checkin-by-qr', auth, requireKioskOrStaff, participantController.checkinByQr);
 
 // 5. resend ticket (public ทุกคน)
 router.post('/resend-ticket', participantController.resendTicket);
+router.post('/:id/resend-ticket', auth, requirePermission('participant:manage'), participantController.resendTicketByStaff);
 
-router.get('/export', auth, requireAdmin, participantController.exportParticipants);
+router.get('/export', auth, requirePermission('participant:export'), participantController.exportParticipants);
 
-router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
+router.get('/download-report-pdf', auth, requirePermission('participant:export'), async (req, res) => {
   let eventYear = null;
   try {
     const eventScope = await eventScopeFromRequest(req, { isDeleted: false }, { requireEventIdentity: true });
@@ -50,10 +51,12 @@ router.get('/download-report-pdf', auth, requireAdmin, async (req, res) => {
       extra: { format: 'pdf' },
     });
     const pdfBuffer = await generatePDF(data, req.user.username);
-    
+
     res.set({
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment; filename=Report_Manual_${Date.now()}.pdf`
+      'Content-Disposition': `attachment; filename=Report_Manual_${Date.now()}.pdf`,
+      'X-Total-Count': data.count || 0,
+      'X-Export-Status': 'completed'
     });
     res.send(pdfBuffer);
   } catch (err) {

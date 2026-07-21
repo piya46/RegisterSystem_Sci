@@ -1,6 +1,7 @@
 const Participant = require('../models/participant');
 const Donation = require('../models/Donation');
 const { revealDonationObject, revealParticipantObject } = require('../utils/fieldEncryption');
+const { registrationTypeLabel } = require('../utils/registrationTypes');
 
 exports.getReportData = async (eventYear = null, eventId = null) => {
   try {
@@ -101,7 +102,7 @@ exports.getReportData = async (eventYear = null, eventId = null) => {
         year: year,
         phone: f.phone || '-',
         email: email,
-        type: p.registrationType === 'onsite' ? 'หน้างาน' : 'ออนไลน์',
+        type: registrationTypeLabel(p.registrationType),
         followers: followers,
         special: special,
         donationInfo: don ? don.details.join(', ') : '-'

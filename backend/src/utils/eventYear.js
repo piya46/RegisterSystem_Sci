@@ -34,16 +34,82 @@ async function getCurrentEventContext() {
   };
 }
 
-function requestedEventIdentity(req) {
+function identityError(message = 'ข้อมูลกิจกรรมในคำขอไม่สอดคล้องกัน') {
+  const error = new Error(message);
+  error.statusCode = 400;
+  return error;
+}
+
+function uniqueIdentityValue(values, { normalize = (value) => String(value).trim() } = {}) {
+  const normalized = values
+    .filter((value) => value !== undefined && value !== null && String(value).trim() !== '')
+    .map(normalize)
+    .filter(Boolean);
+  const unique = [...new Set(normalized)];
+  if (unique.length > 1) throw identityError();
+  return unique[0] || null;
+}
+
+function requestedEventIdentity(req = {}) {
   return {
-    eventId: req.query?.eventId || req.body?.eventId || req.params?.eventId || null,
-    eventSlug: req.query?.eventSlug || req.body?.eventSlug || req.params?.eventSlug || req.params?.slug || null,
+    eventId: uniqueIdentityValue([
+      req.params?.eventId,
+      req.query?.eventId,
+      req.body?.eventId,
+    ]),
+    eventSlug: uniqueIdentityValue([
+      req.params?.eventSlug,
+      req.params?.slug,
+      req.query?.eventSlug,
+      req.body?.eventSlug,
+    ], { normalize: (value) => String(value).trim().toLowerCase() }),
+    eventYear: uniqueIdentityValue([
+      req.params?.eventYear,
+      req.query?.eventYear,
+      req.body?.eventYear,
+    ]),
   };
+}
+
+function assertEventMatchesRequestedIdentity(event, identity = {}) {
+  if (!event) return;
+  if (identity.eventId && String(event._id) !== String(identity.eventId)) throw identityError();
+  if (identity.eventSlug && String(event.slug || '').trim().toLowerCase() !== identity.eventSlug) throw identityError();
+  if (identity.eventYear && normalizeEventYear(event.eventYear) !== normalizeEventYear(identity.eventYear)) {
+    throw identityError('ปีของกิจกรรมไม่ตรงกับกิจกรรมที่ระบุ');
+  }
+}
+
+function assertEventRegistrationOpen(event, now = new Date()) {
+  const config = event?.config || {};
+  const startsAt = config.preRegStartDate ? new Date(config.preRegStartDate) : null;
+  const endsAt = config.preRegEndDate ? new Date(config.preRegEndDate) : null;
+  if (config.maintenanceMode === true) {
+    const error = new Error('ระบบกำลังปิดปรับปรุงชั่วคราว');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (config.enabledFeatures?.registration === false || config.enableRegister === false || !isRegistrationOpenStatus(event?.status)) {
+    const error = new Error('กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (startsAt && now < startsAt) {
+    const error = new Error('ยังไม่ถึงเวลาเปิดรับลงทะเบียน');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (endsAt && now > endsAt) {
+    const error = new Error('หมดเวลาลงทะเบียนล่วงหน้าแล้ว');
+    error.statusCode = 403;
+    throw error;
+  }
 }
 
 async function getEventContextFromRequest(req, options = {}) {
   const { requireAccess = true, requireEventIdentity = false, requirePublic = false, requireRegistrationOpen = false } = options;
-  const { eventId, eventSlug } = requestedEventIdentity(req);
+  const identity = requestedEventIdentity(req);
+  const { eventId, eventSlug, eventYear: requestedEventYear } = identity;
   const hasRequestedEvent = Boolean(eventId || eventSlug);
   let event = null;
 
@@ -58,6 +124,8 @@ async function getEventContextFromRequest(req, options = {}) {
     event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() });
   }
 
+  if (event) assertEventMatchesRequestedIdentity(event, identity);
+
   if (!event) {
     if (hasRequestedEvent) {
       const error = new Error('ไม่พบกิจกรรมที่ระบุ');
@@ -68,6 +136,15 @@ async function getEventContextFromRequest(req, options = {}) {
       const error = new Error('กรุณาเลือกกิจกรรมก่อนใช้งานหน้านี้');
       error.statusCode = 400;
       throw error;
+    }
+    if (requestedEventYear) {
+      return {
+        eventYear: normalizeEventYear(requestedEventYear),
+        eventId: null,
+        seriesId: null,
+        organizationId: null,
+        linkingMode: 'series-linked',
+      };
     }
     return getCurrentEventContext();
   }
@@ -84,32 +161,7 @@ async function getEventContextFromRequest(req, options = {}) {
     throw error;
   }
 
-  if (requireRegistrationOpen) {
-    const now = new Date();
-    const config = event.config || {};
-    const startsAt = config.preRegStartDate ? new Date(config.preRegStartDate) : null;
-    const endsAt = config.preRegEndDate ? new Date(config.preRegEndDate) : null;
-    if (config.maintenanceMode === true) {
-      const error = new Error('ระบบกำลังปิดปรับปรุงชั่วคราว');
-      error.statusCode = 403;
-      throw error;
-    }
-    if (config.enabledFeatures?.registration === false || config.enableRegister === false || !isRegistrationOpenStatus(event.status)) {
-      const error = new Error('กิจกรรมนี้ยังไม่เปิดรับลงทะเบียน');
-      error.statusCode = 403;
-      throw error;
-    }
-    if (startsAt && now < startsAt) {
-      const error = new Error('ยังไม่ถึงเวลาเปิดรับลงทะเบียน');
-      error.statusCode = 403;
-      throw error;
-    }
-    if (endsAt && now > endsAt) {
-      const error = new Error('หมดเวลาลงทะเบียนล่วงหน้าแล้ว');
-      error.statusCode = 403;
-      throw error;
-    }
-  }
+  if (requireRegistrationOpen) assertEventRegistrationOpen(event);
 
   return {
     eventYear: normalizeEventYear(event.eventYear),
@@ -122,7 +174,7 @@ async function getEventContextFromRequest(req, options = {}) {
 }
 
 function eventYearFromRequest(req) {
-  const value = req.query?.eventYear || req.body?.eventYear || null;
+  const value = requestedEventIdentity(req).eventYear;
   if (isAllEventYears(value)) return null;
   return value;
 }
@@ -142,7 +194,8 @@ function applyEventYearFilter(filter, eventYear) {
 
 async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
   const { requireAccess = true, requireEventIdentity = false, requirePublic = false } = options;
-  const { eventId, eventSlug } = requestedEventIdentity(req);
+  const identity = requestedEventIdentity(req);
+  const { eventId, eventSlug, eventYear: requestedEventYear } = identity;
   let event = null;
 
   if (eventId) {
@@ -151,9 +204,9 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
       error.statusCode = 400;
       throw error;
     }
-    event = await Event.findById(eventId).select('eventYear status organizationId seriesId');
+    event = await Event.findById(eventId).select('slug eventYear status organizationId seriesId');
   } else if (eventSlug) {
-    event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() }).select('eventYear status organizationId seriesId');
+    event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() }).select('slug eventYear status organizationId seriesId');
   }
 
   if (eventId || eventSlug) {
@@ -162,6 +215,7 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
       error.statusCode = 404;
       throw error;
     }
+    assertEventMatchesRequestedIdentity(event, identity);
     if (req.user && requireAccess && !canAccessEvent(req.user, event)) {
       const error = new Error('คุณไม่มีสิทธิ์เข้าถึงกิจกรรมนี้');
       error.statusCode = 403;
@@ -186,7 +240,9 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
     throw error;
   }
 
-  const eventYear = await eventYearOrCurrentFromRequest(req);
+  const eventYear = requestedEventYear
+    ? normalizeEventYear(requestedEventYear)
+    : await eventYearOrCurrentFromRequest(req);
   return {
     filter: applyEventYearFilter({ ...baseFilter }, eventYear),
     eventId: null,
@@ -196,6 +252,8 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
 
 module.exports = {
   applyEventYearFilter,
+  assertEventMatchesRequestedIdentity,
+  assertEventRegistrationOpen,
   defaultEventYear,
   eventScopeFromRequest,
   eventYearFromRequest,
@@ -204,4 +262,5 @@ module.exports = {
   getCurrentEventYear,
   getEventContextFromRequest,
   normalizeEventYear,
+  requestedEventIdentity,
 };

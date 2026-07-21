@@ -13,6 +13,9 @@ export default function SelfRegisterPage() {
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
     const masterToken = hashParams.get('token');
+    if (masterToken) {
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+    }
     const fetchSession = async () => {
       try {
         const res = await requestShortSession(masterToken);

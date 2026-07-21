@@ -1,4 +1,8 @@
 const crypto = require('crypto');
+const {
+  getCachedKmsDataKeys,
+  kmsDataKeyRequired,
+} = require('./kmsDataKeys');
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const MARKER = '__enc';
@@ -99,11 +103,19 @@ function activeKeyId() {
 
 function configuredEncryptionKeys() {
   const keys = parseKeyMap(process.env.DATA_ENCRYPTION_KEYS);
+  for (const [kid, value] of getCachedKmsDataKeys().entries()) {
+    const kmsKey = parseKey(value);
+    if (!kmsKey) throw new Error(`KMS data key ${kid} must be a 32-byte key encoded as base64`);
+    keys.set(String(kid), kmsKey);
+  }
   const legacyRaw = process.env.DATA_ENCRYPTION_KEY || process.env.FIELD_ENCRYPTION_KEY;
   if (legacyRaw) {
     const legacyKey = parseKey(legacyRaw);
     if (!legacyKey) throw new Error('DATA_ENCRYPTION_KEY must be a 32-byte key encoded as 64 hex characters or base64');
     keys.set(activeKeyId(), legacyKey);
+  }
+  if (keys.size === 0 && kmsDataKeyRequired()) {
+    throw new Error('KMS data key cache is unavailable. Refusing to encrypt/decrypt sensitive fields.');
   }
   return keys;
 }

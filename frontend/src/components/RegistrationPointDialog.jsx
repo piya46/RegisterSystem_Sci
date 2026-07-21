@@ -3,7 +3,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Stack, Typography, Chip, Divider,
-  InputAdornment, IconButton, Tooltip, Slide, LinearProgress, Box
+  InputAdornment, IconButton, Tooltip, Slide, LinearProgress, Box,
+  MenuItem, FormControlLabel, Switch
 } from "@mui/material";
 import StoreIcon from "@mui/icons-material/Store";
 import NotesIcon from "@mui/icons-material/Notes";
@@ -16,6 +17,22 @@ const Transition = React.forwardRef(function Transition(props, ref) {
 
 const NAME_MAX = 60;
 const DESC_MAX = 200;
+const POINT_TYPES = [
+  { value: 'onsite', label: 'Onsite' },
+  { value: 'kiosk', label: 'Kiosk' },
+  { value: 'self_register', label: 'Self-register' },
+  { value: 'checkin', label: 'Check-in' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'other', label: 'Other' },
+];
+const DEFAULT_POLICY = {
+  allowStaffMode: true,
+  allowKioskMode: false,
+  requireCamera: true,
+  requireFullscreen: false,
+  idleTimeoutSeconds: 120,
+  successResetSeconds: 8,
+};
 
 export default function RegistrationPointDialog({
   open,
@@ -26,12 +43,20 @@ export default function RegistrationPointDialog({
 }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [type, setType] = useState("onsite");
+  const [enabled, setEnabled] = useState(true);
+  const [policy, setPolicy] = useState(DEFAULT_POLICY);
+  const [deviceIds, setDeviceIds] = useState("");
   const [saving, setSaving] = useState(false);
   const nameRef = useRef(null);
 
   useEffect(() => {
     setName(initialData?.name || "");
     setDescription(initialData?.description || "");
+    setType(initialData?.type || "onsite");
+    setEnabled(initialData?.enabled !== false);
+    setPolicy({ ...DEFAULT_POLICY, ...(initialData?.kioskPolicy || {}) });
+    setDeviceIds(Array.isArray(initialData?.deviceIds) ? initialData.deviceIds.join(", ") : "");
   }, [initialData, open]);
 
   useEffect(() => {
@@ -68,7 +93,16 @@ export default function RegistrationPointDialog({
     try {
       const payload = {
         name: trimmedName,
-        description: description.trim()
+        description: description.trim(),
+        type,
+        enabled,
+        kioskPolicy: {
+          ...policy,
+          allowKioskMode: type === 'kiosk' || policy.allowKioskMode,
+          idleTimeoutSeconds: Number(policy.idleTimeoutSeconds) || DEFAULT_POLICY.idleTimeoutSeconds,
+          successResetSeconds: Number(policy.successResetSeconds) || DEFAULT_POLICY.successResetSeconds,
+        },
+        deviceIds: deviceIds.split(",").map((item) => item.trim()).filter(Boolean)
       };
       const ret = onSave?.(payload);
       
@@ -90,6 +124,10 @@ export default function RegistrationPointDialog({
       handleSubmit(e);
     }
     if (e.key === "Escape") onClose?.();
+  };
+
+  const updatePolicy = (key, value) => {
+    setPolicy((prev) => ({ ...prev, [key]: value }));
   };
 
   return (
@@ -234,6 +272,64 @@ export default function RegistrationPointDialog({
               fullWidth
               sx={fieldStyle}
             />
+
+            <TextField
+              select
+              label="Point Type"
+              value={type}
+              onChange={(e) => {
+                setType(e.target.value);
+                if (e.target.value === 'kiosk') updatePolicy('allowKioskMode', true);
+              }}
+              fullWidth
+              sx={fieldStyle}
+            >
+              {POINT_TYPES.map((option) => (
+                <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+              ))}
+            </TextField>
+
+            <Stack spacing={1.5} sx={{ p: 2, border: "1px solid #eee", borderRadius: 2, bgcolor: "#fff" }}>
+              <Typography variant="subtitle2" fontWeight={800}>Runtime Policy</Typography>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <FormControlLabel control={<Switch checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />} label="Enabled" />
+                <FormControlLabel control={<Switch checked={policy.allowStaffMode} onChange={(e) => updatePolicy('allowStaffMode', e.target.checked)} />} label="Staff Mode" />
+                <FormControlLabel control={<Switch checked={type === 'kiosk' || policy.allowKioskMode} onChange={(e) => updatePolicy('allowKioskMode', e.target.checked)} disabled={type === 'kiosk'} />} label="Kiosk Mode" />
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <FormControlLabel control={<Switch checked={policy.requireCamera} onChange={(e) => updatePolicy('requireCamera', e.target.checked)} />} label="Require Camera" />
+                <FormControlLabel control={<Switch checked={policy.requireFullscreen} onChange={(e) => updatePolicy('requireFullscreen', e.target.checked)} />} label="Require Fullscreen" />
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                <TextField
+                  label="Idle Timeout (sec)"
+                  type="number"
+                  value={policy.idleTimeoutSeconds}
+                  onChange={(e) => updatePolicy('idleTimeoutSeconds', e.target.value)}
+                  inputProps={{ min: 15, max: 3600 }}
+                  fullWidth
+                  sx={fieldStyle}
+                />
+                <TextField
+                  label="Success Reset (sec)"
+                  type="number"
+                  value={policy.successResetSeconds}
+                  onChange={(e) => updatePolicy('successResetSeconds', e.target.value)}
+                  inputProps={{ min: 1, max: 120 }}
+                  fullWidth
+                  sx={fieldStyle}
+                />
+              </Stack>
+              <TextField
+                label="Allowed Device IDs"
+                placeholder="kiosk-tablet-01, kiosk-tablet-02"
+                value={deviceIds}
+                onChange={(e) => setDeviceIds(e.target.value)}
+                helperText="Optional. ถ้าระบุไว้ Kiosk token ต้องส่ง deviceId ที่อยู่ในรายการนี้"
+                fullWidth
+                sx={fieldStyle}
+              />
+            </Stack>
 
             {/* Preview Section */}
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ pl: 0.5 }}>

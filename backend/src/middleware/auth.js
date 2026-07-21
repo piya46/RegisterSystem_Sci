@@ -29,7 +29,12 @@ module.exports = async function (req, res, next) {
         role: ['kiosk'],
         username: 'Kiosk_Tablet'
       };
-      req.auth = { type: 'scoped_token', scope: 'kiosk_device' };
+      req.auth = {
+        type: 'scoped_token',
+        scope: 'kiosk_device',
+        eventId: payload.eventId || null,
+        eventYear: payload.eventYear || '',
+      };
       req.registrationMethod = 'Kiosk';
       req.kioskPoint = payload.pointId;
       return next();
@@ -44,7 +49,12 @@ module.exports = async function (req, res, next) {
         role: ['self_register'],
         username: 'Self_Service_Mobile'
       };
-      req.auth = { type: 'scoped_token', scope: 'self_register_session' };
+      req.auth = {
+        type: 'scoped_token',
+        scope: 'self_register_session',
+        eventId: payload.eventId || null,
+        eventYear: payload.eventYear || '',
+      };
       req.registrationMethod = 'Self-Service (QR)';
       req.kioskPoint = payload.pointId;
       return next();
