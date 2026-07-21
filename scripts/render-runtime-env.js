@@ -235,7 +235,6 @@ function main() {
   const turnstileHostnames = [...new Set([new URL(origin).hostname, ...configuredHostnames])].join(',');
   const values = {
     NODE_ENV: 'production',
-    PORT: '8080',
     HOST: '0.0.0.0',
     RELEASE_ID: config.RELEASE_ID,
     SERVE_FRONTEND: 'true',
@@ -284,6 +283,14 @@ function main() {
 
   for (const key of CONFIG_KEYS) {
     if (config[key] !== undefined && config[key] !== '') values[key] = config[key];
+  }
+
+  const cloudRunReservedNames = new Set(['PORT', 'K_SERVICE', 'K_REVISION', 'K_CONFIGURATION']);
+  const reserved = Object.keys(values).filter((name) => (
+    cloudRunReservedNames.has(name) || name.startsWith('X_GOOGLE_')
+  ));
+  if (reserved.length > 0) {
+    throw new Error(`Cloud Run reserved environment variables cannot be rendered: ${reserved.join(', ')}`);
   }
 
   const forbidden = requiredNames.filter((name) => Object.hasOwn(values, name));

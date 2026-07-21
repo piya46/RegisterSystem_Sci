@@ -178,6 +178,8 @@ VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 
 `PARTICIPANT_EMAIL_LOGIN_ENABLED=true` ต้องมี `SMTP_HOST`, `SMTP_USER` และ `SMTP_PASS` ครบ โดย user/password อยู่ Secret Manager หน้า login ต้องอ่าน `GET /api/participant-auth/providers` และแสดงเฉพาะ provider ที่พร้อมใช้งาน
 
+ห้ามตั้ง `PORT`, `K_SERVICE`, `K_REVISION`, `K_CONFIGURATION` หรือชื่อขึ้นต้น `X_GOOGLE_` ใน environment config/GitHub variables สำหรับ Cloud Run โดยเด็ดขาด สคริปต์กำหนด container port ด้วย `--port 8080` และ Cloud Run จะ inject runtime contract variables เอง; renderer และ deployment contract test ต้องปฏิเสธค่าที่สงวนไว้ก่อนสร้าง revision
+
 ### 5.3 Environment protection
 
 Production Environment ต้องตั้ง:

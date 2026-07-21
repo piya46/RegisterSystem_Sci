@@ -158,6 +158,10 @@ test('runtime renderer emits secret references without secret values', () => {
   assert.match(rendered, /SECRET_MANAGER_REQUIRE_PINNED_VERSIONS: "true"/);
   assert.match(rendered, /SERVE_FRONTEND: "true"/);
   assert.match(rendered, /GCS_LOCATION: "asia-southeast3"/);
+  for (const name of ['PORT', 'K_SERVICE', 'K_REVISION', 'K_CONFIGURATION']) {
+    assert.doesNotMatch(rendered, new RegExp(`^${name}:`, 'm'), `${name} is reserved by Cloud Run`);
+  }
+  assert.doesNotMatch(rendered, /^X_GOOGLE_[A-Z0-9_]*:/m);
   for (const name of pinNames) assert.doesNotMatch(rendered, new RegExp(`^${name}:`, 'm'));
 });
 

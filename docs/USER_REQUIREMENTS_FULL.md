@@ -2197,7 +2197,7 @@ Production ต้องตั้งอย่างน้อย:
 
 Secret Classification Requirements:
 
-- `config`: ค่าที่ไม่เป็นความลับ เช่น `NODE_ENV`, `PORT`, feature flags, public URL, frontend public keys ที่ตั้งใจเปิดเผยได้
+- `config`: ค่าที่ไม่เป็นความลับ เช่น `NODE_ENV`, feature flags, public URL, frontend public keys ที่ตั้งใจเปิดเผยได้; `PORT` ใช้กำหนดได้เฉพาะ local/runtime ที่รองรับ แต่ Cloud Run ต้องให้ platform inject เอง
 - `secret`: ค่าที่ใช้ยืนยันตัวตน/ลงนาม/เชื่อมต่อบริการ เช่น JWT secret, session hash secret, CSRF secret, SMTP password, LINE secret, OAuth client secret, database password, vendor QR secret, slip proof secret, Turnstile secret
 - `key material`: encryption key, wrapped data key, blind-index secret และ private signing key ต้องถือเป็นระดับสูงกว่า secret ทั่วไป
 - Production ห้ามเก็บ `secret` หรือ `key material` แบบ plaintext ใน git, image, frontend bundle, logs, error response หรือ migration output
@@ -2915,6 +2915,7 @@ Acceptance Criteria:
 - ค่า `VITE_*` ถือเป็น public build-time config เท่านั้นและห้ามนำ Secret ไปตั้งชื่อด้วย prefix นี้
 - Image tag ต้อง unique ต่อ pipeline run และหลัง push ต้อง resolve digest; Cloud Run และ migration job ต้องรับ image แบบ `@sha256:...`
 - Release metadata ต้องมี Git SHA, environment และ revision label โดยไม่มี PII/Secret
+- Cloud Run renderer ห้ามส่ง `PORT`, `K_SERVICE`, `K_REVISION`, `K_CONFIGURATION` หรือชื่อที่ขึ้นต้น `X_GOOGLE_`; ให้ตั้ง container port ผ่าน deployment option และใช้ค่าที่ Cloud Run inject เพื่อป้องกัน candidate revision ถูกปฏิเสธ
 - Artifact Registry ต้องมี policy ลบ image เก่ากว่า 30 วันแต่เก็บอย่างน้อย 10 เวอร์ชันล่าสุด; policy ใหม่ต้อง dry-run และตรวจ audit ก่อนเปิดลบจริง
 
 ### 26.5 Google Cloud Bootstrap และ IAM
@@ -3017,6 +3018,7 @@ Acceptance Criteria:
 - จำลอง readiness fail แล้ว traffic เดิมคงอยู่
 - จำลอง post-promotion fail แล้ว rollback revision เดิมสำเร็จ
 - Secret pin ขาด/เป็น `latest`/ข้าม environment แล้ว renderer หรือ startup ต้องหยุด
+- Runtime env file ไม่มี Cloud Run reserved variables และ deployment contract test ต้องล้มเหลวเมื่อมีตัวแปรดังกล่าว
 - Production manual approval และ branch restriction ทำงานจริง
 - SQL migration failure หยุดก่อน traffic change
 - GCS policy validator, private upload/signed URL และ lifecycle test ผ่าน
