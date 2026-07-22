@@ -33,6 +33,7 @@ jobs:
       DEPLOY_ENVIRONMENT: staging
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+      PUBLIC_WEB_ORIGIN: ${{ vars.PUBLIC_WEB_ORIGIN || 'https://reunion.scicu-alumni.com' }}
       RELEASE_ID: ${{ github.sha }}
       VITE_CF_TURNSTILE_SITE_KEY: ${{ vars.VITE_CF_TURNSTILE_SITE_KEY }}
       VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
@@ -44,6 +45,10 @@ jobs:
       LOGIN_CLIENT_ID: ${{ vars.LOGIN_CLIENT_ID }}
       LINE_LOGIN_ENABLED: ${{ vars.LINE_LOGIN_ENABLED || 'false' }}
       LINE_LOGIN_CHANNEL_ID: ${{ vars.LINE_LOGIN_CHANNEL_ID }}
+      SQL_DATABASE: ${{ vars.SQL_DATABASE }}
+      SQL_USER: ${{ vars.SQL_USER }}
+      SQL_MIGRATION_USER: ${{ vars.SQL_MIGRATION_USER }}
+      SQL_SSL_SERVERNAME: ${{ vars.SQL_SSL_SERVERNAME }}
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -59,6 +64,7 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+            hosting/plesk-gateway/package-lock.json
 
       - name: Authenticate to Google Cloud with OIDC
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
@@ -91,6 +97,7 @@ jobs:
       DEPLOY_ENVIRONMENT: production
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+      PUBLIC_WEB_ORIGIN: ${{ vars.PUBLIC_WEB_ORIGIN || 'https://reunion.scicu-alumni.com' }}
       RELEASE_ID: ${{ github.sha }}
       CONFIRM_PRODUCTION_DEPLOY: production
       VITE_CF_TURNSTILE_SITE_KEY: ${{ vars.VITE_CF_TURNSTILE_SITE_KEY }}
@@ -103,6 +110,10 @@ jobs:
       LOGIN_CLIENT_ID: ${{ vars.LOGIN_CLIENT_ID }}
       LINE_LOGIN_ENABLED: ${{ vars.LINE_LOGIN_ENABLED || 'false' }}
       LINE_LOGIN_CHANNEL_ID: ${{ vars.LINE_LOGIN_CHANNEL_ID }}
+      SQL_DATABASE: ${{ vars.SQL_DATABASE }}
+      SQL_USER: ${{ vars.SQL_USER }}
+      SQL_MIGRATION_USER: ${{ vars.SQL_MIGRATION_USER }}
+      SQL_SSL_SERVERNAME: ${{ vars.SQL_SSL_SERVERNAME }}
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -118,6 +129,7 @@ jobs:
           cache-dependency-path: |
             backend/package-lock.json
             frontend/package-lock.json
+            hosting/plesk-gateway/package-lock.json
 
       - name: Authenticate to Google Cloud with OIDC
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3

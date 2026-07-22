@@ -1,0 +1,61 @@
+name: Plesk Web Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      vars.PLESK_CD_ENABLED == 'true' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    environment:
+      name: plesk-production
+      url: ${{ vars.PLESK_ORIGIN }}
+    concurrency:
+      group: plesk-production
+      cancel-in-progress: false
+    env:
+      APPROVED_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      PLESK_ORIGIN: ${{ vars.PLESK_ORIGIN }}
+      PLESK_WEBHOOK_HOST: ${{ vars.PLESK_WEBHOOK_HOST }}
+      PLESK_DEPLOY_BRANCH: ${{ vars.PLESK_DEPLOY_BRANCH || 'plesk-production' }}
+    steps:
+      - name: Check out the CI-approved revision
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Promote the CI-approved SHA to the Plesk deployment branch
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/promote-plesk-ref.js
+
+      - name: Trigger the Plesk Git pull and deployment actions
+        env:
+          PLESK_GIT_WEBHOOK_URL: ${{ secrets.PLESK_GIT_WEBHOOK_URL }}
+        run: node scripts/trigger-plesk-deploy.js
+
+      - name: Wait for Plesk, gateway, SPA, and same-origin API
+        run: node scripts/smoke-plesk-gateway.js

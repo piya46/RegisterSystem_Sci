@@ -4,6 +4,7 @@
 /.dockerignore @piya46
 /scripts/ @piya46
 /deploy/ @piya46
+/hosting/ @piya46
 /backend/src/config/ @piya46
 /backend/src/sql/ @piya46
 /backend/src/utils/secretProvider.js @piya46

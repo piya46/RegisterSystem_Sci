@@ -13,6 +13,7 @@ const auditLog = require('./helpers/auditLog');
 const { csrfProtection } = require('./utils/csrf');
 const { publicReadiness } = require('./utils/systemHealth');
 const { configureFrontendHosting } = require('./utils/frontendHosting');
+const { resolveTrustProxy } = require('./utils/trustProxy');
 
 const authRoutes = require('./routes/auth');
 const participantAuthRoutes = require('./routes/participantAuthRoutes');
@@ -33,10 +34,10 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const receiptRoutes = require('./routes/receiptRoutes');
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', resolveTrustProxy());
 
 const isProduction = process.env.NODE_ENV === 'production';
-const scriptSrc = ["'self'", 'https://challenges.cloudflare.com'];
+const scriptSrc = ["'self'", 'https://challenges.cloudflare.com', 'https://accounts.google.com'];
 if (!isProduction) scriptSrc.push("'unsafe-inline'", "'unsafe-eval'");
 const connectSrc = isProduction ? ["'self'", 'https:', 'wss:'] : ["'self'", 'https:', 'http:', 'ws:', 'wss:'];
 const imgSrc = isProduction ? ["'self'", 'data:', 'https:'] : ["'self'", 'data:', 'https:', 'http:'];
@@ -47,13 +48,16 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc,
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", 'https://accounts.google.com'],
       imgSrc,
       connectSrc,
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'self'", 'https://challenges.cloudflare.com'],
+      frameSrc: ["'self'", 'https://challenges.cloudflare.com', 'https://accounts.google.com'],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
     },
   },
   dnsPrefetchControl: { allow: false },

@@ -73,6 +73,7 @@ test('SQL mirror retry backoff is bounded and error metadata is sanitized', () =
   assert.equal(retryDelayMs(20, { baseMs: 1000, maxMs: 10000, random: () => 1 }), 10000);
   assert.equal(safeErrorCode({ code: 'bad code:value' }), 'bad_code_value');
   assert.ok(PERMANENT_ERROR_CODES.has('SQL_MIRROR_UNIQUE_CONFLICT'));
+  assert.ok(PERMANENT_ERROR_CODES.has('SQL_MIRROR_UNPROTECTED_INDEX'));
   assert.equal(dedupeKey('wallets', '507f1f77bcf86cd799439011'), 'wallets:507f1f77bcf86cd799439011:upsert');
 });
 

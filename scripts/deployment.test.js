@@ -28,7 +28,9 @@ const SECRET_KEYS = new Set([
   'SMTP_PASS',
   'SMTP_USER',
   'SQL_MIGRATION_PASSWORD',
+  'SQL_MIRROR_IDENTITY_HASH_SECRET',
   'SQL_PASSWORD',
+  'SQL_SSL_CA',
   'TURNSTILE_SECRET_KEY',
   'VENDOR_QR_SECRET',
 ]);
@@ -46,6 +48,38 @@ test('deployment environment files contain non-secret configuration only', () =>
     assert.equal(values.PARTICIPANT_EMAIL_LOGIN_ENABLED, 'true');
     assert.equal(values.GCS_LOCATION, values.REGION);
     assert.match(values.SECRET_MANAGER_PREFIX, new RegExp(environment));
+    assert.equal(values.SQL_ENABLED, 'false');
+    assert.equal(values.VERIFY_SQL_TRANSPORT, 'false');
+    assert.equal(values.SQL_PROVIDER, 'plesk');
+    assert.equal(values.SQL_HOST, '203.170.190.137');
+    assert.equal(values.SQL_EXPECTED_HOST, values.SQL_HOST);
+    assert.equal(values.SQL_SSL_MODE, 'verify_identity');
+    assert.equal(values.SQL_AT_REST_ENCRYPTION_CONFIRMED, 'false');
+    assert.equal(values.SQL_BACKUP_ENCRYPTION_CONFIRMED, 'false');
+    assert.equal(values.SQL_STATIC_EGRESS_ENABLED, 'false');
+    assert.equal(values.SQL_NETWORK_ALLOWLIST_CONFIRMED, 'false');
+    assert.match(values.SQL_EGRESS_SUBNET_CIDR, /^10\./);
+    assert.ok(Number(values.SQL_EGRESS_MONTHLY_BUDGET_THB) <= 200);
+    assert.ok(
+      Number(values.GCS_MONTHLY_BUDGET_THB)
+        + Number(values.SQL_EGRESS_MONTHLY_BUDGET_THB)
+        + Number(values.GOOGLE_CLOUD_CORE_RESERVE_THB)
+        <= Number(values.GOOGLE_CLOUD_MONTHLY_BUDGET_THB)
+    );
+    for (const restrictedName of ['SQL_DATABASE', 'SQL_USER', 'SQL_MIGRATION_USER']) {
+      assert.equal(Object.hasOwn(values, restrictedName), false, `${restrictedName} must come from protected deployment variables`);
+    }
+  }
+});
+
+test('checked-in staging Secret Manager pins are bound to the selected project and environment', () => {
+  const pins = JSON.parse(read('deploy/secret-versions/staging.json'));
+  assert.ok(Object.keys(pins).length > 0);
+  for (const [name, resource] of Object.entries(pins)) {
+    assert.match(
+      resource,
+      new RegExp(`^projects/cusa-reunion/secrets/psevent-staging-${name}/versions/[0-9]+$`)
+    );
   }
 });
 
@@ -58,6 +92,8 @@ test('container build excludes secrets and runs as a non-root user', () => {
   assert.doesNotMatch(dockerfile, /COPY .*\.env/);
   assert.match(dockerignore, /\*\*\/\.env/);
   assert.match(dockerignore, /gha-creds-\*\.json/);
+  assert.match(dockerignore, /^hosting$/m);
+  assert.doesNotMatch(dockerignore, /\*\*\* (?:Add|Update|Delete) File:/);
 });
 
 test('quality gate scans Git candidate files for credential leakage', () => {
@@ -87,6 +123,29 @@ test('release deployment resolves a pushed image digest before Cloud Run', () =>
   assert.match(release, /rollback_revision "\$previous_revision"/);
 });
 
+test('Plesk MariaDB egress is explicit, static, allowlistable, and shared by service and migration job', () => {
+  const release = read('scripts/release.sh');
+  const deployWorkflow = read('.github/workflows/deploy.yml');
+  const secretSync = read('scripts/sync-secrets.js');
+  assert.match(release, /CONFIRM_SQL_STATIC_EGRESS/);
+  assert.match(release, /compute addresses create/);
+  assert.match(release, /compute routers nats (?:create|update)/);
+  assert.match(release, /--nat-external-ip-pool/);
+  assert.match(release, /--vpc-egress all-traffic/);
+  assert.match(release, /CLOUD_RUN_NETWORK_ARGS=\(--clear-network\)/);
+  assert.match(release, /CLOUD_RUN_NETWORK_ARGS/);
+  assert.match(release, /SQL_NETWORK_ALLOWLIST_CONFIRMED=true/);
+  assert.match(release, /APPROVED_PLESK_SQL_HOST="203\.170\.190\.137"/);
+  assert.match(release, /verifySqlTransport\.js/);
+  assert.match(release, /SQL_ENABLED=true requires VERIFY_SQL_TRANSPORT=true/);
+  assert.match(release, /jobs deploy "\$SERVICE-migrate"[\s\S]*--execute-now --wait/);
+  assert.match(release, /jobs deploy "\$SERVICE-sql-transport"[\s\S]*--execute-now --wait/);
+  for (const name of ['SQL_DATABASE', 'SQL_USER', 'SQL_MIGRATION_USER', 'SQL_SSL_SERVERNAME']) {
+    assert.match(deployWorkflow, new RegExp(`${name}: \\$\\{\\{ vars\\.${name} \\}\\}`));
+  }
+  assert.match(secretSync, /name === 'SQL_MIGRATION_PASSWORD'[\s\S]*revokeSecretAccess\(projectId, secretId, runtimeAccount\)/);
+});
+
 test('disabled optional release steps do not abort the command under errexit', () => {
   const result = spawnSync('bash', [path.join(ROOT, 'scripts/release.sh'), 'plan', 'staging'], {
     cwd: ROOT,
@@ -105,16 +164,55 @@ test('disabled optional release steps do not abort the command under errexit', (
 test('GitHub workflows use OIDC, minimal permissions, and immutable action pins', () => {
   const ci = read('.github/workflows/ci.yml');
   const deploy = read('.github/workflows/deploy.yml');
+  const plesk = read('.github/workflows/plesk-deploy.yml');
   assert.match(ci, /contents: read/);
   assert.match(deploy, /id-token: write/);
+  assert.match(plesk, /permissions:\s+contents: write/);
   assert.doesNotMatch(deploy, /service_account_key|credentials_json|GCP_SA_KEY/);
+  assert.doesNotMatch(plesk, /id-token: write|service_account_key|credentials_json|FTP_/);
   assert.match(deploy, /environment: production/);
   assert.match(deploy, /CONFIRM_PRODUCTION_DEPLOY: production/);
-  for (const workflow of [ci, deploy]) {
+  for (const workflow of [ci, deploy, plesk]) {
     const actionLines = workflow.split('\n').filter((line) => line.trim().startsWith('uses:'));
     assert.ok(actionLines.length > 0);
     for (const line of actionLines) assert.match(line, /@[0-9a-f]{40}(?:\s|$)/, `Action is not SHA-pinned: ${line}`);
   }
+});
+
+test('Plesk web deployment runs only after approved main CI and never uses FTP', () => {
+  const workflow = read('.github/workflows/plesk-deploy.yml');
+  const release = read('scripts/plesk-release.sh');
+  const rootRelease = read('scripts/release.sh');
+  const trigger = read('scripts/trigger-plesk-deploy.js');
+  const smoke = read('scripts/smoke-plesk-gateway.js');
+
+  assert.match(workflow, /workflow_run:/);
+  assert.match(workflow, /workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /workflow_run\.event == 'push'/);
+  assert.match(workflow, /workflow_run\.head_branch == 'main'/);
+  assert.match(workflow, /head_repository\.full_name == github\.repository/);
+  assert.match(workflow, /vars\.PLESK_CD_ENABLED == 'true'/);
+  assert.match(workflow, /promote-plesk-ref\.js/);
+  assert.match(workflow, /PLESK_DEPLOY_BRANCH/);
+  assert.match(workflow, /secrets\.PLESK_GIT_WEBHOOK_URL/);
+  assert.match(workflow, /environment:\s+name: plesk-production/);
+  assert.doesNotMatch(workflow, /\bftp\b|\bftps\b|\bsftp\b/i);
+
+  assert.match(rootRelease, /scripts\/plesk-release\.sh/);
+  assert.match(release, /npm .* ci --omit=dev/);
+  assert.match(release, /VITE_API_BASE_URL=\/api/);
+  assert.match(release, /prepare-plesk-public\.js/);
+  assert.match(release, /tmp\/restart\.txt/);
+  assert.match(read('scripts/prepare-plesk-public.js'), /PLESK_INCOMPATIBLE_PUBLIC_FILES = \['\.htaccess'\]/);
+  assert.match(read('scripts/prepare-plesk-public.js'), /--rollback/);
+  assert.match(trigger, /url\.protocol !== 'https:'/);
+  assert.match(trigger, /PLESK_WEBHOOK_HOST is required/);
+  assert.match(trigger, /X-GitHub-Event/);
+  assert.match(trigger, /refs\/heads\/\$\{config\.branch\}/);
+  assert.match(smoke, /gateway\/health\/ready/);
+  assert.match(smoke, /api\/participant-auth\/providers/);
+  assert.match(smoke, /x-gateway-release/);
+  assert.match(smoke, /content-security-policy/);
 });
 
 test('runtime renderer emits secret references without secret values', () => {
@@ -148,6 +246,7 @@ test('runtime renderer emits secret references without secret values', () => {
       PROJECT_ID: 'psevent-test1',
       PROJECT_NUMBER: '123456789012',
       RELEASE_ID: 'abcdef1234567890',
+      PUBLIC_WEB_ORIGIN: 'https://reunion.scicu-alumni.com',
       SMTP_HOST: 'smtp.example.test',
       SECRET_VERSIONS_FILE: pinsPath,
       RUNTIME_ENV_FILE: outputPath,
@@ -158,11 +257,34 @@ test('runtime renderer emits secret references without secret values', () => {
   assert.match(rendered, /SECRET_MANAGER_REQUIRE_PINNED_VERSIONS: "true"/);
   assert.match(rendered, /SERVE_FRONTEND: "true"/);
   assert.match(rendered, /GCS_LOCATION: "asia-southeast3"/);
+  assert.match(rendered, /PUBLIC_URL: "https:\/\/reunion\.scicu-alumni\.com"/);
+  assert.match(rendered, /OBJECT_STORAGE_PUBLIC_API_ORIGIN: "https:\/\/reunion\.scicu-alumni\.com"/);
+  assert.match(rendered, /CORS_ORIGIN: "https:\/\/psevent-staging-123456789012\.asia-southeast3\.run\.app,https:\/\/reunion\.scicu-alumni\.com"/);
   for (const name of ['PORT', 'K_SERVICE', 'K_REVISION', 'K_CONFIGURATION']) {
     assert.doesNotMatch(rendered, new RegExp(`^${name}:`, 'm'), `${name} is reserved by Cloud Run`);
   }
   assert.doesNotMatch(rendered, /^X_GOOGLE_[A-Z0-9_]*:/m);
   for (const name of pinNames) assert.doesNotMatch(rendered, new RegExp(`^${name}:`, 'm'));
+
+  const crossProjectPins = { ...pins };
+  crossProjectPins.JWT_SECRET = 'projects/other-project/secrets/psevent-staging-JWT_SECRET/versions/1';
+  fs.writeFileSync(pinsPath, JSON.stringify(crossProjectPins));
+  const rejected = spawnSync(process.execPath, [path.join(ROOT, 'scripts/render-runtime-env.js'), 'staging'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      DEPLOY_ENVIRONMENT: 'staging',
+      PROJECT_ID: 'psevent-test1',
+      PROJECT_NUMBER: '123456789012',
+      RELEASE_ID: 'abcdef1234567890',
+      SMTP_HOST: 'smtp.example.test',
+      SECRET_VERSIONS_FILE: pinsPath,
+      RUNTIME_ENV_FILE: outputPath,
+    },
+  });
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /belongs to a different project/);
 });
 
 test('local secret payloads cannot enable disabled deployment integrations', () => {

@@ -6,6 +6,12 @@ COMMAND="${1:-help}"
 DEPLOY_ENVIRONMENT="${2:-${DEPLOY_ENVIRONMENT:-staging}}"
 CONFIG_FILE="$ROOT_DIR/deploy/environments/$DEPLOY_ENVIRONMENT.env"
 RELEASE_DIR="$ROOT_DIR/.release"
+CLOUD_RUN_NETWORK_ARGS=()
+APPROVED_PLESK_SQL_HOST="203.170.190.137"
+
+if [[ "$COMMAND" == "plesk" ]]; then
+  exec "$ROOT_DIR/scripts/plesk-release.sh" "${2:-help}"
+fi
 
 log() {
   printf '[release] %s\n' "$*"
@@ -56,9 +62,19 @@ load_config() {
   SECRET_MANAGER_PREFIX="${SECRET_MANAGER_PREFIX:-psevent-$DEPLOY_ENVIRONMENT}"
   GCS_LOCATION="${GCS_LOCATION:-$REGION}"
   GCS_OBJECT_PREFIX="${GCS_OBJECT_PREFIX:-psevent/$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_NETWORK="${SQL_EGRESS_NETWORK:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_SUBNET="${SQL_EGRESS_SUBNET:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_ROUTER="${SQL_EGRESS_ROUTER:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_NAT="${SQL_EGRESS_NAT:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_ADDRESS="${SQL_EGRESS_ADDRESS:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
+  SQL_EGRESS_MONTHLY_BUDGET_THB="${SQL_EGRESS_MONTHLY_BUDGET_THB:-200}"
+  GOOGLE_CLOUD_CORE_RESERVE_THB="${GOOGLE_CLOUD_CORE_RESERVE_THB:-100}"
   export REGION ARTIFACT_REPOSITORY CPU MEMORY MIN_INSTANCES MAX_INSTANCES CONCURRENCY
   export REQUEST_TIMEOUT PUBLIC_SERVICE RUNTIME_SERVICE_ACCOUNT MIGRATION_SERVICE_ACCOUNT
   export DEPLOYER_SERVICE_ACCOUNT SECRET_MANAGER_PREFIX GCS_LOCATION GCS_OBJECT_PREFIX
+  export SQL_EGRESS_NETWORK SQL_EGRESS_SUBNET SQL_EGRESS_ROUTER SQL_EGRESS_NAT
+  export SQL_EGRESS_ADDRESS SQL_EGRESS_MONTHLY_BUDGET_THB
+  export GOOGLE_CLOUD_CORE_RESERVE_THB
 }
 
 resolve_project() {
@@ -73,10 +89,11 @@ resolve_project() {
   [[ "$PROJECT_NUMBER" =~ ^[0-9]+$ ]] || die "Unable to resolve PROJECT_NUMBER"
   GCS_BUCKET="${GCS_BUCKET:-$(printf '%s' "$PROJECT_ID-$SERVICE-assets" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9.-' | cut -c1-63 | sed 's/[^a-z0-9]*$//')}"
   APP_ORIGIN="${APP_ORIGIN:-https://$SERVICE-$PROJECT_NUMBER.$REGION.run.app}"
+  PUBLIC_WEB_ORIGIN="${PUBLIC_WEB_ORIGIN:-$APP_ORIGIN}"
   RUNTIME_SERVICE_ACCOUNT_EMAIL="${RUNTIME_SERVICE_ACCOUNT_EMAIL:-$RUNTIME_SERVICE_ACCOUNT@$PROJECT_ID.iam.gserviceaccount.com}"
   MIGRATION_SERVICE_ACCOUNT_EMAIL="${MIGRATION_SERVICE_ACCOUNT_EMAIL:-$MIGRATION_SERVICE_ACCOUNT@$PROJECT_ID.iam.gserviceaccount.com}"
   DEPLOYER_SERVICE_ACCOUNT_EMAIL="${DEPLOYER_SERVICE_ACCOUNT_EMAIL:-$DEPLOYER_SERVICE_ACCOUNT@$PROJECT_ID.iam.gserviceaccount.com}"
-  export PROJECT_ID PROJECT_NUMBER GCS_BUCKET APP_ORIGIN
+  export PROJECT_ID PROJECT_NUMBER GCS_BUCKET APP_ORIGIN PUBLIC_WEB_ORIGIN
   export RUNTIME_SERVICE_ACCOUNT_EMAIL MIGRATION_SERVICE_ACCOUNT_EMAIL DEPLOYER_SERVICE_ACCOUNT_EMAIL
 }
 
@@ -162,18 +179,24 @@ quality_gate() {
   npm --prefix "$ROOT_DIR/backend" ci
   log "Installing locked frontend dependencies"
   npm --prefix "$ROOT_DIR/frontend" ci
+  log "Installing locked Plesk gateway dependencies"
+  npm --prefix "$ROOT_DIR/hosting/plesk-gateway" ci --omit=dev --ignore-scripts
   log "Running backend tests and syntax checks"
   npm --prefix "$ROOT_DIR/backend" test
   log "Running frontend lint and production build"
   npm --prefix "$ROOT_DIR/frontend" run lint
   npm --prefix "$ROOT_DIR/frontend" run build
+  log "Running Plesk gateway integration tests"
+  npm --prefix "$ROOT_DIR/hosting/plesk-gateway" test
   log "Checking high and critical dependency advisories"
   npm --prefix "$ROOT_DIR/backend" audit --omit=dev --audit-level=high
   npm --prefix "$ROOT_DIR/frontend" audit --audit-level=high
+  npm --prefix "$ROOT_DIR/hosting/plesk-gateway" audit --omit=dev --audit-level=high
   log "Validating deployment contracts"
-  bash -n "$ROOT_DIR/scripts/release.sh" "$ROOT_DIR/deploy-cloudrun.sh" "$ROOT_DIR/deploy-cloudrun-split.sh"
+  bash -n "$ROOT_DIR/scripts/release.sh" "$ROOT_DIR/scripts/plesk-release.sh" \
+    "$ROOT_DIR/deploy-cloudrun.sh" "$ROOT_DIR/deploy-cloudrun-split.sh"
   node "$ROOT_DIR/scripts/scan-secrets.js"
-  node --test "$ROOT_DIR/scripts/deployment.test.js"
+  node --test "$ROOT_DIR/scripts/deployment.test.js" "$ROOT_DIR/scripts/plesk-promotion.test.js"
 
   if [[ "${CI_DOCKER_BUILD:-false}" == "true" ]]; then
     require_command docker
@@ -224,6 +247,127 @@ add_project_role() {
   local role="$2"
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member "$member" --role "$role" --condition=None --quiet >/dev/null
+}
+
+validate_sql_egress_config() {
+  [[ "${SQL_PROVIDER:-}" == "plesk" ]] || die "Static SQL egress currently supports SQL_PROVIDER=plesk only"
+  [[ "${SQL_HOST:-}" == "$APPROVED_PLESK_SQL_HOST" \
+    && "${SQL_EXPECTED_HOST:-}" == "$APPROVED_PLESK_SQL_HOST" ]] \
+    || die "Plesk SQL_HOST and SQL_EXPECTED_HOST must be the approved endpoint $APPROVED_PLESK_SQL_HOST"
+  local name
+  for name in "$SQL_EGRESS_NETWORK" "$SQL_EGRESS_SUBNET" "$SQL_EGRESS_ROUTER" \
+    "$SQL_EGRESS_NAT" "$SQL_EGRESS_ADDRESS"; do
+    [[ "$name" =~ ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]] || die "Invalid Google Cloud network resource name: $name"
+  done
+  [[ "${SQL_EGRESS_SUBNET_CIDR:-}" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)[0-9.]+/(2[4-8])$ ]] \
+    || die "SQL_EGRESS_SUBNET_CIDR must be an RFC1918 /24 to /28 range"
+  [[ "$SQL_EGRESS_MONTHLY_BUDGET_THB" =~ ^[0-9]+$ && "$SQL_EGRESS_MONTHLY_BUDGET_THB" -gt 0 ]] \
+    || die "SQL_EGRESS_MONTHLY_BUDGET_THB must be a positive integer"
+  [[ "${GOOGLE_CLOUD_MONTHLY_BUDGET_THB:-1000}" =~ ^[0-9]+$ ]] \
+    || die "GOOGLE_CLOUD_MONTHLY_BUDGET_THB must be an integer"
+  [[ "${GCS_MONTHLY_BUDGET_THB:-700}" =~ ^[0-9]+$ && "$GOOGLE_CLOUD_CORE_RESERVE_THB" =~ ^[0-9]+$ ]] \
+    || die "GCS and Google Cloud core reserve budgets must be integers"
+  (( SQL_EGRESS_MONTHLY_BUDGET_THB + GCS_MONTHLY_BUDGET_THB + GOOGLE_CLOUD_CORE_RESERVE_THB <= GOOGLE_CLOUD_MONTHLY_BUDGET_THB )) \
+    || die "GCS, SQL egress, and core reserve budgets exceed the total Google Cloud budget"
+}
+
+set_cloud_run_network_args() {
+  CLOUD_RUN_NETWORK_ARGS=(--clear-network)
+  [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]] || return 0
+  validate_sql_egress_config
+  CLOUD_RUN_NETWORK_ARGS=(
+    --network "$SQL_EGRESS_NETWORK"
+    --subnet "$SQL_EGRESS_SUBNET"
+    --vpc-egress all-traffic
+  )
+}
+
+validate_sql_activation_config() {
+  [[ "${SQL_ENABLED:-false}" == "true" ]] || return 0
+  [[ "${VERIFY_SQL_TRANSPORT:-false}" == "true" ]] \
+    || die "SQL_ENABLED=true requires VERIFY_SQL_TRANSPORT=true"
+  [[ "${SQL_SSL_MODE:-}" == "verify_identity" ]] \
+    || die "Production SQL activation requires SQL_SSL_MODE=verify_identity"
+  [[ "${SQL_SSL_CA_SECRET_NAME:-}" == "SQL_SSL_CA" ]] \
+    || die "Production SQL activation requires SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA"
+  [[ -n "${SQL_SSL_SERVERNAME:-}" || "${SQL_SSL_IP_SAN_CONFIRMED:-false}" == "true" ]] \
+    || die "Production SQL activation requires a certificate DNS identity or confirmed IP SAN"
+  [[ -n "${SQL_DATABASE:-}" && -n "${SQL_USER:-}" ]] \
+    || die "SQL_DATABASE and SQL_USER must come from protected deployment variables"
+  if [[ "${RUN_SQL_MIGRATIONS:-false}" == "true" ]]; then
+    [[ -n "${SQL_MIGRATION_USER:-}" ]] \
+      || die "RUN_SQL_MIGRATIONS=true requires a separate SQL_MIGRATION_USER"
+  fi
+  [[ "${SQL_AT_REST_ENCRYPTION_CONFIRMED:-false}" == "true" ]] \
+    || die "SQL storage encryption must be confirmed before activation"
+  [[ "${SQL_BACKUP_ENCRYPTION_CONFIRMED:-false}" == "true" ]] \
+    || die "SQL backup encryption and restore must be confirmed before activation"
+  [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]] \
+    || die "SQL activation requires static Cloud Run egress"
+  [[ "${SQL_NETWORK_ALLOWLIST_CONFIRMED:-false}" == "true" ]] \
+    || die "Plesk must allowlist the reserved Cloud NAT IP before SQL activation"
+  if [[ "${SQL_MIRROR_ENABLED:-false}" == "true" ]]; then
+    [[ "${SQL_MIRROR_REQUIRE_PROTECTED_VALUES:-false}" == "true" ]] \
+      || die "SQL mirror activation requires protected sensitive values"
+  fi
+  validate_sql_egress_config
+}
+
+configure_sql_static_egress() {
+  [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]] || {
+    log "Plesk MariaDB static egress remains disabled; no VPC, NAT, or reserved IP was created"
+    return 0
+  }
+  [[ "${CONFIRM_SQL_STATIC_EGRESS:-}" == "$DEPLOY_ENVIRONMENT" ]] \
+    || die "Static SQL egress provisioning requires CONFIRM_SQL_STATIC_EGRESS=$DEPLOY_ENVIRONMENT"
+  validate_sql_egress_config
+
+  log "Provisioning explicitly approved static egress for Plesk MariaDB"
+  gcloud services enable compute.googleapis.com --project "$PROJECT_ID"
+  if ! gcloud compute networks describe "$SQL_EGRESS_NETWORK" --project "$PROJECT_ID" >/dev/null 2>&1; then
+    gcloud compute networks create "$SQL_EGRESS_NETWORK" \
+      --project "$PROJECT_ID" --subnet-mode custom
+  fi
+  if ! gcloud compute networks subnets describe "$SQL_EGRESS_SUBNET" \
+    --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+    gcloud compute networks subnets create "$SQL_EGRESS_SUBNET" \
+      --project "$PROJECT_ID" --region "$REGION" --network "$SQL_EGRESS_NETWORK" \
+      --range "$SQL_EGRESS_SUBNET_CIDR" --enable-private-ip-google-access
+  fi
+  if ! gcloud compute routers describe "$SQL_EGRESS_ROUTER" \
+    --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+    gcloud compute routers create "$SQL_EGRESS_ROUTER" \
+      --project "$PROJECT_ID" --region "$REGION" --network "$SQL_EGRESS_NETWORK"
+  fi
+  if ! gcloud compute addresses describe "$SQL_EGRESS_ADDRESS" \
+    --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+    gcloud compute addresses create "$SQL_EGRESS_ADDRESS" \
+      --project "$PROJECT_ID" --region "$REGION" --network-tier PREMIUM
+  fi
+  if gcloud compute routers nats describe "$SQL_EGRESS_NAT" --router "$SQL_EGRESS_ROUTER" \
+    --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+    gcloud compute routers nats update "$SQL_EGRESS_NAT" --router "$SQL_EGRESS_ROUTER" \
+      --project "$PROJECT_ID" --region "$REGION" \
+      --nat-custom-subnet-ip-ranges "$SQL_EGRESS_SUBNET" \
+      --nat-external-ip-pool "$SQL_EGRESS_ADDRESS" --enable-logging --log-filter=ERRORS_ONLY
+  else
+    gcloud compute routers nats create "$SQL_EGRESS_NAT" --router "$SQL_EGRESS_ROUTER" \
+      --project "$PROJECT_ID" --region "$REGION" \
+      --nat-custom-subnet-ip-ranges "$SQL_EGRESS_SUBNET" \
+      --nat-external-ip-pool "$SQL_EGRESS_ADDRESS" --enable-logging --log-filter=ERRORS_ONLY
+  fi
+
+  local cloud_run_service_agent="service-$PROJECT_NUMBER@serverless-robot-prod.iam.gserviceaccount.com"
+  for account in "$DEPLOYER_SERVICE_ACCOUNT_EMAIL" "$cloud_run_service_agent"; do
+    gcloud compute networks subnets add-iam-policy-binding "$SQL_EGRESS_SUBNET" \
+      --project "$PROJECT_ID" --region "$REGION" \
+      --member "serviceAccount:$account" --role roles/compute.networkUser --quiet >/dev/null
+  done
+  SQL_EGRESS_IP="$(gcloud compute addresses describe "$SQL_EGRESS_ADDRESS" \
+    --project "$PROJECT_ID" --region "$REGION" --format='value(address)')"
+  [[ "$SQL_EGRESS_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Unable to resolve the reserved SQL egress IP"
+  export SQL_EGRESS_IP
+  log "Static SQL egress is ready; allowlist the reserved IP in Plesk before confirming SQL_NETWORK_ALLOWLIST_CONFIRMED=true"
 }
 
 configure_workload_identity() {
@@ -392,6 +536,8 @@ bootstrap_gcp() {
   done
 
   configure_workload_identity
+  configure_sql_static_egress
+  set_cloud_run_network_args
   configure_storage
   configure_budget
 
@@ -405,12 +551,13 @@ bootstrap_gcp() {
       --service-account "$RUNTIME_SERVICE_ACCOUNT_EMAIL" \
       --cpu "$CPU" --memory "$MEMORY" --min-instances 0 --max-instances 1 \
       --concurrency "$CONCURRENCY" --timeout "$REQUEST_TIMEOUT" \
-      --execution-environment gen2 --port 8080 "$auth_flag" --quiet
+      --execution-environment gen2 --port 8080 "${CLOUD_RUN_NETWORK_ARGS[@]}" "$auth_flag" --quiet
   fi
 
   log "Bootstrap complete"
-  printf 'GCP_PROJECT_ID=%s\nWIF_PROVIDER=%s\nDEPLOYER_SERVICE_ACCOUNT=%s\nAPP_ORIGIN=%s\nGCS_BUCKET=%s\n' \
-    "$PROJECT_ID" "$WIF_PROVIDER" "$DEPLOYER_SERVICE_ACCOUNT_EMAIL" "$APP_ORIGIN" "$GCS_BUCKET"
+  printf 'GCP_PROJECT_ID=%s\nWIF_PROVIDER=%s\nDEPLOYER_SERVICE_ACCOUNT=%s\nAPP_ORIGIN=%s\nPUBLIC_WEB_ORIGIN=%s\nGCS_BUCKET=%s\nSQL_EGRESS_IP=%s\n' \
+    "$PROJECT_ID" "$WIF_PROVIDER" "$DEPLOYER_SERVICE_ACCOUNT_EMAIL" "$APP_ORIGIN" \
+    "$PUBLIC_WEB_ORIGIN" "$GCS_BUCKET" "${SQL_EGRESS_IP:-disabled}"
 }
 
 sync_secrets() {
@@ -471,7 +618,26 @@ run_sql_migrations() {
     --command node --args backend/src/scripts/migrateSqlSchema.js,--apply \
     --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 900s \
     --cpu 1 --memory 512Mi --labels "application=psevent,environment=$DEPLOY_ENVIRONMENT" \
-    --wait --quiet
+    "${CLOUD_RUN_NETWORK_ARGS[@]}" --execute-now --wait --quiet
+}
+
+run_sql_transport_check() {
+  [[ "${SQL_ENABLED:-false}" == "true" ]] || return 0
+  [[ "${VERIFY_SQL_TRANSPORT:-false}" == "true" ]] \
+    || die "SQL_ENABLED=true requires VERIFY_SQL_TRANSPORT=true"
+  local transport_env="$RELEASE_DIR/sql-transport-$DEPLOY_ENVIRONMENT.yaml"
+  SQL_TRANSPORT_VERIFY_MODE=true RUNTIME_ENV_FILE="$transport_env" RELEASE_ID="$RELEASE_ID" \
+    node "$ROOT_DIR/scripts/render-runtime-env.js" "$DEPLOY_ENVIRONMENT" >/dev/null
+  chmod 600 "$transport_env"
+  log "Verifying the Plesk MariaDB endpoint with a read-only authenticated TLS job"
+  gcloud run jobs deploy "$SERVICE-sql-transport" \
+    --project "$PROJECT_ID" --region "$REGION" --image "$IMAGE_URI" \
+    --service-account "$RUNTIME_SERVICE_ACCOUNT_EMAIL" \
+    --env-vars-file "$transport_env" \
+    --command node --args backend/src/scripts/verifySqlTransport.js \
+    --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 120s \
+    --cpu 1 --memory 512Mi --labels "application=psevent,environment=$DEPLOY_ENVIRONMENT" \
+    "${CLOUD_RUN_NETWORK_ARGS[@]}" --execute-now --wait --quiet
 }
 
 service_json() {
@@ -524,6 +690,7 @@ deploy_release() {
   require_command curl
   require_command jq
   require_command node
+  validate_sql_activation_config
   ensure_clean_release_source
   if [[ "${SKIP_QUALITY_GATE:-false}" != "true" ]]; then quality_gate; fi
   gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1 \
@@ -535,6 +702,8 @@ deploy_release() {
   chmod 700 "$RELEASE_DIR"
   render_runtime_env
   build_and_push
+  set_cloud_run_network_args
+  run_sql_transport_check
   run_sql_migrations
 
   local before_json previous_revision short_id rollout_id candidate_tag revision_suffix runtime_env
@@ -555,6 +724,7 @@ deploy_release() {
     --env-vars-file "$runtime_env" --port 8080 \
     --cpu "$CPU" --memory "$MEMORY" --min-instances "$MIN_INSTANCES" --max-instances "$MAX_INSTANCES" \
     --concurrency "$CONCURRENCY" --timeout "$REQUEST_TIMEOUT" --execution-environment gen2 \
+    "${CLOUD_RUN_NETWORK_ARGS[@]}" \
     --startup-probe "httpGet.path=/health/live,httpGet.port=8080,timeoutSeconds=3,periodSeconds=3,failureThreshold=30" \
     --liveness-probe "httpGet.path=/health/live,httpGet.port=8080,timeoutSeconds=3,periodSeconds=30,failureThreshold=3" \
     --revision-suffix "$revision_suffix" --no-traffic --tag "$candidate_tag" \
@@ -618,11 +788,13 @@ plan_release() {
   local pins="$ROOT_DIR/deploy/secret-versions/$DEPLOY_ENVIRONMENT.json"
   local pin_count=0
   [[ -f "$pins" ]] && pin_count="$(jq 'length' "$pins")"
-  printf 'Environment: %s\nProject: %s (%s)\nRegion: %s\nService: %s\nOrigin: %s\nRepository: %s\nRuntime SA: %s\nGCS bucket: %s\nPinned secrets: %s\n' \
+  printf 'Environment: %s\nProject: %s (%s)\nRegion: %s\nService: %s\nCloud Run origin: %s\nPublic web origin: %s\nRepository: %s\nRuntime SA: %s\nGCS bucket: %s\nPinned secrets: %s\nSQL provider: %s\nSQL target: %s:%s\nSQL static egress: %s\nSQL egress budget cap: %s THB/month\nCloud core reserve: %s THB/month\n' \
     "$DEPLOY_ENVIRONMENT" "$PROJECT_ID" "$PROJECT_NUMBER" "$REGION" "$SERVICE" "$APP_ORIGIN" \
-    "$ARTIFACT_REPOSITORY" "$RUNTIME_SERVICE_ACCOUNT_EMAIL" "$GCS_BUCKET" "$pin_count"
+    "$PUBLIC_WEB_ORIGIN" "$ARTIFACT_REPOSITORY" "$RUNTIME_SERVICE_ACCOUNT_EMAIL" "$GCS_BUCKET" "$pin_count" \
+    "${SQL_PROVIDER:-disabled}" "${SQL_HOST:-unset}" "${SQL_PORT:-3306}" \
+    "${SQL_STATIC_EGRESS_ENABLED:-false}" "$SQL_EGRESS_MONTHLY_BUDGET_THB" "$GOOGLE_CLOUD_CORE_RESERVE_THB"
   if ! RELEASE_ID="$(release_id)" node "$ROOT_DIR/scripts/render-runtime-env.js" "$DEPLOY_ENVIRONMENT" >/dev/null 2>&1; then
-    log "Deploy readiness: BLOCKED until required secret versions are synchronized"
+    log "Deploy readiness: BLOCKED until runtime configuration and Secret version pins are complete"
   else
     log "Deploy readiness: configuration and secret pins are valid"
   fi
@@ -635,10 +807,11 @@ Usage: ./scripts/release.sh COMMAND [staging|production] [revision]
 Commands:
   ci          Install locked dependencies, test, lint, audit, and optionally build Docker.
   plan        Show the non-secret deployment plan and readiness blockers.
-  bootstrap   Provision keyless Google Cloud IAM, Artifact Registry, GCS, and service shell.
+  bootstrap   Provision keyless Google Cloud IAM, Artifact Registry, GCS, optional approved SQL egress, and service shell.
   secrets     Create/pin Secret Manager versions; requires ALLOW_SECRET_UPLOAD=true.
   deploy      Run quality gates, build/push, migrate if enabled, canary, promote, and smoke test.
   rollback    Route traffic to an explicit revision or the previous ready revision.
+  plesk       Delegate plan/ci/build/deploy/smoke to the Plesk web release entrypoint.
   all         Run CI, bootstrap, optional secret sync, and deploy through this one entrypoint.
 
 First staging deployment:

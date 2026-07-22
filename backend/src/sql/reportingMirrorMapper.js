@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 
-const REPORTING_MIRROR_MAPPER_VERSION = '2026-07-17-v1';
+const REPORTING_MIRROR_MAPPER_VERSION = '2026-07-22-v2';
+const BLIND_INDEX_PATTERN = /^[a-f0-9]{64}$/;
 
 function objectId(value) {
   if (!value) return null;
@@ -52,13 +53,30 @@ function sourceHash(value) {
   return sha256(canonicalJson(value));
 }
 
-function identityBlindIndex(label, value) {
+function protectedMirrorValue(label, value) {
   if (!value) return null;
-  const secret = process.env.SQL_MIRROR_IDENTITY_HASH_SECRET
-    || process.env.DATA_BLIND_INDEX_SECRET
-    || process.env.SESSION_TOKEN_HASH_SECRET;
-  if (!secret) return null;
+  const secret = String(process.env.SQL_MIRROR_IDENTITY_HASH_SECRET || '');
+  if (Buffer.byteLength(secret, 'utf8') < 32) {
+    const error = new Error('SQL_MIRROR_IDENTITY_HASH_SECRET must be at least 32 bytes before mapping protected values');
+    error.code = 'SQL_MIRROR_PROTECTION_KEY_MISSING';
+    throw error;
+  }
   return crypto.createHmac('sha256', secret).update(`${label}:${String(value)}`).digest('hex');
+}
+
+function identityBlindIndex(label, value) {
+  return protectedMirrorValue(`identity:${label}`, value);
+}
+
+function validatedBlindIndex(label, value) {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (!BLIND_INDEX_PATTERN.test(normalized)) {
+    const error = new Error(`SQL mirror ${label} must be a protected 64-character blind index`);
+    error.code = 'SQL_MIRROR_UNPROTECTED_INDEX';
+    throw error;
+  }
+  return normalized;
 }
 
 function mapped(row, refs = {}, children = {}) {
@@ -129,15 +147,18 @@ function mapParticipant(document) {
   const row = {
     mongo_id: objectId(document._id),
     event_year: String(document.eventYear || ''),
-    qr_code: String(document.qrCode || ''),
+    qr_code: protectedMirrorValue('participant:qrCode', document.qrCode) || '',
     status: String(document.status || 'registered'),
     registration_type: String(document.registrationType || 'online'),
     registered_point_name: String(document.registeredPointName || document.registeredPoint || ''),
     followers: integer(document.followers, 0),
     consent_status: document.consent || null,
-    email_blind_index: secureIndex.email || null,
-    phone_blind_index: secureIndex.phone || null,
-    name_blind_index: secureIndex.name || secureIndex.fullName || secureIndex.fullname || null,
+    email_blind_index: validatedBlindIndex('participant email', secureIndex.email),
+    phone_blind_index: validatedBlindIndex('participant phone', secureIndex.phone),
+    name_blind_index: validatedBlindIndex(
+      'participant name',
+      secureIndex.name || secureIndex.fullName || secureIndex.fullname
+    ),
     line_user_blind_index: identityBlindIndex('lineUserId', document.lineUserId),
     is_line_linked: Boolean(document.isLineLinked),
     is_deleted: Boolean(document.isDeleted),
@@ -190,7 +211,7 @@ function mapVendor(document) {
     mongo_id: objectId(document._id),
     event_year: String(document.eventYear || ''),
     name: String(document.name || '').trim(),
-    qr_code_id: String(document.qrCodeId || '').trim(),
+    qr_code_id: protectedMirrorValue('vendor:qrCodeId', String(document.qrCodeId || '').trim()) || '',
     pricing_mode: String(document.pricingMode || 'variable'),
     fixed_price: document.fixedPrice === null || document.fixedPrice === undefined ? null : integer(document.fixedPrice),
     min_amount: integer(document.minAmount, 1),
@@ -214,7 +235,7 @@ function mapTransaction(document) {
     guest_token_mongo_id: objectId(document.guestTokenId),
     reversal_of_mongo_id: refs.reversalOfMongoId,
     transaction_type: String(document.type || 'payment'),
-    idempotency_key: document.idempotencyKey ? String(document.idempotencyKey) : null,
+    idempotency_key: protectedMirrorValue('transaction:idempotencyKey', document.idempotencyKey),
     payment_method: String(document.paymentMethod || 'coins'),
     amount: integer(document.amount),
     coupon_id: document.couponId ? String(document.couponId) : null,
@@ -225,7 +246,7 @@ function mapTransaction(document) {
     balance_after: document.balanceAfter === null || document.balanceAfter === undefined ? null : integer(document.balanceAfter),
     item_balance_before: document.itemBalanceBefore === null || document.itemBalanceBefore === undefined ? null : integer(document.itemBalanceBefore),
     item_balance_after: document.itemBalanceAfter === null || document.itemBalanceAfter === undefined ? null : integer(document.itemBalanceAfter),
-    verification_code: String(document.verificationCode || ''),
+    verification_code: protectedMirrorValue('transaction:verificationCode', document.verificationCode) || '',
     server_time: dateValue(document.serverTime || document.createdAt),
     slip_expires_at: dateValue(document.slipExpiresAt),
     source_created_at: dateValue(document.createdAt),
@@ -241,7 +262,7 @@ function mapReceipt(document) {
   };
   const row = {
     mongo_id: objectId(document._id),
-    receipt_number: String(document.receiptNumber || ''),
+    receipt_number: protectedMirrorValue('receipt:receiptNumber', document.receiptNumber) || '',
     amount: finiteNumber(document.amount),
     details_hash: document.details ? sourceHash(document.details) : null,
     issued_at: dateValue(document.issuedAt),

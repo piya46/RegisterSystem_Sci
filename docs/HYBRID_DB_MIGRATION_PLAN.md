@@ -6,9 +6,10 @@
 
 - MongoDB/Mongoose ยังเป็น primary source of truth ของระบบ
 - SQL ปิดอยู่โดย default (`SQL_ENABLED=false`)
+- เลือก MariaDB บน Plesk เป็น SQL target แล้ว โดย Cloud Run จะเชื่อมปลายทาง `203.170.190.137:3306` ผ่าน reserved static egress; ยังไม่ activate จนกว่า Plesk/TLS/encrypted-backup checklist ผ่าน
 - มี connector `mysql2` รองรับ MariaDB/MySQL, Unix socket, TLS, pool, timeout, daily operation guardrail และ graceful shutdown
 - มี schema migration 16 statements สร้าง 16 tables รวม metadata/checkpoint และ index สำหรับ incremental reversal repair
-- มี repository/mappers สำหรับ 10 domains และไม่ mirror donor PII, participant plaintext fields, address, slip URL หรือ raw LINE user ID
+- มี repository/mappers สำหรับ 10 domains และไม่ mirror donor PII, participant plaintext fields, address, slip URL หรือ raw LINE user ID; QR/idempotency/verification/receipt identifiers ถูก HMAC ก่อน SQL write
 - มี backfill แบบ plan-only, dry-run, batch, high-watermark, resume checkpoint, idempotent upsert, count และ aggregate checksum comparison
 - DDL และ repository integration ผ่าน MariaDB 12 local จริงแล้ว; fixture integration ถูก rollback และฐานทดสอบถูกลบ
 - มี MongoDB outbox/live mirror worker แบบ feature flag รองรับ coalescing, lock ownership, stale-lock recovery, bounded retry with jitter, dead-letter, audit, TTL retention และ CLI replay
@@ -48,10 +49,13 @@ MariaDB target ที่รองรับควรเป็น MariaDB 10.6+ �
 
 ## 4. Connection Security
 
-- Production ต้องใช้ Private IP/VPN/Unix socket/Cloud SQL connector ตาม platform
-- TCP production default เป็น `SQL_SSL_MODE=verify_identity` และต้องมี `SQL_SSL_CA`
-- `SQL_SSL_MODE=required` ที่ไม่ verify certificate ต้องมี break-glass flag และไม่ใช่ค่าปกติ
-- Unix socket ไม่ส่ง traffic ออก network จึงไม่บังคับ TLS ที่ socket layer
+- Plesk target ใช้ Direct VPC egress แบบ `all-traffic`, Cloud NAT และ reserved IP เพื่อให้ Plesk allowlist source `/32`
+- TCP production ต้องเป็น `SQL_SSL_MODE=verify_identity`, มี `SQL_SSL_CA` จาก pinned Secret Manager version และตรวจ certificate DNS/IP SAN
+- Production ห้าม `disabled`, `required`, `verify_ca`, `SQL_ALLOW_INSECURE_PRODUCTION` และ `SQL_ALLOW_UNVERIFIED_TLS`
+- Startup ต้องตรวจ `SHOW SESSION STATUS LIKE 'Ssl_cipher'` และ fail หาก session ไม่ได้ negotiate TLS จริง
+- Direct VPC cold-start retry ต้อง bounded/exponential และ retry เฉพาะ transient network code; auth/certificate/identity/TLS failure ต้องหยุดทันที
+- Plesk firewall/database access rule ต้องอนุญาตเฉพาะ reserved NAT IP ห้ามเปิด `3306` ให้ `0.0.0.0/0`
+- ต้องยืนยัน Plesk storage/tablespace encryption และ encrypted backup restore ก่อนตั้ง confirmation flag
 - Runtime user มีเฉพาะ SELECT/INSERT/UPDATE/DELETE ที่จำเป็น
 - Migration user แยกต่างหากและใช้ DDL เฉพาะ maintenance window
 - `multipleStatements=false`, query timeout, connection timeout, pool limit และ queue limit ต้องเปิดเสมอ
@@ -63,18 +67,27 @@ MariaDB target ที่รองรับควรเป็น MariaDB 10.6+ �
 ```env
 SQL_ENABLED=false
 SQL_DIALECT=mariadb
+SQL_PROVIDER=plesk
 SQL_PRIMARY_STORE=false
-SQL_HOST=127.0.0.1
+SQL_HOST=203.170.190.137
+SQL_EXPECTED_HOST=203.170.190.137
 SQL_PORT=3306
-SQL_DATABASE=psevent
-SQL_USER=psevent_app
+SQL_DATABASE=<protected-deployment-variable>
+SQL_USER=<protected-deployment-variable>
 SQL_PASSWORD=<from-secret-manager>
-SQL_MIGRATION_USER=psevent_migration
+SQL_MIGRATION_USER=<protected-deployment-variable>
 SQL_MIGRATION_PASSWORD=<from-secret-manager>
-SQL_SSL_MODE=disabled
+SQL_SSL_MODE=verify_identity
+SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA
+SQL_STATIC_EGRESS_ENABLED=false
+SQL_NETWORK_ALLOWLIST_CONFIRMED=false
+SQL_AT_REST_ENCRYPTION_CONFIRMED=false
+SQL_BACKUP_ENCRYPTION_CONFIRMED=false
+VERIFY_SQL_TRANSPORT=false
 SQL_MIGRATION_WRITE=false
 SQL_BACKFILL_WRITE=false
 SQL_MIRROR_ENABLED=false
+SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true
 SQL_OUTBOX_ENABLED=false
 SQL_OUTBOX_STRICT=false
 SQL_OUTBOX_POLL_INTERVAL_MS=5000
@@ -118,10 +131,11 @@ SQL_BACKFILL_WRITE=true npm run backfill:sql-mirror -- --apply --batch-size=100
 
 7. ตรวจ report ของทุก domain ว่า `sourceCount=processedCount=sqlCount` และ `sourceChecksum=sqlChecksum`
 8. รันซ้ำเพื่อพิสูจน์ idempotency
-9. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` ใน staging หลัง backfill ผ่าน โดย production แนะนำ `SQL_OUTBOX_STRICT=true`
-10. ตรวจ `/api/settings/sql-mirror/status` ด้วย superadmin ว่า queue ไม่มี dead-letter และ lag อยู่ใน threshold
-11. เปิด shadow-read เฉพาะ report/dashboard
-12. สังเกต sync lag และ mismatch อย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา read cutover
+9. รัน read-only `SQL_PROTECTION_AUDIT=true npm run audit:sql-protection`; violation count ต้องเป็นศูนย์และต้องใช้ checksum/reconciliation ยืนยัน HMAC ซ้ำ
+10. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` ใน staging หลัง backfill ผ่าน โดย production แนะนำ `SQL_OUTBOX_STRICT=true`
+11. ตรวจ `/api/settings/sql-mirror/status` ด้วย superadmin ว่า queue ไม่มี dead-letter และ lag อยู่ใน threshold
+12. เปิด shadow-read เฉพาะ report/dashboard
+13. สังเกต sync lag และ mismatch อย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา read cutover
 
 `--plan-only` แสดง domain/batch โดยไม่เชื่อมฐาน ส่วน dry-run ปกติอ่าน MongoDB และทำ mapping/checksum แต่ไม่เขียน SQL
 
@@ -164,6 +178,7 @@ SQL_BACKFILL_WRITE=true npm run backfill:sql-mirror -- --apply --batch-size=100
 ## 10. Cost Guardrail
 
 - เป้าหมายรวม Google Cloud ส่วนเสริมไม่เกิน 1,000 บาท/เดือน
+- Reserved IP และ Cloud NAT สำหรับ Plesk SQL เป็น opt-in และมี planning cap `SQL_EGRESS_MONTHLY_BUDGET_THB=200`; ต้องรวมกับ Cloud Run/GCS/Logging/Secret Manager/KMS/Firestore ทุกครั้ง
 - `SQL_MAX_DAILY_READS` และ `SQL_MAX_DAILY_WRITES` หยุด operation เมื่อเกิน limit ต่อ process
 - Backfill ขนาดใหญ่ต้องทำ batch/resume และอนุมัติ limit ชั่วคราว
 - Cloud SQL เป็น fixed/instance cost ซึ่ง application operation guardrail คุมไม่ได้ทั้งหมด; ห้ามเปิด HA/instance ใหญ่โดยไม่มี budget approval
@@ -173,7 +188,8 @@ SQL_BACKFILL_WRITE=true npm run backfill:sql-mirror -- --apply --batch-size=100
 
 ## 11. Remaining Production Blockers
 
-- เลือก production provider ระหว่าง Cloud SQL for MySQL กับ managed/self-managed MariaDB
+- Plesk provider ถูกเลือกแล้ว แต่ยังต้องยืนยัน remote access, TLS CA/SAN, at-rest encryption, encrypted backup และ quota ของแพ็กเกจ
+- Provision reserved Cloud NAT IP, allowlist ใน Plesk และให้ read-only Cloud Run transport job ผ่าน
 - รัน migration `002_transaction_reversal_lookup`, backfill และ outbox canary ด้วยสำเนาข้อมูล staging
 - เพิ่ม continuous reconciliation/dual-read mismatch job; queue lag monitoring มีแล้วแต่ยังต้องส่ง alert ไป monitoring กลาง
 - เพิ่ม shadow-read dashboard/report และ mismatch UI

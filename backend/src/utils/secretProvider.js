@@ -118,13 +118,34 @@ function secretBaseResource(name) {
   return `projects/${projectId}/secrets/${secretId}`;
 }
 
+function validatePinnedResource(name, resource) {
+  const match = String(resource || '').match(/^projects\/([^/]+)\/secrets\/([^/]+)\/versions\/([^/]+)$/);
+  if (!match) throw new Error(`Invalid pinned Secret Manager resource for ${name}`);
+  const [, projectId, , version] = match;
+  const expectedProjectId = secretProjectId();
+  if (!expectedProjectId || projectId !== expectedProjectId) {
+    throw new Error(`Pinned Secret Manager project does not match runtime project for ${name}`);
+  }
+  const expectedBase = secretBaseResource(name);
+  const actualBase = String(resource).replace(/\/versions\/[^/]+$/, '');
+  if (actualBase !== expectedBase) {
+    throw new Error(`Pinned Secret Manager id does not match configured secret for ${name}`);
+  }
+  if (requirePinnedVersions() && !/^\d+$/.test(version)) {
+    throw new Error(`Pinned Secret Manager version must be numeric for ${name}`);
+  }
+  return String(resource);
+}
+
 function secretVersionResource(name) {
   const pins = parseJsonObject('SECRET_MANAGER_PINNED_VERSIONS_JSON');
   const configured = pins[name];
 
-  if (typeof configured === 'string' && VERSION_RESOURCE_PATTERN.test(configured)) return configured;
+  if (typeof configured === 'string' && VERSION_RESOURCE_PATTERN.test(configured)) {
+    return validatePinnedResource(name, configured);
+  }
   if (configured && typeof configured === 'object' && VERSION_RESOURCE_PATTERN.test(configured.resource || '')) {
-    return configured.resource;
+    return validatePinnedResource(name, configured.resource);
   }
 
   const version = typeof configured === 'object' ? configured.version : configured;
@@ -135,7 +156,7 @@ function secretVersionResource(name) {
   if (!/^[A-Za-z0-9_-]+$/.test(normalizedVersion)) {
     throw new Error(`Invalid Secret Manager version for ${name}`);
   }
-  return `${secretBaseResource(name)}/versions/${normalizedVersion}`;
+  return validatePinnedResource(name, `${secretBaseResource(name)}/versions/${normalizedVersion}`);
 }
 
 function valueFingerprint(value) {
@@ -245,6 +266,13 @@ function validateRuntimeSecret(name, value) {
   if (name === 'SQL_MIRROR_IDENTITY_HASH_SECRET' && Buffer.byteLength(value, 'utf8') < 32) {
     throw new Error('SQL_MIRROR_IDENTITY_HASH_SECRET must be at least 32 bytes in strict mode');
   }
+  if (name === 'SQL_SSL_CA'
+      && !/-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----/.test(value)) {
+    throw new Error('SQL_SSL_CA must contain a PEM certificate chain');
+  }
+  if (name === 'SQL_SSL_CA' && /-----BEGIN (?:ENCRYPTED )?PRIVATE KEY-----/.test(value)) {
+    throw new Error('SQL_SSL_CA must not contain a private key');
+  }
 }
 
 function validateSecretSeparation() {
@@ -254,6 +282,10 @@ function validateSecretSeparation() {
     ['JWT_SECRET', 'CSRF_SECRET'],
     ['VENDOR_QR_SECRET', 'SLIP_PROOF_SECRET'],
     ['JWT_SECRET', 'OBJECT_STORAGE_LOCAL_SIGNING_SECRET'],
+    ['SQL_MIRROR_IDENTITY_HASH_SECRET', 'JWT_SECRET'],
+    ['SQL_MIRROR_IDENTITY_HASH_SECRET', 'SESSION_TOKEN_HASH_SECRET'],
+    ['SQL_MIRROR_IDENTITY_HASH_SECRET', 'CSRF_SECRET'],
+    ['SQL_MIRROR_IDENTITY_HASH_SECRET', 'DATA_BLIND_INDEX_SECRET'],
   ];
   for (const [left, right] of groups) {
     if (process.env[left] && process.env[left] === process.env[right]) {
@@ -336,5 +368,6 @@ module.exports = {
   clearSecretCache,
   hydrateRuntimeSecrets,
   loadSecret,
+  secretVersionResource,
   secretProviderStatus,
 };

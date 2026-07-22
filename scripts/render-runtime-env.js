@@ -113,10 +113,15 @@ const CONFIG_KEYS = [
   'SMTP_SECURE',
   'SQL_ALLOW_INSECURE_PRODUCTION',
   'SQL_ALLOW_UNVERIFIED_TLS',
+  'SQL_AT_REST_ENCRYPTION_CONFIRMED',
+  'SQL_BACKUP_ENCRYPTION_CONFIRMED',
+  'SQL_CONNECT_MAX_ATTEMPTS',
+  'SQL_CONNECT_RETRY_BASE_MS',
   'SQL_CONNECT_TIMEOUT_MS',
   'SQL_DATABASE',
   'SQL_DIALECT',
   'SQL_ENABLED',
+  'SQL_EXPECTED_HOST',
   'SQL_HOST',
   'SQL_MAX_DAILY_READS',
   'SQL_MAX_DAILY_WRITES',
@@ -124,6 +129,8 @@ const CONFIG_KEYS = [
   'SQL_MIGRATION_LOCK_TIMEOUT_SECONDS',
   'SQL_MIGRATION_USER',
   'SQL_MIRROR_ENABLED',
+  'SQL_MIRROR_REQUIRE_PROTECTED_VALUES',
+  'SQL_NETWORK_ALLOWLIST_CONFIRMED',
   'SQL_OUTBOX_BATCH_SIZE',
   'SQL_OUTBOX_ENABLED',
   'SQL_OUTBOX_MAX_ATTEMPTS',
@@ -135,15 +142,20 @@ const CONFIG_KEYS = [
   'SQL_PORT',
   'SQL_PRIMARY_STORE',
   'SQL_PRIMARY_STORE_ACKNOWLEDGED',
+  'SQL_PROVIDER',
   'SQL_QUERY_TIMEOUT_MS',
   'SQL_QUEUE_LIMIT',
   'SQL_RECEIPT_COUNTER_ENABLED',
   'SQL_SOCKET_PATH',
   'SQL_SSL_CA_SECRET_NAME',
+  'SQL_SSL_IP_SAN_CONFIRMED',
   'SQL_SSL_MODE',
+  'SQL_SSL_SERVERNAME',
+  'SQL_STATIC_EGRESS_ENABLED',
   'SQL_USER',
   'SQL_WALLET_LEDGER_ENABLED',
   'SUCCESS_SLIP_TTL_SECONDS',
+  'TRUST_PROXY',
 ];
 
 function loadEnvFile(filePath) {
@@ -157,6 +169,21 @@ function safeBucketName(value) {
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '')
     .slice(0, 63);
+}
+
+function parseHttpsOrigin(value, name) {
+  const origin = String(value || '').replace(/\/+$/, '');
+  let parsed;
+  try {
+    parsed = new URL(origin);
+  } catch {
+    throw new Error(`${name} must be a valid HTTPS origin`);
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+      || parsed.search || parsed.hash || parsed.pathname !== '/') {
+    throw new Error(`${name} must be an HTTPS origin without path, credentials, query, or fragment`);
+  }
+  return parsed.origin;
 }
 
 function resolveConfiguration() {
@@ -175,28 +202,29 @@ function resolveConfiguration() {
   if (!/^[a-z]+(?:-[a-z]+)+\d+$/.test(region)) throw new Error('REGION is missing or invalid');
 
   const deterministicOrigin = `https://${service}-${projectNumber}.${region}.run.app`;
-  const origin = String(config.APP_ORIGIN || deterministicOrigin).replace(/\/+$/, '');
-  const parsedOrigin = new URL(origin);
-  if (parsedOrigin.protocol !== 'https:' || parsedOrigin.username || parsedOrigin.password
-      || parsedOrigin.search || parsedOrigin.hash || parsedOrigin.pathname !== '/') {
-    throw new Error('APP_ORIGIN must be an HTTPS origin without path, credentials, query, or fragment');
-  }
+  const origin = parseHttpsOrigin(config.APP_ORIGIN || deterministicOrigin, 'APP_ORIGIN');
+  const publicOrigin = parseHttpsOrigin(config.PUBLIC_WEB_ORIGIN || origin, 'PUBLIC_WEB_ORIGIN');
 
   const gcsBucket = safeBucketName(config.GCS_BUCKET || `${projectId}-${service}-assets`);
   if (String(config.OBJECT_STORAGE_PROVIDER || 'gcs') === 'gcs' && gcsBucket.length < 3) {
     throw new Error('GCS_BUCKET could not be derived');
   }
-  return { config, environment, gcsBucket, origin, projectId, region, service };
+  return { config, environment, gcsBucket, origin, publicOrigin, projectId, region, service };
 }
 
-function readPins(environment) {
+function readPins(environment, { projectId, secretPrefix }) {
   const pinPath = process.env.SECRET_VERSIONS_FILE
     || path.join(ROOT, 'deploy', 'secret-versions', `${environment}.json`);
   const pins = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
   if (!pins || Array.isArray(pins) || typeof pins !== 'object') throw new Error('Secret version pins must be a JSON object');
   for (const [name, resource] of Object.entries(pins)) {
-    if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !SECRET_VERSION_PATTERN.test(String(resource))) {
+    const match = String(resource).match(/^projects\/([a-z0-9][a-z0-9-]{4,28}[a-z0-9])\/secrets\/([A-Za-z0-9_-]+)\/versions\/([0-9]+)$/);
+    if (!/^[A-Z][A-Z0-9_]*$/.test(name) || !match || !SECRET_VERSION_PATTERN.test(String(resource))) {
       throw new Error(`Invalid Secret Manager pin for ${name}`);
+    }
+    if (match[1] !== projectId) throw new Error(`Secret Manager pin for ${name} belongs to a different project`);
+    if (match[2] !== `${secretPrefix}-${name}`) {
+      throw new Error(`Secret Manager pin for ${name} does not match the environment secret prefix`);
     }
   }
   return pins;
@@ -213,8 +241,11 @@ function writeYaml(filePath, values) {
 }
 
 function main() {
-  const { config, environment, gcsBucket, origin, projectId } = resolveConfiguration();
-  const pins = readPins(environment);
+  const { config, environment, gcsBucket, origin, publicOrigin, projectId } = resolveConfiguration();
+  const pins = readPins(environment, {
+    projectId,
+    secretPrefix: String(config.SECRET_MANAGER_PREFIX || '').trim(),
+  });
 
   Object.assign(process.env, config, {
     NODE_ENV: 'production',
@@ -232,23 +263,32 @@ function main() {
     .split(',')
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
-  const turnstileHostnames = [...new Set([new URL(origin).hostname, ...configuredHostnames])].join(',');
+  const turnstileHostnames = [...new Set([
+    new URL(origin).hostname,
+    new URL(publicOrigin).hostname,
+    ...configuredHostnames,
+  ])].join(',');
+  const corsOrigins = [...new Set([
+    origin,
+    publicOrigin,
+    ...String(config.CORS_ORIGIN_EXTRA || '').split(',').map((value) => value.trim()).filter(Boolean),
+  ])].join(',');
   const values = {
     NODE_ENV: 'production',
     HOST: '0.0.0.0',
     RELEASE_ID: config.RELEASE_ID,
     SERVE_FRONTEND: 'true',
     FRONTEND_DIST_DIR: '/app/frontend/dist',
-    PUBLIC_URL: origin,
-    FRONTEND_URL: origin,
-    CORS_ORIGIN: [origin, config.CORS_ORIGIN_EXTRA].filter(Boolean).join(','),
+    PUBLIC_URL: publicOrigin,
+    FRONTEND_URL: publicOrigin,
+    CORS_ORIGIN: corsOrigins,
     COOKIE_SAME_SITE: config.COOKIE_SAME_SITE || 'lax',
     COOKIE_SECURE: 'true',
     TURNSTILE_ALLOWED_HOSTNAMES: turnstileHostnames,
-    LINE_LOGIN_CALLBACK_URL: config.LINE_LOGIN_CALLBACK_URL || `${origin}/user/line/callback`,
-    LINE_LOGIN_CALLBACK_URLS: config.LINE_LOGIN_CALLBACK_URLS || `${origin}/user/line/callback`,
+    LINE_LOGIN_CALLBACK_URL: config.LINE_LOGIN_CALLBACK_URL || `${publicOrigin}/user/line/callback`,
+    LINE_LOGIN_CALLBACK_URLS: config.LINE_LOGIN_CALLBACK_URLS || `${publicOrigin}/user/line/callback`,
     LOGIN_CLIENT_ID: config.LOGIN_CLIENT_ID || config.VITE_GOOGLE_CLIENT_ID,
-    OBJECT_STORAGE_PUBLIC_API_ORIGIN: origin,
+    OBJECT_STORAGE_PUBLIC_API_ORIGIN: publicOrigin,
     GOOGLE_CLOUD_PROJECT: projectId,
     GCS_BUCKET: gcsBucket,
     SECRET_PROVIDER: 'google_secret_manager',
@@ -280,6 +320,7 @@ function main() {
     ALLOW_LEGACY_CERTIFICATE_PARTICIPANT_ID: 'false',
     SQL_MIGRATION_WRITE: process.env.MIGRATION_MODE === 'true' ? 'true' : 'false',
   };
+  if (process.env.SQL_TRANSPORT_VERIFY_MODE === 'true') values.SQL_TRANSPORT_VERIFY = 'true';
 
   for (const key of CONFIG_KEYS) {
     if (config[key] !== undefined && config[key] !== '') values[key] = config[key];

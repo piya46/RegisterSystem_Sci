@@ -1,11 +1,17 @@
 const mysql = require('mysql2/promise');
+const net = require('node:net');
+const tls = require('node:tls');
 const { boolEnv, recordCloudUsage } = require('../utils/cloudCostGuardrail');
+
+const APPROVED_PLESK_SQL_HOST = '203.170.190.137';
 
 let pool = null;
 const state = {
   connected: false,
   connectedAt: null,
   lastErrorCode: null,
+  tlsActive: null,
+  transport: null,
 };
 
 function integerEnv(name, fallback, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) {
@@ -22,6 +28,45 @@ function sqlPrimaryStore() {
   return boolEnv('SQL_PRIMARY_STORE', false);
 }
 
+function normalizedSslMode() {
+  return String(
+    process.env.SQL_SSL_MODE || (process.env.NODE_ENV === 'production' ? 'verify_identity' : 'disabled')
+  ).toLowerCase();
+}
+
+function validHost(value) {
+  const host = String(value || '').trim();
+  if (!host || host.length > 253) return false;
+  if (net.isIP(host)) return true;
+  if (/[\s/:@]/.test(host)) return false;
+  return host.split('.').every((label) => (
+    label.length > 0
+    && label.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)
+  ));
+}
+
+function requireProductionConfirmation(name, message) {
+  if (!boolEnv(name, false)) throw new Error(message || `${name}=true is required for production SQL`);
+}
+
+function retryableSqlConnectionError(error) {
+  return new Set([
+    'ECONNREFUSED',
+    'ECONNRESET',
+    'EHOSTUNREACH',
+    'ENETUNREACH',
+    'ETIMEDOUT',
+    'HANDSHAKE_INACTIVITY_TIMEOUT',
+    'PROTOCOL_CONNECTION_LOST',
+    'PROTOCOL_SEQUENCE_TIMEOUT',
+  ]).has(String(error?.code || ''));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function assertSqlConfiguration() {
   if (!sqlEnabled()) {
     if (sqlPrimaryStore()) throw new Error('SQL_PRIMARY_STORE=true requires SQL_ENABLED=true');
@@ -36,14 +81,67 @@ function assertSqlConfiguration() {
     if (!process.env[name]) throw new Error(`${name} is required when SQL_ENABLED=true`);
   }
   const usesSocket = Boolean(String(process.env.SQL_SOCKET_PATH || '').trim());
-  if (!usesSocket && !process.env.SQL_HOST) throw new Error('SQL_HOST or SQL_SOCKET_PATH is required when SQL is enabled');
-  const sslMode = String(process.env.SQL_SSL_MODE || 'verify_identity').toLowerCase();
+  const host = String(process.env.SQL_HOST || '').trim();
+  if (!usesSocket && !host) throw new Error('SQL_HOST or SQL_SOCKET_PATH is required when SQL is enabled');
+  if (!usesSocket && !validHost(host)) throw new Error('SQL_HOST must be a hostname or IP address without a scheme, path, or port');
+  const sslMode = normalizedSslMode();
+  if (!['disabled', 'required', 'verify_ca', 'verify_identity'].includes(sslMode)) {
+    throw new Error('SQL_SSL_MODE must be disabled, required, verify_ca, or verify_identity');
+  }
+  const servername = String(process.env.SQL_SSL_SERVERNAME || '').trim();
+  if (servername && (!validHost(servername) || net.isIP(servername))) {
+    throw new Error('SQL_SSL_SERVERNAME must be the DNS name present in the MariaDB certificate');
+  }
   if (process.env.NODE_ENV === 'production') {
-    if (sslMode === 'disabled' && !usesSocket && !boolEnv('SQL_ALLOW_INSECURE_PRODUCTION', false)) {
-      throw new Error('SQL_SSL_MODE cannot be disabled in production');
+    if (boolEnv('SQL_ALLOW_INSECURE_PRODUCTION', false) || boolEnv('SQL_ALLOW_UNVERIFIED_TLS', false)) {
+      throw new Error('SQL insecure TLS overrides are forbidden in production');
     }
-    if (sslMode === 'required' && !boolEnv('SQL_ALLOW_UNVERIFIED_TLS', false)) {
-      throw new Error('SQL_SSL_MODE=required needs SQL_ALLOW_UNVERIFIED_TLS=true in production');
+    if (!usesSocket && sslMode !== 'verify_identity') {
+      throw new Error('SQL_SSL_MODE must be verify_identity for production TCP connections');
+    }
+    if (!usesSocket && !String(process.env.SQL_SSL_CA || '').trim()) {
+      throw new Error('SQL_SSL_CA is required for production TCP connections');
+    }
+    if (!usesSocket && String(process.env.SQL_SSL_CA_SECRET_NAME || '').trim() !== 'SQL_SSL_CA') {
+      throw new Error('SQL_SSL_CA_SECRET_NAME must be SQL_SSL_CA so the pinned CA is loaded from Secret Manager');
+    }
+    if (!usesSocket && net.isIP(host) && !servername && !boolEnv('SQL_SSL_IP_SAN_CONFIRMED', false)) {
+      throw new Error('An IP SQL_HOST requires SQL_SSL_SERVERNAME or SQL_SSL_IP_SAN_CONFIRMED=true');
+    }
+
+    requireProductionConfirmation(
+      'SQL_AT_REST_ENCRYPTION_CONFIRMED',
+      'SQL_AT_REST_ENCRYPTION_CONFIRMED=true is required after Plesk storage encryption is verified'
+    );
+    requireProductionConfirmation(
+      'SQL_BACKUP_ENCRYPTION_CONFIRMED',
+      'SQL_BACKUP_ENCRYPTION_CONFIRMED=true is required after encrypted backup and restore are verified'
+    );
+
+    const provider = String(process.env.SQL_PROVIDER || '').trim().toLowerCase();
+    if (!['plesk', 'cloud_sql', 'self_managed', 'other'].includes(provider)) {
+      throw new Error('SQL_PROVIDER must identify the production database provider');
+    }
+    if (!usesSocket && provider === 'plesk') {
+      const expectedHost = String(process.env.SQL_EXPECTED_HOST || '').trim();
+      if (host !== APPROVED_PLESK_SQL_HOST || expectedHost !== APPROVED_PLESK_SQL_HOST) {
+        throw new Error(`Plesk SQL endpoint must be the approved host ${APPROVED_PLESK_SQL_HOST}`);
+      }
+      requireProductionConfirmation(
+        'SQL_STATIC_EGRESS_ENABLED',
+        'SQL_STATIC_EGRESS_ENABLED=true is required before Cloud Run connects to Plesk MariaDB'
+      );
+      requireProductionConfirmation(
+        'SQL_NETWORK_ALLOWLIST_CONFIRMED',
+        'SQL_NETWORK_ALLOWLIST_CONFIRMED=true is required after Plesk allowlists the Cloud NAT IP'
+      );
+    }
+
+    if (boolEnv('SQL_MIRROR_ENABLED', false)) {
+      requireProductionConfirmation(
+        'SQL_MIRROR_REQUIRE_PROTECTED_VALUES',
+        'SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true is required for production SQL mirror data'
+      );
     }
   }
   if (sqlPrimaryStore() && !boolEnv('SQL_PRIMARY_STORE_ACKNOWLEDGED', false)) {
@@ -52,7 +150,7 @@ function assertSqlConfiguration() {
 }
 
 function sslOptions() {
-  const mode = String(process.env.SQL_SSL_MODE || (process.env.NODE_ENV === 'production' ? 'verify_identity' : 'disabled')).toLowerCase();
+  const mode = normalizedSslMode();
   if (mode === 'disabled') return undefined;
   if (!['required', 'verify_ca', 'verify_identity'].includes(mode)) {
     throw new Error('SQL_SSL_MODE must be disabled, required, verify_ca, or verify_identity');
@@ -62,10 +160,17 @@ function sslOptions() {
   if (['verify_ca', 'verify_identity'].includes(mode) && !ca) {
     throw new Error(`SQL_SSL_CA is required when SQL_SSL_MODE=${mode}`);
   }
+  const servername = String(process.env.SQL_SSL_SERVERNAME || '').trim();
+  const identity = servername || String(process.env.SQL_HOST || '').trim();
   return {
     rejectUnauthorized: mode !== 'required',
+    minVersion: 'TLSv1.2',
     ...(ca ? { ca } : {}),
+    ...(servername ? { servername } : {}),
     ...(mode === 'verify_ca' ? { checkServerIdentity: () => undefined } : {}),
+    ...(mode === 'verify_identity' ? {
+      checkServerIdentity: (_hostname, certificate) => tls.checkServerIdentity(identity, certificate),
+    } : {}),
   };
 }
 
@@ -99,6 +204,49 @@ function poolConfig() {
   };
 }
 
+async function verifyConnectionTransport(connection) {
+  if (String(process.env.SQL_SOCKET_PATH || '').trim()) {
+    return { transport: 'socket', tlsActive: false };
+  }
+  if (normalizedSslMode() === 'disabled') {
+    return { transport: 'tcp_plain', tlsActive: false };
+  }
+
+  const [rows] = await connection.query({
+    sql: "SHOW SESSION STATUS LIKE 'Ssl_cipher'",
+    timeout: integerEnv('SQL_QUERY_TIMEOUT_MS', 10000, { min: 1000, max: 60000 }),
+  });
+  const cipher = Array.isArray(rows) && rows.length > 0
+    ? String(rows[0].Value || rows[0].VALUE || rows[0].value || '').trim()
+    : '';
+  if (!cipher) {
+    const error = new Error('MariaDB connection did not negotiate TLS');
+    error.code = 'SQL_TLS_NOT_ACTIVE';
+    throw error;
+  }
+  return { transport: 'tcp_tls', tlsActive: true };
+}
+
+async function warmSqlPool(candidate, warmCount) {
+  const warmConnections = [];
+  try {
+    for (let index = 0; index < warmCount; index += 1) {
+      warmConnections.push(await candidate.getConnection());
+    }
+    const transportChecks = String(process.env.SQL_SOCKET_PATH || '').trim() || normalizedSslMode() === 'disabled' ? 0 : 1;
+    recordCloudUsage('sqlReads', warmCount * (1 + transportChecks), { optional: false });
+    return await Promise.all(warmConnections.map(async (connection) => {
+      await connection.query({
+        sql: 'SELECT 1 AS health_check',
+        timeout: integerEnv('SQL_QUERY_TIMEOUT_MS', 10000, { min: 1000, max: 60000 }),
+      });
+      return verifyConnectionTransport(connection);
+    }));
+  } finally {
+    for (const connection of warmConnections) connection.release();
+  }
+}
+
 async function connectSQL() {
   assertSqlConfiguration();
   if (!sqlEnabled()) return { enabled: false, connected: false };
@@ -106,34 +254,42 @@ async function connectSQL() {
 
   const candidate = mysql.createPool(poolConfig());
   const poolMin = integerEnv('SQL_POOL_MIN', 0, { min: 0, max: integerEnv('SQL_POOL_MAX', 5, { min: 1, max: 50 }) });
-  const warmConnections = [];
-  let connectError = null;
-  try {
-    const warmCount = Math.max(1, poolMin);
-    recordCloudUsage('sqlReads', warmCount, { optional: false });
-    for (let index = 0; index < warmCount; index += 1) {
-      warmConnections.push(await candidate.getConnection());
+  const warmCount = Math.max(1, poolMin);
+  const maxAttempts = integerEnv(
+    'SQL_CONNECT_MAX_ATTEMPTS',
+    process.env.NODE_ENV === 'production' ? 6 : 1,
+    { min: 1, max: 10 }
+  );
+  const retryBaseMs = integerEnv('SQL_CONNECT_RETRY_BASE_MS', 1000, { min: 100, max: 10000 });
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const transports = await warmSqlPool(candidate, warmCount);
+      pool = candidate;
+      state.connected = true;
+      state.connectedAt = new Date().toISOString();
+      state.lastErrorCode = null;
+      state.tlsActive = transports.every(({ tlsActive }) => tlsActive);
+      state.transport = transports[0]?.transport || null;
+      return sqlStatus();
+    } catch (error) {
+      state.connected = false;
+      state.lastErrorCode = error.code || 'SQL_CONNECT_FAILED';
+      state.tlsActive = null;
+      state.transport = null;
+      if (!retryableSqlConnectionError(error) || attempt >= maxAttempts) {
+        await candidate.end().catch(() => {});
+        throw error;
+      }
+      const backoffMs = Math.min(retryBaseMs * (2 ** (attempt - 1)), 10000);
+      const jitterMs = Math.floor(Math.random() * Math.max(1, Math.floor(backoffMs / 4)));
+      console.warn(`[SQL] Transient connection failure (${error.code}); retrying attempt ${attempt + 1}/${maxAttempts}`);
+      await sleep(backoffMs + jitterMs);
     }
-    await Promise.all(warmConnections.map((connection) => connection.query({
-      sql: 'SELECT 1 AS health_check',
-      timeout: integerEnv('SQL_QUERY_TIMEOUT_MS', 10000, { min: 1000, max: 60000 }),
-    })));
-    pool = candidate;
-    state.connected = true;
-    state.connectedAt = new Date().toISOString();
-    state.lastErrorCode = null;
-  } catch (error) {
-    state.connected = false;
-    state.lastErrorCode = error.code || 'SQL_CONNECT_FAILED';
-    connectError = error;
-  } finally {
-    for (const connection of warmConnections) connection.release();
   }
-  if (connectError) {
-    await candidate.end().catch(() => {});
-    throw connectError;
-  }
-  return sqlStatus();
+
+  await candidate.end().catch(() => {});
+  throw new Error('SQL connection attempts exhausted');
 }
 
 function requirePool() {
@@ -196,6 +352,8 @@ async function closeSQL() {
   pool = null;
   state.connected = false;
   state.connectedAt = null;
+  state.tlsActive = null;
+  state.transport = null;
   if (activePool) await activePool.end();
 }
 
@@ -206,14 +364,19 @@ function sqlStatus() {
     connected: state.connected,
     connectedAt: state.connectedAt,
     lastErrorCode: state.lastErrorCode,
+    tlsActive: state.tlsActive,
+    transport: state.transport,
   };
 }
 
 module.exports = {
+  APPROVED_PLESK_SQL_HOST,
   assertSqlConfiguration,
   closeSQL,
   connectSQL,
   executeSql,
+  retryableSqlConnectionError,
+  sslOptions,
   sqlEnabled,
   sqlStatus,
   withSqlTransaction,

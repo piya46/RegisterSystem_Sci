@@ -107,6 +107,35 @@ function grantSecretAccess(projectId, secretId, serviceAccount) {
   ]);
 }
 
+function revokeSecretAccess(projectId, secretId, serviceAccount) {
+  if (!serviceAccount) return;
+  const member = `serviceAccount:${serviceAccount}`;
+  const policyResult = gcloud([
+    'secrets', 'get-iam-policy', secretId,
+    '--project', projectId,
+    '--format', 'json',
+  ]);
+  let policy;
+  try {
+    policy = JSON.parse(policyResult.stdout || '{}');
+  } catch {
+    fail(`Unable to parse IAM policy for ${secretId}`);
+  }
+  const hasBinding = (policy.bindings || []).some((binding) => (
+    binding.role === 'roles/secretmanager.secretAccessor'
+      && Array.isArray(binding.members)
+      && binding.members.includes(member)
+  ));
+  if (!hasBinding) return;
+  gcloud([
+    'secrets', 'remove-iam-policy-binding', secretId,
+    '--project', projectId,
+    '--member', member,
+    '--role', 'roles/secretmanager.secretAccessor',
+    '--quiet',
+  ]);
+}
+
 function resolveValue(name, values, keyId) {
   const direct = values[name];
   if (direct && !/^replace-with|^change-me|^example/i.test(String(direct))) return String(direct);
@@ -211,7 +240,11 @@ function main() {
     }
     value = '';
 
-    grantSecretAccess(projectId, secretId, runtimeAccount);
+    if (name === 'SQL_MIGRATION_PASSWORD') {
+      revokeSecretAccess(projectId, secretId, runtimeAccount);
+    } else {
+      grantSecretAccess(projectId, secretId, runtimeAccount);
+    }
     if (name === 'SQL_MIGRATION_PASSWORD' || name === 'SQL_SSL_CA') {
       grantSecretAccess(projectId, secretId, migrationAccount);
     }

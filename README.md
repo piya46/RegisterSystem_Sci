@@ -63,7 +63,7 @@
 
 ### 1\. สิ่งที่ต้องเตรียม (Prerequisites)
 
-  - [Node.js](https://nodejs.org/) (v20.9 ขึ้นไป)
+  - [Node.js](https://nodejs.org/) 22.x ตาม `.nvmrc` และ `.node-version`
   - [MongoDB](https://www.mongodb.com/) (Local หรือ Cloud Atlas)
   - บัญชี Cloudflare (สำหรับ Turnstile - Optional)
   - บัญชี SMTP Email (สำหรับส่ง E-Ticket - Optional)
@@ -156,6 +156,7 @@ SECRET_MANAGER_MAX_DAILY_ACCESS_OPS=200
 SQL_ENABLED=false
 SQL_PRIMARY_STORE=false
 SQL_DIALECT=mariadb
+SQL_PROVIDER=self_managed
 SQL_HOST=127.0.0.1
 SQL_PORT=3306
 SQL_DATABASE=psevent
@@ -170,7 +171,9 @@ GCS_LOCATION=asia-southeast3
 GCS_MONTHLY_BUDGET_THB=700
 ```
 
-ดูรายการ config และ safety flags ทั้งหมดที่ `backend/.env.example` รวมถึง runbook ใน `docs/SECRET_MANAGER_RUNBOOK.md`, `docs/HYBRID_DB_MIGRATION_PLAN.md`, `docs/GCS_OBJECT_STORAGE_RUNBOOK.md` และ `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md`
+Production target คือ MariaDB บน Plesk ที่ `203.170.190.137:3306` แต่ต้องคงปิดจนกว่า static Cloud NAT IP, Plesk `/32` allowlist, TLS identity/CA, encrypted storage/backup และ read-only transport job ผ่าน ชื่อ database/user จริงไม่อยู่ใน repository
+
+ดูรายการ config และ safety flags ทั้งหมดที่ `backend/.env.example` รวมถึง runbook ใน `docs/SECRET_MANAGER_RUNBOOK.md`, `docs/HYBRID_DB_MIGRATION_PLAN.md`, `docs/PLESK_MARIADB_RUNBOOK.md`, `docs/GCS_OBJECT_STORAGE_RUNBOOK.md`, `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md` และ `docs/PLESK_WEB_GATEWAY_RUNBOOK.md`
 
 ### Automated CI/CD และ Google Cloud Deployment
 
@@ -186,14 +189,27 @@ First-time infrastructure ใช้ `BOOTSTRAP_GCP=true`; การส่ง Sec
 
 ขั้นตอนตั้ง WIF, GitHub variables, branch protection, Secret rotation, migration และ rollback อยู่ที่ `docs/DEPLOYMENT_RUNBOOK.md`
 
+### Plesk Public Web และ Cloud Run Backend
+
+`reunion.scicu-alumni.com` ใช้ Plesk Node.js 22 เพื่อส่ง React SPA และ proxy `/api`, `/health`, `/uploads` ไป Cloud Run แบบ same-origin ส่วน Cloud Run ยังดูแล backend, database, Secret Manager, GCS/KMS และ integration ทั้งหมด Routine deploy ใช้ Git/Plesk webhook ผ่าน dedicated `plesk-production` ref ที่ CI อนุมัติ ไม่ใช้ FTP:
+
+```bash
+./scripts/release.sh plesk plan
+./scripts/release.sh plesk deploy
+PLESK_ORIGIN=https://reunion.scicu-alumni.com ./scripts/release.sh plesk smoke
+./scripts/release.sh plesk rollback
+```
+
+ค่าตั้ง Plesk, GitHub Environment, provider callback, security/cost guardrail และ go-live checklist อยู่ที่ `docs/PLESK_WEB_GATEWAY_RUNBOOK.md` โดย Plesk ต้องไม่มี Google service-account key หรือ backend Secret
+
 ### Frontend (`frontend/.env`)
 
 ```env
 # URL ของ Backend API
 VITE_API_BASE_URL=http://localhost:3000/api
 
-# Cloudflare Turnstile (Frontend Site Key)
-VITE_TURNSTILE_SITE_KEY=your_turnstile_site_key
+# Cloudflare Turnstile (Frontend Site Key; เป็น public value)
+VITE_CF_TURNSTILE_SITE_KEY=your_turnstile_site_key
 ```
 
 -----
@@ -212,14 +228,15 @@ Project-Root/
 │   │   └── utils/          # Helpers (Email, File Upload, Turnstile)
 │   └── app.js
 │
-└── frontend/               # ส่วนหน้าเว็บ (React)
+├── frontend/               # ส่วนหน้าเว็บ (React)
     ├── public/             # Static Assets (Images, Logos)
     ├── src/
     │   ├── components/     # UI Components ที่ใช้ซ้ำ (Dialogs, Scanner)
     │   ├── pages/          # หน้าเว็บหลัก (Registration, Dashboard, Kiosk)
     │   ├── providers/      # Context Provider (Auth)
     │   └── utils/          # API Caller & Helpers
-    └── vite.config.js
+│   └── vite.config.js
+└── hosting/plesk-gateway/  # Plesk Node.js same-origin SPA/API gateway
 ```
 
 -----

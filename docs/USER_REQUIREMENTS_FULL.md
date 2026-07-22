@@ -2305,6 +2305,8 @@ Implementation Status:
 
 Important Provider Constraint:
 
+- Phase 1 เลือก MariaDB ที่ให้บริการอยู่บน Plesk เป็น Structured DB target แล้ว โดย Cloud Run backend เป็นผู้เชื่อมต่อ; Plesk web gateway ห้ามเชื่อม DB โดยตรง
+- Plesk MariaDB ยังเป็น optional reporting mirror และต้องคงปิดจนกว่า remote access/TLS/encrypted storage/backup/static egress/cost acceptance ผ่าน
 - ถ้าใช้ Google Cloud SQL ให้ใช้ Cloud SQL for MySQL เป็น managed relational option เพราะ Cloud SQL รองรับ MySQL/PostgreSQL/SQL Server ไม่ใช่ MariaDB โดยตรง
 - ถ้าต้องการ MariaDB แท้ ต้องใช้ self-managed MariaDB, VM/container, on-prem, หรือ managed provider อื่น และต้องมี operational owner ชัดเจน
 - Application SQL layer ต้องใช้ SQL ที่เข้ากันได้กับ MySQL/MariaDB เท่าที่ทำได้ และ CI ต้องทดสอบ dialect ที่เลือกจริง
@@ -2315,7 +2317,7 @@ Data Ownership Target:
 ข้อมูลที่ควรย้าย/ทำ mirror เข้า Structured DB:
 
 - `organizations`, `event_series`, `events`: ใช้ relational key สำหรับ tenant hierarchy, event scope, status, date, slug uniqueness
-- `participants_core`: participant id mapping, event id, status, qrCode, registrationType, registeredAt, checkedInAt, consent metadata
+- `participants_core`: participant id mapping, event id, status, HMAC ของ qrCode, registrationType, registeredAt, checkedInAt, consent metadata
 - `participant_identity`: email hash/blind index, LINE link metadata, auth provider metadata โดยไม่เก็บ PII plaintext ที่ไม่จำเป็น
 - `wallets`, `wallet_ledger_entries`, `transactions`: coin/coupon balance, ledger, idempotency, reversal/refund, settlement
 - `vendors`, `vendor_menu_items`, `vendor_settlements`: vendor ownership, pricing policy, menu, QR version, payout summary
@@ -2347,7 +2349,7 @@ Structured Schema Requirements:
 - Balance cache ต้อง derive ได้จาก ledger และต้องมี reconciliation job เทียบ balance cache กับ ledger
 - Receipt number/counter ต้องใช้ SQL transaction/row lock หรือ atomic sequence table และ unique constraint ต่อ event
 - Donation package stock ต้องใช้ stock movement ledger และ constraint กัน sold เกิน stock
-- Event slug, qrCode, vendor qrCodeId, idempotencyKey ต้องมี unique constraints ตาม event scope ที่ถูกต้อง
+- Event slug และ public/non-secret identifier ต้องมี unique constraints ตาม event scope ที่ถูกต้อง; qrCode, vendor qrCodeId และ idempotencyKey ใน SQL mirror ต้องใช้ domain-separated HMAC ก่อนเข้า unique constraint
 - Soft delete ต้องใช้ `deletedAt`, `deletedBy`, `deleteReason` และ default query ต้องไม่ดึงรายการที่ถูกลบ
 - PII ใน SQL ต้อง encrypted หรือ tokenized ตาม policy; search ใช้ blind index ไม่ใช้ plaintext full email/phone/name
 - Dynamic fields หาก mirror เข้า SQL ให้แยกเป็น `participant_field_values` เฉพาะ field ที่ต้อง report/query บ่อย และเก็บ encrypted JSON ต้นฉบับไว้ใน NoSQL
@@ -2404,13 +2406,58 @@ Phase D - Decommission/Archive:
 MariaDB/MySQL Connection Requirements:
 
 - ใช้ connection pool พร้อม max/min/idle timeout และ circuit breaker
-- Production ต้องเชื่อมผ่าน private network/Private IP/VPN/Cloud SQL connector ตาม platform ที่เลือก ห้ามเปิด public DB โดยไม่จำเป็น
-- ต้องใช้ TLS สำหรับ DB connection เมื่อออกนอก private trusted network
+- Production ต้องเชื่อมผ่าน private network/Private IP/VPN/Cloud SQL connector เป็นหลัก; สำหรับ Plesk ที่มีเฉพาะ public endpoint อนุญาตเป็นข้อยกเว้นเมื่อใช้ Direct VPC egress + Cloud NAT reserved IP + Plesk `/32` allowlist ครบเท่านั้น
+- Plesk destination คือ `203.170.190.137:3306`; ค่า `localhost:3306` ใน Plesk ใช้ได้เฉพาะ application ที่รันบน host เดียวกันและห้ามนำไปใช้กับ Cloud Run
+- ต้องใช้ TLS 1.2+ แบบ verify certificate chain และ server identity สำหรับ DB connection เมื่อออกนอก host
+- Production TCP ต้องใช้ `SQL_SSL_MODE=verify_identity`; ห้าม `disabled`, `required`, `verify_ca` และห้าม insecure/break-glass flag
+- ต้องตรวจ TLS session หลัง connect ด้วย `Ssl_cipher`; การมี config `ssl` แต่ session ไม่ negotiate TLS ต้อง fail readiness/startup
+- ถ้า connect ด้วย IP certificate ต้องมี IP SAN ตรง หรือกำหนด `SQL_SSL_SERVERNAME` ให้ตรง DNS SAN; ห้ามปิด hostname verification
 - DB credentials ต้องมาจาก Secret Manager และ rotate ได้
+- TLS CA ต้องมาจาก Secret Manager logical name `SQL_SSL_CA` version ที่ pin, validate เป็น PEM certificate chain, ปฏิเสธ private key และห้าม trust certificate ที่ดึงจาก endpoint โดยไม่ตรวจสอบ
 - Migration runner ใช้ credential แยกจาก app runtime และมีสิทธิ์ DDL เฉพาะช่วง migration
 - App runtime ห้ามมีสิทธิ์ `DROP`, `ALTER`, `CREATE USER`, `GRANT`
 - ต้องมี statement timeout/query timeout และ slow query logging
 - ต้องมี health check แยก read/write และไม่เปิดเผย DB detail ใน public health endpoint
+
+Plesk MariaDB Network Requirements:
+
+- Cloud Run service, SQL transport job และ migration job ต้องใช้ VPC/subnet/egress policy ชุดเดียวกันและ route `all-traffic` เพื่อให้ source IP คงที่จริง
+- Direct VPC/Cloud NAT cold start อาจทำให้ connection พร้อมช้า จึงต้อง retry แบบ bounded exponential backoff เฉพาะ transient network error; auth/CA/SAN/TLS failure ห้าม retry จนกลบเหตุหรือ fallback insecure
+- Bootstrap static egress ต้องเป็น opt-in และต้องมีทั้ง `SQL_STATIC_EGRESS_ENABLED=true` กับ `CONFIRM_SQL_STATIC_EGRESS=<environment>`
+- Bootstrap ต้องสร้าง custom VPC, private Google access subnet, Cloud Router, Cloud NAT และ regional reserved IP แบบ idempotent
+- Plesk database access rule, Plesk firewall และ host firewall ต้อง allow เฉพาะ reserved NAT IP `/32`; ห้าม `0.0.0.0/0`, `::/0`, shared office range หรือ Cloud Run dynamic range
+- เพราะ `all-traffic` ทำให้ external dependency อื่นเห็น NAT IP เดียวกัน ต้องตรวจ/เพิ่ม source allowlist ของ MongoDB Atlas, SMTP และ provider ที่เกี่ยวข้อง พร้อม canary GCS/Secret Manager/KMS/LINE/Turnstile ก่อน promote
+- ต้องทดสอบ positive จาก Cloud Run และ negative จาก source ที่ไม่อยู่ allowlist ก่อนตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true`
+- Backend production และ release script ต้อง pin ทั้ง `SQL_HOST` และ `SQL_EXPECTED_HOST` เป็น `203.170.190.137`; การตั้งสองค่าให้ตรงกันแต่เป็น host อื่นต้องถูกปฏิเสธเพื่อป้องกัน endpoint substitution
+- Plesk gateway ห้ามมี SQL password, TLS CA, database user หรือ direct database connection string
+- หาก hosting plan ไม่รองรับ remote MariaDB, custom access rule, TLS identity หรือ encrypted backup ให้คง SQL ปิดและใช้ MongoDB Phase 1 ต่อ
+
+Data Encryption Before Storage Requirements:
+
+- PII ที่ต้อง recover ให้ encrypt ด้วย AES-256-GCM/application envelope ก่อน MongoDB write พร้อม random nonce, auth tag, key version และ blind index แยก
+- Password ต้องใช้ adaptive one-way hash; OTP, bearer token, guest token, idempotency token และ recovery token ต้องเก็บเฉพาะ keyed hash/HMAC ไม่ใช้ reversible encryption
+- SQL mirror ห้ามเก็บ raw participant QR, vendor QR identifier, idempotency key, verification code, receipt number หรือ LINE user ID; ต้อง HMAC-SHA-256 ด้วย dedicated secret ก่อน write
+- Blind index ของ email/phone/name ที่รับจาก MongoDB ต้อง validate ว่าเป็น hexadecimal 64 ตัวอักษรก่อน SQL write; malformed/plaintext ต้องหยุด mirror row แบบ fail closed
+- หลัง backfill ต้องมี read-only aggregate audit ที่คืนเฉพาะ violation count ไม่ select ค่า protected และต้องใช้ source-to-HMAC reconciliation ปิด false negative จาก legacy value รูปแบบ 64 hex
+- `SQL_MIRROR_IDENTITY_HASH_SECRET` ต้อง random อย่างน้อย 256 bit, แยกจาก JWT/session/CSRF/data blind-index key, อยู่ Secret Manager และ rotation ต้องมี reindex/backfill plan
+- SQL mirror ห้าม decrypt participant/donor PII จาก MongoDB และห้าม mirror address, slip URL, email, phone หรือชื่อ plaintext
+- Structured operational columns ที่จำเป็นต่อ FK/constraint/reconciliation เช่น internal ID, status, timestamp, integer amount และ balance ใช้ typed plaintext ภายใน DB ได้เฉพาะเมื่อ Plesk data directory/tablespace และ backup ถูกเข้ารหัส at rest แล้ว
+- ห้าม application-encrypt FK/amount/status แบบ random ciphertext เพราะจะทำลาย constraint/range query; requirement การเข้ารหัสทั้งหมดของข้อมูลเหล่านี้ให้บังคับที่ encrypted storage + encrypted backup layer
+- ต้องมี `SQL_AT_REST_ENCRYPTION_CONFIRMED=true` และ `SQL_BACKUP_ENCRYPTION_CONFIRMED=true` จากหลักฐาน provider/restore drill ก่อน production startup
+- KMS ใช้ wrap application data keys ได้ แต่ไม่ถือว่าแทน Plesk tablespace/disk encryption; key ของ Plesk backup ต้องมี owner และเก็บแยกจาก backup
+- รูป/slip/document ห้ามเก็บเป็น SQL BLOB ให้ใช้ private GCS object, lifecycle และ signed access ตาม object-storage requirement
+- Log/audit/outbox/dead-letter ห้ามมี plaintext PII/token/credential/CA/query payload และ public health ห้ามเปิด host/database/user/cipher detail
+
+Plesk MariaDB Activation Flags:
+
+- ค่าเริ่มต้นต้องเป็น `SQL_ENABLED=false`, `VERIFY_SQL_TRANSPORT=false`, `SQL_STATIC_EGRESS_ENABLED=false`, `SQL_NETWORK_ALLOWLIST_CONFIRMED=false`
+- เมื่อเปิดต้องมี `SQL_PROVIDER=plesk`, `SQL_HOST=SQL_EXPECTED_HOST=203.170.190.137`, `SQL_SSL_MODE=verify_identity`, `SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA`
+- Database name, runtime user และ migration user ต้องมาจาก protected deployment variables และห้าม commit ค่าจริง
+- GitHub deployment workflow ต้อง map `SQL_DATABASE`, `SQL_USER`, `SQL_MIGRATION_USER` และ `SQL_SSL_SERVERNAME` จาก Environment variables เข้า release; การตั้งค่าไว้ใน GitHub โดย workflow ไม่ส่งต่อถือว่า activation ไม่สมบูรณ์
+- Password, migration password, TLS CA และ mirror HMAC key ต้องมาจาก pinned Secret Manager versions
+- Runtime service account ห้ามอ่าน `SQL_MIGRATION_PASSWORD`; secret synchronization ต้องถอน runtime IAM binding ที่อาจค้างจากรุ่นเก่าและให้ migration service account อ่านได้เท่านั้น
+- Production activation ต้องคง `SQL_PRIMARY_STORE=false`; การเปิด SQL ไม่เท่ากับอนุมัติ wallet/receipt primary cutover
+- `VERIFY_SQL_TRANSPORT=true` ต้อง execute read-only Cloud Run Job ก่อน migration/candidate ทุก release ที่ SQL เปิด
 
 Cloud SQL/MySQL Operational Requirements:
 
@@ -2423,6 +2470,19 @@ Cloud SQL/MySQL Operational Requirements:
 - ต้องประเมินว่า Cloud SQL อาจทำให้งบ 1,000 บาท/เดือนเกินได้ง่ายกว่า KMS/Secret Manager/Firestore หากเปิด HA หรือ instance ใหญ่ ดังนั้น Phase แรกควรใช้ staging/small instance หรือ self-managed local MariaDB จนกว่าจะอนุมัติงบ
 - Pricing reference ต้องตรวจซ้ำก่อน production: Cloud SQL Pricing (`https://cloud.google.com/sql/pricing`) และ database version support policy (`https://cloud.google.com/sql/docs/db-versions`)
 
+Plesk MariaDB Operational Requirements:
+
+- MariaDB ต้องเปิด `require_secure_transport=ON` หรือ policy ที่เทียบเท่า และ runtime/migration account ต้อง `REQUIRE SSL`
+- Runtime account มีเฉพาะ table-level `SELECT/INSERT/UPDATE/DELETE` ที่จำเป็น; migration account แยกและไม่ใช้รับ request ปกติ
+- ห้ามใช้ Plesk administrator, server administrator, database owner หรือ phpMyAdmin credential เป็น application credential
+- ต้องมี encrypted backup, retention, off-host copy ตาม RPO/RTO และ restore ใน isolated environment จริง
+- ต้องตรวจ connection/storage/traffic/backup quota ของ hosting package และกำหนด alert ก่อนช่วง Event peak
+- ต้องระบุ maintenance owner, hosting support contact, certificate expiry owner, credential rotation owner และ incident escalation path
+- Reserved NAT IP/Cloud NAT มีค่าใช้จ่ายแม้ไม่มี SQL write; planning cap เริ่มต้น `SQL_EGRESS_MONTHLY_BUDGET_THB=200` และต้องรวมใน Google Cloud budget 1,000 บาท
+- ก่อน provision ต้องตรวจ `GCS_MONTHLY_BUDGET_THB + SQL_EGRESS_MONTHLY_BUDGET_THB + GOOGLE_CLOUD_CORE_RESERVE_THB <= GOOGLE_CLOUD_MONTHLY_BUDGET_THB`; baseline คือ `700 + 200 + 100 <= 1,000`
+- การเปลี่ยน `SQL_STATIC_EGRESS_ENABLED=false` ต้องส่ง `--clear-network` ให้ revision ใหม่อย่างชัดเจนเพื่อไม่คง Direct VPC โดยปริยาย แต่ไม่ลบ VPC/NAT/IP; teardown ต้องมี change approval และยืนยันว่า service/job/revision ที่รับ traffic ทุกตัวไม่ใช้ network แล้ว
+- Runbook หลักคือ `docs/PLESK_MARIADB_RUNBOOK.md`
+
 Migration Safety Requirements:
 
 - ทุก migration ต้องมี `--dry-run` default และต้องใช้ explicit env เช่น `SQL_MIGRATION_WRITE=true` จึงจะเขียนจริง
@@ -2433,6 +2493,9 @@ Migration Safety Requirements:
 - ต้องมี dual-read comparison ใน shadow mode ก่อน switch read path
 - ต้องมี cutover checklist และ rollback checklist
 - ห้ามลบข้อมูล MongoDB หลัง migrate จนกว่าจะผ่าน observation period และ backup restore test
+- Cloud Run SQL transport job และ migration job ต้องใช้ immutable image digest และ network config เดียวกับ candidate
+- Job definition ต้องถูก execute จริงด้วย `--execute-now --wait`; การ deploy job โดยไม่ execute ห้ามนับว่าผ่าน migration gate
+- Transport job ต้อง read-only, task 1, retry 0, timeout จำกัด และ output เฉพาะ `tcp_tls`/verified status โดยไม่มี credential/endpoint detail
 
 Recommended Phase 1 SQL Scope:
 
@@ -2448,13 +2511,20 @@ Implementation Status:
 - แก้แล้ว: เพิ่ม schema migration แบบ dry-run default, checksum, advisory lock, dedicated migration credential และ two-key write gate
 - แก้แล้ว: เพิ่ม backfill 10 domains แบบ plan-only/dry-run, batch, high-watermark, resumable checkpoint, idempotent upsert, prefix revalidation, count + aggregate checksum comparison และ PII-minimized mapper
 - แก้แล้ว: เพิ่ม Secret Manager loading สำหรับ runtime/migration SQL password, TLS CA และ identity hash secret
+- แก้แล้ว: เลือก Plesk MariaDB เป็น target, กำหนด external destination `203.170.190.137`, แยกจาก Plesk-local `localhost:3306` และคง SQL ปิดแบบ fail-safe
+- แก้แล้ว: production SQL บังคับ TLS verify identity/TLS 1.2+, ตรวจ DNS/IP SAN, ตรวจ `Ssl_cipher`, endpoint pin, encrypted storage/backup confirmation, static egress และ Plesk allowlist confirmation
+- แก้แล้ว: SQL mapper เปลี่ยน raw QR/idempotency/verification/receipt identifiers เป็น domain-separated HMAC และ fail-closed เมื่อ dedicated key ขาด
+- แก้แล้ว: เพิ่ม read-only SQL protection aggregate audit ที่ไม่ดึงค่าจริง เพื่อจับ legacy plaintext ก่อนเปิด mirror read
+- แก้แล้ว: deployment script provision optional VPC/Cloud NAT/reserved IP ด้วย explicit cost gate และใช้ network เดียวกันกับ service/transport/migration job
+- แก้แล้ว: เพิ่ม read-only transport verification job และทำ migration execution contract ให้ explicit ด้วย `--execute-now --wait`
+- แก้แล้ว: SQL startup retry เฉพาะ transient Direct VPC/network failure แบบ bounded; credential/certificate/TLS failure ยังคง fail ทันที
 - ตรวจแล้ว: migration รันผ่าน MariaDB 12 จริง, รันซ้ำได้สถานะ `already_applied`, มี 25 FK/13 check constraints และ repository integration 10 domains rollback ผ่าน
 - แก้แล้ว: เพิ่ม source-of-truth matrix, migration/rollback/cost plan ที่ `docs/HYBRID_DB_MIGRATION_PLAN.md`
 - แก้แล้ว: เพิ่ม outbox/live mirror สำหรับ 10 domains, coalescing, lock/stale recovery, bounded retry, superseded race handling, dead-letter/audit/TTL, dry-run replay, graceful shutdown และ PII-free queue
 - แก้แล้ว: เพิ่ม superadmin SQL mirror status/dead-letter API, sync-lag threshold และ public readiness แบบไม่เปิดรายละเอียด
 - แก้แล้ว: เพิ่ม migration index สำหรับ incremental transaction reversal repair และใช้ domain registry/mapper ชุดเดียวกับ backfill
 - ยังต้องทำ: continuous reconciliation + shadow-read comparison และ staging backfill/outbox canary ด้วยข้อมูลสำเนาจริง
-- ยังต้องทำ: เลือก production provider และทำ backup restore/load/failover/cost proof ก่อน cutover; production data ยังไม่ถูก migrate
+- ยังต้องทำใน environment จริง: ให้ Plesk เปิด remote access/TLS, ส่ง CA/SAN evidence, ยืนยัน at-rest/backup encryption, provision/allowlist NAT IP และทำ restore/load/failover/cost proof; production data ยังไม่ถูก migrate
 
 ## 23. Gap และ Risk ที่ต้องปิดก่อน Production
 
@@ -2508,7 +2578,7 @@ Implementation Status:
 46. แก้แล้ว: เพิ่ม `secretProvider` abstraction แยก `env`, `google_secret_manager`, `file_for_test` และโหลดก่อน business modules
 47. แก้แล้วบางส่วน: เพิ่ม `SECRET_MANAGER_MAX_DAILY_ACCESS_OPS` และ status แล้ว; active-version inventory, centralized multi-instance metric และ monthly billing report ยังต้องทำ
 48. แก้แล้วบางส่วน: มี ERD/schema, SQL connector/repository, dry-run migration, resumable backfill, count/checksum validation, outbox/dead-letter/replay/live mirror และ rollback plan แล้ว; ยังต้องทำ continuous reconciliation, shadow-read mismatch และ staging canary ก่อน shadow read production
-49. ยังต้องทำ: ต้องตัดสิน provider สำหรับ structured DB ให้ชัดเจนว่าใช้ Cloud SQL for MySQL, self-managed MariaDB หรือ provider อื่น เพราะ Google Cloud SQL ไม่ใช่ MariaDB managed service โดยตรง
+49. แก้แล้วด้านการตัดสินใจ: เลือก MariaDB บน Plesk เป็น structured reporting target; ยังต้องให้ provider เปิด secure remote access และผ่าน environment proof ก่อนเปิดใช้งาน
 50. แก้แล้ว: กำหนด source-of-truth matrix ใน `docs/HYBRID_DB_MIGRATION_PLAN.md`; ทุก domain ยังใช้ MongoDB primary จนกว่าจะผ่าน cutover gate
 51. แก้แล้ว: Receipt duplicate-key fallback ต้อง query ด้วย `participantId + eventId` เพื่อไม่คืนใบเสร็จของคนละ Event และ amount ต้องเป็นเลขไม่ติดลบ
 52. แก้แล้ว: Server startup โหลด Secret ก่อน app, ตรวจ Mongo/KMS/SQL/outbox readiness, แสดง `/health/live`/`/health/ready` แบบไม่เปิดรายละเอียด และ graceful shutdown HTTP/outbox/connections/scheduler
@@ -2542,6 +2612,25 @@ Implementation Status:
 80. แก้แล้ว: Participant update/delete/restore และ Prize delete/cancel ตรวจ ObjectId, permission และ Event scope; prize cancel ใช้ transaction และ participant soft delete revoke session/token version
 81. แก้แล้ว: Public Report/Dashboard/Lucky Draw resolve public Event ก่อนโหลดข้อมูล ใช้ canonical slug+year เดียวกัน และแสดงชื่อ/โลโก้จาก Event; link ที่ year ไม่ตรง Event ต้อง fail closed แทนการแสดงหัวข้อคนละงาน
 82. แก้แล้ว: Event Admin deep link โหลด Event รายตัวจาก backend ตามสิทธิ์, ล้าง Event เก่าทันทีเมื่อ route เปลี่ยน, แสดงโลโก้หมุนพร้อมชื่อที่ verify จาก API และไม่ fallback ไป `location.state` ของ Event อื่น
+83. แก้แล้ว: SQL mirror เคยเก็บ participant/vendor QR, idempotency key, verification code และ receipt number แบบอ่านได้; เปลี่ยนเป็น dedicated domain-separated HMAC และเพิ่ม regression test แล้ว
+84. แก้แล้ว: SQL production เคยมี break-glass flag ให้ TLS แบบไม่ตรวจ identity; ปัจจุบันบังคับ `verify_identity`, CA pin, SAN validation, TLS 1.2 และตรวจ `Ssl_cipher` จริง
+85. ตรวจแล้วและ harden แล้ว: Google Cloud CLI ปัจจุบันระบุว่า `--wait` เดิม imply job execution จึงไม่ยืนยันว่าเป็น runtime bug; เพิ่ม `--execute-now --wait`, contract test และ read-only transport job เพื่อให้เจตนาชัดและจับ regression
+86. แก้แล้วในโค้ด/รอ infrastructure: เพิ่ม static VPC/NAT/reserved IP provisioning แบบ explicit gate, endpoint pin และ Plesk allowlist confirmation; ยังต้อง provision/ตั้งค่าจริง
+87. รอ provider evidence: KMS application key ไม่สามารถยืนยัน Plesk disk/tablespace/backup encryption แทน hosting provider ได้ จึงต้องคง at-rest/backup confirmation เป็น `false` จน restore drill ผ่าน
+88. แก้แล้วใน deployment contract: commit เฉพาะ Plesk destination IP; database name/runtime user/migration user ต้องมาจาก protected variables และ password/CA/HMAC key ต้องอยู่ pinned Secret Manager
+89. แก้แล้ว: SQL connector เดิมลอง connection ครั้งเดียวซึ่งเปราะกับ Direct VPC cold start; เพิ่ม retry สูงสุดแบบ bounded/backoff เฉพาะ network code และเพิ่ม test ว่า auth/TLS error ไม่ถูก retry
+90. แก้แล้ว: Mapper รุ่นใหม่อาจ overwrite active row ได้แต่ legacy/orphan SQL row อาจค้าง plaintext; เพิ่ม aggregate protection audit และกำหนดให้ reconciliation/approved cleanup ผ่านก่อน production read
+91. แก้แล้ว: Blind index จาก source เคยถูก copy เข้า SQL โดยไม่ validate ทำให้ malformed/plaintext อาจหลุดได้; เพิ่มรูปแบบ 64-hex และ fail closed ก่อน write
+92. แก้แล้ว: Secret sync เคย grant runtime account อ่าน `SQL_MIGRATION_PASSWORD`; เปลี่ยนเป็นถอน runtime binding และ grant เฉพาะ migration account
+93. แก้แล้ว: GitHub CD เคยไม่มีทางส่ง database/runtime/migration user และ TLS server name ที่ห้าม commit; เพิ่ม protected Environment variable mapping ทั้ง staging/production
+94. แก้แล้ว: การตรวจ endpoint เดิมยอมรับ host ใดก็ได้ถ้า `SQL_HOST` ตรง `SQL_EXPECTED_HOST`; เพิ่ม immutable approved Plesk host `203.170.190.137` ใน application/release guard
+95. แก้แล้ว: Plesk webhook trigger เคยยอมให้ expected host ว่าง; เปลี่ยนเป็นบังคับ host และ reject URL ที่ hostname ไม่ตรงก่อนส่ง payload
+96. แก้แล้ว: `TRUST_PROXY` validator เคยยอมรับ public CIDR กว้าง เช่น `0.0.0.0/0`; จำกัด explicit CIDR เป็น IPv4 `/32` หรือ IPv6 `/128` เท่านั้นและเพิ่ม regression test
+97. แก้แล้ว: Secret validation ยังไม่ตรวจรูปแบบ SQL CA และไม่ตรวจ mirror HMAC key ซ้ำกับ signing/blind-index key; เพิ่ม PEM validation และ key-separation gate แล้ว
+98. แก้แล้ว: Outbox เคยมอง malformed/plaintext blind index เป็น transient error ทำให้ retry ซ้ำ; เปลี่ยนเป็น permanent dead-letter เพื่อหยุดเขียนและรอ data remediation
+99. แก้แล้ว: SQL protection audit เดิมยังไม่ตรวจ participant email/phone/name/LINE blind-index columns; เพิ่ม aggregate violation check โดยไม่ select ค่าออกจากฐานข้อมูล
+100. แก้แล้ว: Release plan เคยสรุปทุก renderer failure ว่า Secret pins ไม่ครบ แม้ blocker เป็น runtime variable เช่น SMTP; เปลี่ยนข้อความให้ระบุทั้ง configuration และ pins โดยไม่เปิดเผยค่า
+101. แก้แล้ว: เมื่อปิด SQL static egress การ deploy โดยไม่ส่ง network flag อาจคง Direct VPC เดิมไว้; release ส่ง `--clear-network` ให้ revision ใหม่เพื่อป้องกัน egress/cost ค้างโดยไม่ตั้งใจ
 
 ## 24. Test และ Acceptance Checklist
 
@@ -2610,6 +2699,12 @@ Implementation Status:
 - Dashboard/report อ่านจาก SQL mirror ได้เฉพาะเมื่อ sync lag ไม่เกิน threshold
 - Dual-read comparison แสดง mismatch ระหว่าง MongoDB และ SQL ได้ก่อน cutover
 - SQL migration rollback กลับไป MongoDB primary ได้ตาม runbook ก่อน cutover
+- Cloud Run SQL transport job ต้อง connect `203.170.190.137:3306` ผ่าน `tcp_tls`, ตรวจ identity สำเร็จและ `Ssl_cipher` ไม่ว่างโดยไม่เขียน business row
+- Migration pipeline ต้อง execute job จริง; test ต้องจับ regression เมื่อขาด `--execute-now`
+- SQL startup ต้อง fail เมื่อ host ไม่ตรง expected endpoint, CA/identity/SAN ไม่ผ่าน, static egress/allowlist ไม่ยืนยัน หรือ encrypted storage/backup confirmation ขาด
+- SQL mapper output ต้องไม่มี raw participant/vendor QR, idempotency key, verification code, receipt number, LINE ID หรือ participant/donor PII
+- Plesk ต้องรับ connection จาก reserved NAT IP และปฏิเสธ connection จาก source อื่น
+- Encrypted SQL backup ต้อง restore ใน isolated environment แล้ว count/checksum/referential checks ผ่าน
 - Event settings upload logo/cover/payment QR แล้ว save ต้องสร้าง `eventLinks`; ไม่ save ต้อง cleanup หลัง TTL
 - Replace/clone Event media ต้องไม่ลบ object ที่ Event อื่นยังใช้อยู่
 - Public/admin slip upload แล้ว Donation create/update ต้อง claim object ได้ครั้งเดียวและ Event ต้องตรงกัน
@@ -2840,7 +2935,8 @@ Acceptance Criteria:
 - เสร็จในโค้ด: SQL connector/repository รองรับ MySQL/MariaDB-compatible dialect
 - เสร็จในโค้ด: migration/backfill แบบ dry-run default, resumable, count/checksum และ rollback plan
 - เสร็จในโค้ด: outbox/dead-letter worker สำหรับ MongoDB -> SQL live mirror พร้อม retry/replay/audit/status/readiness
-- บางส่วน: local MariaDB proof-of-concept ผ่าน; staging/provider comparison/cost test ยังไม่เสร็จ
+- เสร็จด้าน architecture/code: เลือก Plesk MariaDB, pin destination, TLS/at-rest/backup/network guardrail, protected mirror value และ optional static egress pipeline แล้ว
+- บางส่วน: local MariaDB proof-of-concept ผ่าน; Plesk remote TLS/static egress/restore/cost test ใน staging จริงยังไม่เสร็จ
 - เสร็จในเอกสาร: source-of-truth matrix สำหรับ MongoDB, SQL, Firestore, Secret Manager/KMS และ object storage
 
 Acceptance Criteria:
@@ -2851,6 +2947,8 @@ Acceptance Criteria:
 - Backfill จาก MongoDB ไป SQL รันซ้ำได้และ validation report ผ่านตาม threshold
 - Dashboard/report ทดลองอ่านจาก SQL mirror ได้โดย sync lag อยู่ใน SLA
 - Wallet/receipt/payment domain ยังไม่ cutover จนกว่า concurrent load test, reconciliation และ rollback ผ่านครบ
+- Plesk MariaDB เปิดได้เฉพาะเมื่อ transport job, `/32` allowlist, encrypted storage/backup evidence และ restore drill ผ่านครบ
+- SQL mirror validation ต้องยืนยันว่า bearer-like identifier เป็น HMAC และไม่มี PII/plaintext Secret
 - Cost estimate ของ Secret Manager/KMS/Firestore/Cloud SQL/MariaDB อยู่ในงบที่อนุมัติ หรือมี approval หากเกิน 1,000 บาท/เดือน
 
 ### Phase 8: Automated Deployment และ CI/CD
@@ -2858,7 +2956,7 @@ Acceptance Criteria:
 สถานะเป้าหมาย:
 
 - ใช้ `scripts/release.sh` เป็น deployment entrypoint เดียวของ local operator และ GitHub Actions
-- Build frontend และ backend เป็น container เดียวเพื่อใช้ same-origin cookie/CORS และลดจำนวน Cloud Run service
+- Canonical public web ต้องรัน React SPA และ same-origin gateway บน Plesk; Cloud Run image ยังมี frontend fallback แต่หน้าที่หลักคือ backend/API และ Google Cloud integration
 - GitHub ใช้ OIDC Workload Identity Federation โดยไม่มี service-account JSON key
 - ทุก release ผ่าน test, lint, dependency audit, container build, migration gate, candidate smoke test และ post-promotion smoke test
 - Production ต้อง manual dispatch จาก `main`, ผ่าน GitHub Environment approval และ rollback ได้โดยไม่ rebuild image
@@ -2902,6 +3000,7 @@ Acceptance Criteria:
 - GitHub Environment ต้องแยก `staging` และ `production`; ห้าม production ใช้ service account หรือ Secret prefix ของ staging
 - Deployment concurrency ต่อ environment ต้องเป็น 1 และห้าม cancel deployment ที่กำลังเปลี่ยน traffic
 - ก่อนเปิด `CD_ENABLED` ต้องตั้ง `GCP_PROJECT_ID`, `WIF_PROVIDER`, `DEPLOYER_SERVICE_ACCOUNT`, `APP_ORIGIN` และ public frontend keys ใน GitHub variables
+- `GCP_PROJECT_ID` ของ staging/production deployment ปัจจุบันต้องเป็น `cusa-reunion` และทุก Secret pin ต้องอยู่ project เดียวกัน
 - ห้ามเก็บ runtime Secret ใน GitHub Secrets หาก Secret Manager รองรับ; GitHub เก็บเฉพาะ non-secret resource identifier และ public site key
 - ผู้อนุมัติ production ต้องไม่เป็นผู้เขียน release เพียงคนเดียวเมื่อทีมมีผู้ดูแลอย่างน้อย 2 คน
 
@@ -2920,13 +3019,14 @@ Acceptance Criteria:
 
 ### 26.5 Google Cloud Bootstrap และ IAM
 
-- Bootstrap ต้อง idempotent และเปิดเฉพาะ API ที่ใช้จริง ได้แก่ Cloud Run, Artifact Registry, Secret Manager, IAM Credentials, STS และ Cloud Storage
+- Bootstrap ต้อง idempotent และเปิดเฉพาะ API ที่ใช้จริง ได้แก่ Cloud Run, Artifact Registry, Secret Manager, IAM Credentials, STS และ Cloud Storage; Compute API เปิดเพิ่มได้เฉพาะเมื่อ provision SQL static egress ผ่าน explicit gate
 - ต้องแยก runtime, migration และ deployer service account ต่อ environment
 - GitHub ต้อง authenticate ด้วย OIDC Workload Identity Federation; ห้ามสร้างหรือ upload service-account JSON key
 - OIDC provider condition ต้อง bind ด้วย numeric GitHub repository ID, numeric owner ID และ `refs/heads/main` เพื่อลดความเสี่ยงชื่อ repository/owner ถูกนำกลับมาใช้ใหม่
 - Deployer มีเฉพาะ Cloud Run Developer, Artifact Registry Writer ของ repository เป้าหมาย, Service Usage Consumer และ `actAs` เฉพาะ runtime/migration account
 - Runtime อ่าน Secret เฉพาะรายการของ environment, ใช้งาน object ใน bucket เฉพาะใบ และอ่าน bucket metadata ได้ แต่แก้ IAM/lifecycle ไม่ได้
-- Migration account อ่านเฉพาะ migration credential/TLS Secret และไม่มีสิทธิ์รับ HTTP traffic
+- Migration account อ่านเฉพาะ migration credential/TLS Secret และไม่มีสิทธิ์รับ HTTP traffic; runtime account ต้องไม่มีสิทธิ์อ่าน migration password
+- เมื่อเปิด Plesk SQL, deployer/Cloud Run service agent มี `compute.networkUser` เฉพาะ SQL egress subnet และห้ามได้ network admin จาก routine CD
 - การตั้ง public invoker IAM ต้องทำครั้งแรกด้วย bootstrap principal เท่านั้น ไม่ให้ CD principal มี `run.admin`
 - IAM change, Secret access, deployment และ traffic change ต้องอยู่ใน Cloud Audit Logs และมีผู้รับผิดชอบตรวจสอบ
 
@@ -2934,6 +3034,7 @@ Acceptance Criteria:
 
 - Runtime ต้องโหลด Secret จาก Secret Manager ผ่าน ADC ของ runtime service account และต้อง `fail closed`
 - ทุก Secret ต้อง pin เป็น version number; ห้ามใช้ `latest` ใน production runtime
+- Pinned resource ต้องตรง project ที่ deploy, environment `SECRET_MANAGER_PREFIX`, logical secret name และ numeric version; cross-project/cross-environment pin ต้อง fail ก่อน deployและ fail ซ้ำที่ runtime
 - ไฟล์ `deploy/secret-versions/<environment>.json` เก็บได้เฉพาะ resource/version identifier และต้องไม่มี Secret payload
 - การสร้าง/rotate Secret ต้องใช้ `ALLOW_SECRET_UPLOAD=true`; Secret ที่มีอยู่ต้องไม่ rotate เว้นแต่ตั้ง `ROTATE_SECRETS=true`
 - ค่า integration ที่ระบบสร้างเองไม่ได้ เช่น MongoDB URI, Turnstile, SMTP, LINE, OAuth และ SQL password ต้องขาดแล้วหยุด ไม่ generate ค่าปลอม
@@ -2951,7 +3052,10 @@ Acceptance Criteria:
 - CI ต้องตรวจ migration plan/checksum โดยไม่เชื่อม production DB
 - Schema migration production ต้องเป็น backward-compatible expand migration ก่อน deploy application; destructive contract migration ต้องเป็น release แยกหลัง rollback window
 - `RUN_SQL_MIGRATIONS=true` ใช้ได้เมื่อ `SQL_ENABLED=true`, มี pinned `SQL_MIGRATION_PASSWORD`, backup/restore point และ approval แล้วเท่านั้น
-- Migration ต้องรันเป็น Cloud Run Job ด้วย image digest เดียวกับ release, 1 task, parallelism 1, advisory lock, timeout และ retry 0
+- `SQL_ENABLED=true` ต้องบังคับ `VERIFY_SQL_TRANSPORT=true` และ execute read-only transport job ผ่าน authenticated TLS ก่อน migration/candidate
+- Transport และ migration job ต้องใช้ Direct VPC/subnet/egress config เดียวกับ Cloud Run service เพื่อให้ Plesk เห็น reserved source IP เดียวกัน
+- Migration ต้องรันเป็น Cloud Run Job ด้วย image digest เดียวกับ release, 1 task, parallelism 1, advisory lock, timeout, retry 0 และ `--execute-now --wait`
+- Pipeline test ต้อง fail หากพบเพียง `jobs deploy` แต่ไม่มีการ execute job
 - Migration ล้มเหลวต้องหยุดก่อนสร้าง/promote candidate และห้ามเปลี่ยน traffic
 - MongoDB backfill, key rotation, data rewrite และ source-of-truth cutover ห้ามรันอัตโนมัติจาก routine deploy; ต้องใช้ maintenance runbook, dry-run, reconciliation และ rollback แยก
 - Application rollback ต้องใช้ได้กับ schema หลัง migration; หากไม่ backward-compatible ต้องปฏิเสธ release ตั้งแต่ review
@@ -2961,15 +3065,16 @@ Acceptance Criteria:
 1. ตรวจ clean source, production approval และ configuration
 2. รัน quality gate ทั้งหมด
 3. Build/push image และ pin digest
-4. รัน additive SQL migration job หากเปิด gate
-5. บันทึก revision ที่รับ traffic 100% อยู่ก่อนหน้า
-6. Deploy revision ใหม่ด้วย `--no-traffic` และ unique candidate tag
-7. ตรวจ `/health/live` ว่า release ID ตรงกับ commit
-8. ตรวจ `/health/ready` ว่า Secret, MongoDB, optional SQL/KMS/outbox และ object storage พร้อม
-9. ตรวจ root SPA ว่า frontend asset ถูกเสิร์ฟจริง
-10. Promote revision ใหม่เป็น 100% และรัน smoke test ซ้ำผ่าน canonical service URL
-11. ถ้า post-promotion test ล้มเหลว ให้ route 100% กลับ revision เดิมและรายงาน pipeline failure
-12. ลบ candidate tag หลังสำเร็จ/ล้มเหลวเพื่อลด tagged revision cost
+4. หากเปิด SQL ให้ execute read-only transport verification job และหยุดทันทีหาก TLS/network/allowlist fail
+5. รัน additive SQL migration job หากเปิด gate และต้อง execute สำเร็จจริง
+6. บันทึก revision ที่รับ traffic 100% อยู่ก่อนหน้า
+7. Deploy revision ใหม่ด้วย `--no-traffic` และ unique candidate tag
+8. ตรวจ `/health/live` ว่า release ID ตรงกับ commit
+9. ตรวจ `/health/ready` ว่า Secret, MongoDB, optional SQL/KMS/outbox และ object storage พร้อม
+10. ตรวจ root SPA ว่า frontend asset ถูกเสิร์ฟจริง
+11. Promote revision ใหม่เป็น 100% และรัน smoke test ซ้ำผ่าน canonical service URL
+12. ถ้า post-promotion test ล้มเหลว ให้ route 100% กลับ revision เดิมและรายงาน pipeline failure
+13. ลบ candidate tag หลังสำเร็จ/ล้มเหลวเพื่อลด tagged revision cost
 
 - Rollback ต้องระบุ revision ได้และตรวจว่า revision อยู่ใน service/region ที่ถูกต้อง
 - หากไม่ระบุ revision ระบบเลือก previous ready revision ที่ไม่ใช่ revision ปัจจุบัน แต่ operator ต้องตรวจ release metadata ก่อน production rollback
@@ -3027,6 +3132,95 @@ Acceptance Criteria:
 
 รายละเอียดปฏิบัติการให้ยึด `docs/DEPLOYMENT_RUNBOOK.md` เป็น runbook หลัก
 
+### 26.13 Plesk Public Web และ Cloud Run Backend Requirements
+
+#### 26.13.1 Architecture และ Ownership
+
+- Canonical origin สำหรับผู้ใช้ต้องเป็น `https://reunion.scicu-alumni.com` ซึ่งผูก Domain/SSL กับ Plesk แล้ว งาน Phase 1 นี้ห้ามเปลี่ยน DNS โดยไม่มี change request แยก
+- Plesk ต้องรัน Node.js 22 application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว
+- Cloud Run ต้องคงเป็น backend/API compute และเป็น component เดียวที่เข้าถึง MongoDB, Secret Manager, GCS, KMS, Firestore, MariaDB/SQL, SMTP และ server-side provider secrets
+- Plesk ห้ามมี Google service-account JSON, ADC token, MongoDB URI, JWT/session/CSRF key, SMTP password, LINE channel secret, Turnstile secret, KMS plaintext key หรือ database password
+- Cloud Run frontend bundle ใช้เป็น fallback/diagnostic ได้ แต่หลัง go-live ห้ามถือ `run.app` เป็น canonical URL ที่ส่งให้ผู้ใช้
+- เนื่องจาก Phase 1 ไม่ใช้ external HTTPS Load Balancer เพื่อคุมงบ Cloud Run endpoint ยังคง public สำหรับ Plesk upstream; ทุก API จึงต้องรักษา auth/RBAC/CSRF/rate-limit/idempotency ที่ backend และห้ามพึ่ง CORS/Plesk WAF เป็น authorization
+
+#### 26.13.2 Request Routing และ Function Relationship
+
+- Plesk ต้องให้บริการ `/` และ non-API route ด้วย SPA โดย navigation response เป็น `Cache-Control: no-store`
+- Plesk ต้อง proxy เฉพาะ `/api`, `/health`, `/uploads` และ path ลูกไป Cloud Run โดยคง method, path, query, body และ status code
+- `/gateway/health/live` ต้องตรวจ process ใน Plesk เท่านั้น; `/gateway/health/ready` ต้องตรวจทั้ง gateway และ Cloud Run `/health/ready` แต่คืนข้อมูล sanitized
+- Path `/api` ที่ไม่พบหรือ method ที่ไม่รองรับต้องคืน JSON 404/405 จาก API flow และห้าม fallback เป็น `index.html`
+- Static asset ที่มี content hash ใช้ cache immutable ได้; HTML, health, auth response และ error ต้อง `no-store`
+- Gateway ต้อง rewrite/remove upstream cookie Domain เพื่อให้ cookie ผูกกับ public domain และต้องไม่ลด `Secure`, `HttpOnly`, `SameSite` หรือ Path policy ของ backend
+- Upload/download ต้องผ่าน `/uploads` หรือ signed/private object flow ที่กำหนด ห้ามคัดลอกรูป/slip ไปเก็บซ้ำบน Plesk
+- Browser ต้องใช้ `VITE_API_BASE_URL=/api` เพื่อไม่เรียก Cloud Run จาก client โดยตรง
+
+#### 26.13.3 Origin, Callback และ Public URL Contract
+
+- `APP_ORIGIN` ต้องเป็น deterministic Cloud Run HTTPS origin สำหรับ candidate/readiness/deployment smoke เท่านั้น
+- `PUBLIC_WEB_ORIGIN` ต้องเป็น `https://reunion.scicu-alumni.com` และเป็นแหล่งของ `PUBLIC_URL`, `FRONTEND_URL`, `OBJECT_STORAGE_PUBLIC_API_ORIGIN`, email/QR/guest link และ provider callback
+- Runtime ต้องสร้าง `CORS_ORIGIN` จาก Cloud Run origin และ Plesk originแบบ exact match, deduplicate และห้าม wildcard ใน production
+- Turnstile hostname allowlist ต้องมี `reunion.scicu-alumni.com`; site key บน Pleskเป็น public value แต่ secret key ต้องอยู่ Secret Manager
+- Google OAuth authorized JavaScript origin ต้องตรงกับ public origin และ LINE Login callback ต้องเป็น `https://reunion.scicu-alumni.com/user/line/callback`
+- Provider config ไม่ครบต้องปิด provider นั้นใน capability endpoint/UI โดยไม่ทำให้ email login หรือ provider อื่นล้มตาม
+
+#### 26.13.4 Gateway Security
+
+- Production startup ต้อง fail closed เมื่อ `PUBLIC_HOST` ว่าง, upstream ไม่ใช่ HTTPS `run.app`, timeout ไม่ถูกต้อง หรือ frontend build ไม่มี `index.html`
+- Gateway ต้องปฏิเสธ Host ที่ไม่อยู่ allowlist ด้วย HTTP 421 เพื่อป้องกัน Host-header abuse และ cache poisoning
+- Gateway ต้องตั้ง CSP, HSTS, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, referrer policy และปิด technology disclosure
+- CSP ต้องรองรับเฉพาะ origin ที่จำเป็นต่อ Turnstile/Google login และต้องไม่ใช้ `unsafe-eval` ใน production
+- Gateway ต้องสร้าง/validate request ID, กำหนด upstream timeout แบบ bounded, ไม่เปิด WebSocket ใน Phase 1 และคืน generic 502 โดยไม่เปิด hostname/stack trace
+- Gateway ต้อง strip upstream `Server`/`X-Powered-By`; health/error/log ห้ามมี token, cookie, query secret, PII หรือ upstream credential
+- `.htaccess` ที่มี `PassengerEnabled off` ต้องถูกตัดออกจาก Plesk public release เพราะจะ bypass/ปิด Node gateway
+- `TRUST_PROXY` ของ backend ต้องรับเฉพาะ named private proxy ranges และ verified Plesk outbound `/32`; ห้าม `true`, hostname, malformed CIDR หรือ broad public CIDR
+- ก่อน go-live ต้องทดสอบ client สองเครือข่ายว่า rate limit/audit แยก IP ได้ หากทุกคนเป็น IP เดียวต้องหยุดเปิดระบบและแก้ proxy chain
+- `X-PSEvent-Gateway` เป็น observability marker เท่านั้น ห้ามใช้เป็น credential เพราะ client ปลอม header ได้
+
+#### 26.13.5 Plesk Runtime และ Build Contract
+
+- Plesk Node.js ต้องเป็น 22.x, mode `Production`, application root `hosting/plesk-gateway`, document root `hosting/plesk-gateway/public` และ startup file `app.js`
+- Passenger/Plesk เป็นผู้ inject `PORT`; source, Plesk environment และ deployment action ห้าม hard-code `PORT`
+- `UPSTREAM_ORIGIN` ต้องไม่มี path/query/credential และต้องเปลี่ยนจาก staging ไป production เฉพาะหลัง production acceptance ผ่าน
+- `VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID`, `VITE_LIFF_ID` เป็น public build-time identifiers เท่านั้น ห้ามนำ Secret มาใส่ `VITE_*`
+- Build ต้องใช้ lockfile และ `npm ci`; gateway production dependency audit ระดับ High/Critical ต้องผ่าน
+- Public release ต้องสลับ directory แบบไม่เผย partial build, เก็บ previous release อย่างน้อยหนึ่งชุด และมี release ID ที่ตรงกับ Git SHA
+- Rollback metadata ต้อง validate ก่อน swap; metadata เสียหรือ current release ไม่ครบต้อง fail โดยไม่ทำลาย release ที่กำลังให้บริการ
+
+#### 26.13.6 Git Pipeline และ Deployment Flow
+
+- Routine deploy ต้องใช้ Plesk Git ไม่ใช้ FTP โดย private repository ใช้ read-only deploy key และติดตาม dedicated branch `plesk-production` ไม่ใช่ `main` โดยตรง
+- GitHub Plesk workflow ต้องเริ่มหลัง CI ของ push `main` สำเร็จ, ตรวจ same repository/fork boundary และ checkout SHA ที่ CI ตรวจ
+- Workflow ต้อง fast-forward `plesk-production` ไปยัง approved SHA ด้วย `force=false` ก่อนยิง webhook; non-fast-forward/race ต้อง fail เพื่อไม่ deploy commit ที่ยังไม่ผ่าน CI
+- สิทธิ์ `contents: write` ใช้เฉพาะ release-ref promotion step, token ห้าม persist ใน checkout/ส่งต่อ Plesk และ workflow ห้ามมีสิทธิ์ `id-token`/Secret อื่นที่ไม่จำเป็น
+- `PLESK_CD_ENABLED` ต้องเริ่ม `false`; job ต้องไม่ทำงานจน manual deploy, smoke, rollback drill และ provider/cost checks ผ่าน
+- Plesk webhook URL ต้องเป็น HTTPS และเก็บเป็น GitHub Environment secret `PLESK_GIT_WEBHOOK_URL`; workflow/log ห้ามพิมพ์ URL
+- `PLESK_WEBHOOK_HOST` ต้องบังคับมีค่าและตรง hostname ของ webhook Secret; missing/mismatch ต้องหยุดก่อนส่ง request
+- Environment `plesk-production` ต้องมี `PLESK_ORIGIN`, expected webhook host, required reviewer และ branch restriction ตาม plan ที่รองรับ
+- Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก repository root และสร้าง Passenger restart marker หลัง build สำเร็จเท่านั้น
+- หลัง webhook workflow ต้อง retry external smoke แบบ bounded และต้อง fail เมื่อ gateway readiness, SPA, security headers, release header หรือ same-origin API ผิด contract
+- FTP/SFTP credential, Plesk password และ SSH private key ห้ามอยู่ใน repository หรือ GitHub Actions
+
+#### 26.13.7 Failure, Rollback และ Recovery Flow
+
+- Build/test fail ต้องคง current public releaseและไม่ restart application
+- Upstream timeout/DNS/Cloud Run unavailable ต้องคืน generic 502/503 พร้อม `no-store`; browser แสดง retry state และห้ามสร้าง transaction ซ้ำโดยไม่มี idempotency key
+- Frontend rollback ต้อง swap previous release โดยไม่ rebuild และรัน external smoke ซ้ำ; การ rollback ครั้งถัดไปสามารถสลับกลับ current เดิมได้
+- Gateway source code เสียต้อง checkout/deploy known-good Git commit เพราะ static public rollbackอย่างเดียวไม่ย้อน Node source
+- Backend rollback ต้อง route ไป immutable previous Cloud Run revision โดยไม่ rebuild imageหรือย้อน destructive migration
+- Plesk outage ห้ามเปลี่ยน DNS ฉุกเฉินโดยไม่มี TTL/rollback/communication plan; Cloud Run URL ใช้ operator diagnostic ได้แต่ห้ามประกาศเป็น canonical โดยพลการ
+- ทุก rollback ต้องบันทึก release ID, เวลา, impact, data reconciliation, owner, cause และ follow-up
+
+#### 26.13.8 Cost และ Acceptance Criteria
+
+- ต้องใช้ Plesk hosting เดิมสำหรับ public web และ Cloud Run backend service เดียว ห้ามเพิ่ม Cloud Run frontend service หรือ external load balancer ใน Phase 1 โดยไม่มี cost approval
+- Cloud Run ต้อง scale-to-zero ตาม environment policy; static cache ต้องลด repeated egress และรูป/slip ต้องใช้ GCS lifecycle โดยไม่ duplicate บน Plesk
+- Monthly review ต้องรวม Cloud Run internet egress ที่เกิดจาก Cloud Run -> Plesk proxy response, Logging, Secret Manager, GCS, KMS และ optional data stores
+- Forecast normal-load รวมต้องไม่เกิน 1,000 บาท/เดือนและ Billing Budget threshold 50%, 80%, 90%, 100% ต้องพร้อมก่อนเปิด auto-deploy
+- Go-live ต้องผ่าน `gateway/health/ready`, root SPA, release/security headers, auth provider API, login/OTP/logout, registration, upload, check-in, wallet/vendor QR และ rollback drill ผ่าน public domain
+- Cookie ต้องอยู่ public domain, `Secure` และไม่มี `run.app` Domain; email/QR/callback/object URL ต้องไม่มี `localhost` หรือ `run.app` สำหรับ user-facing production flow
+- Domain/SSL, read-only deploy key, Node settings, webhook protection, client-IP test, backend readiness, private GCS, audit redaction และ cost alert ต้องมีหลักฐานตรวจสอบ
+- รายละเอียดค่าตั้งและคำสั่ง operation ให้ยึด `docs/PLESK_WEB_GATEWAY_RUNBOOK.md`
+
 ## 27. Definition of Done
 
 ระบบจะถือว่าพร้อมใช้งาน production เมื่อ:
@@ -3049,5 +3243,11 @@ Acceptance Criteria:
 16. GitHub-to-Google Cloud ต้องใช้ WIF แบบ numeric repository/owner binding และ repository ต้องไม่มี service-account JSON key
 17. Deployment Secret ทุกตัวต้องอยู่ Secret Manager แบบ pin version และ routine deploy ต้องไม่ส่ง plaintext Secret ผ่าน env file/CLI/image
 18. Billing Budget, scale-to-zero/max instances, GCS region/lifecycle และ Artifact Registry cleanup ต้องตั้งจริงก่อนเปิด `CD_ENABLED=true`
+19. Plesk Git/Node.js/gateway ต้อง deployจาก CI-approved SHA ผ่าน dedicated `plesk-production` ref และ external smoke โดยไม่ใช้ FTP และไม่มี backend/GCP Secret บน Plesk
+20. `PUBLIC_WEB_ORIGIN`, provider callback, CORS, Turnstile, cookie และ link generation ต้องใช้ `https://reunion.scicu-alumni.com` ตลอด user-facing flow
+21. Plesk frontend rollback และ Cloud Run backend rollback drill ต้องผ่านแยกกัน พร้อม release ID, RTO และ incident owner
+22. `PLESK_CD_ENABLED` ต้องคง `false` จน Host/security header/client-IP/auth/upload/wallet/cost acceptance ผ่านครบ
+23. หากเปิด MariaDB ต้องใช้ Plesk target `203.170.190.137` ผ่าน reserved Cloud NAT IP `/32`, authenticated TLS, transport job, least-privilege accounts และห้ามมี DB Secret บน Plesk web gateway
+24. Plesk at-rest/backup encryption evidence, encrypted restore drill, SQL mirror plaintext scan, reconciliation และ total GCP forecastรวม static egress ต้องผ่านก่อน `SQL_ENABLED=true`
 
-รายละเอียด operation และ migration ให้ยึด `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md` เป็น runbook หลัก
+รายละเอียด operation และ migration ให้ยึด `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md`, `docs/PLESK_MARIADB_RUNBOOK.md` และ `docs/DEPLOYMENT_RUNBOOK.md` เป็น runbook หลักตาม component
