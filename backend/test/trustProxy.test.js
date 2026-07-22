@@ -2,8 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { isValidProxyRange, resolveTrustProxy } = require('../src/utils/trustProxy');
 
-test('trust proxy defaults to the single Cloud Run frontend hop', () => {
-  assert.equal(resolveTrustProxy(undefined), 1);
+test('trust proxy defaults to the single Cloud Run frontend hop when unset', (t) => {
+  const previousValue = process.env.TRUST_PROXY;
+  delete process.env.TRUST_PROXY;
+  t.after(() => {
+    if (previousValue === undefined) delete process.env.TRUST_PROXY;
+    else process.env.TRUST_PROXY = previousValue;
+  });
+
+  assert.equal(resolveTrustProxy(), 1);
   assert.equal(resolveTrustProxy('2'), 2);
 });
 

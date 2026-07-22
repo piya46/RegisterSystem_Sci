@@ -2631,6 +2631,8 @@ Implementation Status:
 99. แก้แล้ว: SQL protection audit เดิมยังไม่ตรวจ participant email/phone/name/LINE blind-index columns; เพิ่ม aggregate violation check โดยไม่ select ค่าออกจากฐานข้อมูล
 100. แก้แล้ว: Release plan เคยสรุปทุก renderer failure ว่า Secret pins ไม่ครบ แม้ blocker เป็น runtime variable เช่น SMTP; เปลี่ยนข้อความให้ระบุทั้ง configuration และ pins โดยไม่เปิดเผยค่า
 101. แก้แล้ว: เมื่อปิด SQL static egress การ deploy โดยไม่ส่ง network flag อาจคง Direct VPC เดิมไว้; release ส่ง `--clear-network` ให้ revision ใหม่เพื่อป้องกัน egress/cost ค้างโดยไม่ตั้งใจ
+102. แก้แล้ว: Trust-proxy default test เคยอาศัย process environment ว่าง แต่ quality gate โหลด environment ของ staging ก่อนรัน ทำให้ CI ล้มแม้ validator ทำงานถูกต้อง; test ต้องแยกและคืนค่า `TRUST_PROXY` ทุกครั้ง พร้อมทดสอบ deployment allowlist แยกต่างหากเพื่อไม่ให้ configuration จริงปนกับ unit-test default
+103. แก้แล้ว: Deployment contract test เคยผ่านเฉพาะเครื่องที่ติดตั้ง Google Cloud CLI และ `jq` แม้ไม่ได้เรียก Cloud API; เพิ่ม isolated command stubs ภายใน test เพื่อให้ quality gate บน clean Node 22 image ตรวจ logic เดียวกันได้โดยไม่พึ่งเครื่องมือหรือ credential ภายนอก
 
 ## 24. Test และ Acceptance Checklist
 

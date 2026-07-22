@@ -146,12 +146,20 @@ test('Plesk MariaDB egress is explicit, static, allowlistable, and shared by ser
   assert.match(secretSync, /name === 'SQL_MIGRATION_PASSWORD'[\s\S]*revokeSecretAccess\(projectId, secretId, runtimeAccount\)/);
 });
 
-test('disabled optional release steps do not abort the command under errexit', () => {
+test('disabled optional release steps do not abort the command under errexit', (t) => {
+  const commandDir = fs.mkdtempSync(path.join(os.tmpdir(), 'psevent-release-test-'));
+  const gcloudStub = path.join(commandDir, 'gcloud');
+  const jqStub = path.join(commandDir, 'jq');
+  fs.writeFileSync(gcloudStub, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  fs.writeFileSync(jqStub, '#!/bin/sh\nprintf "0\\n"\n', { mode: 0o755 });
+  t.after(() => fs.rmSync(commandDir, { recursive: true, force: true }));
+
   const result = spawnSync('bash', [path.join(ROOT, 'scripts/release.sh'), 'plan', 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
     env: {
       ...process.env,
+      PATH: `${commandDir}${path.delimiter}${process.env.PATH || ''}`,
       PROJECT_ID: 'psevent-test1',
       PROJECT_NUMBER: '123456789012',
       LOAD_LOCAL_DEPLOY_CONFIG: 'false',
