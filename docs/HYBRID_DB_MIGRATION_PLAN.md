@@ -64,9 +64,9 @@ MariaDB target ที่รองรับควรเป็น MariaDB 10.6+ �
 ## 4. Connection Security
 
 - Plesk target ใช้ Direct VPC egress แบบ `all-traffic`, Cloud NAT และ reserved IP เพื่อให้ Plesk allowlist source `/32`
-- TCP production ต้องเป็น `SQL_SSL_MODE=verify_identity`, มี `SQL_SSL_CA` จาก pinned Secret Manager version และตรวจ certificate DNS/IP SAN
-- Production ห้าม `disabled`, `required`, `verify_ca`, `SQL_ALLOW_INSECURE_PRODUCTION` และ `SQL_ALLOW_UNVERIFIED_TLS`
-- Startup ต้องตรวจ `SHOW SESSION STATUS LIKE 'Ssl_cipher'` และ fail หาก session ไม่ได้ negotiate TLS จริง
+- TCP production ปกติต้องเป็น `SQL_SSL_MODE=verify_identity`, มี `SQL_SSL_CA` จาก pinned Secret Manager version และตรวจ certificate DNS/IP SAN
+- Hostatom exception ที่เจ้าของระบบอนุมัติวันที่ 2026-08-14 ใช้ `SQL_SSL_MODE=disabled` และ `SQL_ALLOW_INSECURE_PRODUCTION=true` ได้เฉพาะ `SQL_HOST=SQL_EXPECTED_HOST=203.170.190.137`; ผู้ให้บริการไม่มี IP allowlist จึงต้องใช้ runtime user สิทธิ์ต่ำและ endpoint อื่นยัง fail closed
+- Startup ต้องตรวจ `SHOW SESSION STATUS LIKE 'Ssl_cipher'`; TLS mode ต้องได้ cipher จริง ส่วน approved Hostatom exception ต้องรายงาน `tcp_plain` อย่างชัดเจนและห้าม fallback ไป endpoint อื่น
 - Direct VPC cold-start retry ต้อง bounded/exponential และ retry เฉพาะ transient network code; auth/certificate/identity/TLS failure ต้องหยุดทันที
 - Plesk firewall/database access rule ต้องอนุญาตเฉพาะ reserved NAT IP ห้ามเปิด `3306` ให้ `0.0.0.0/0`
 - ต้องยืนยัน Plesk storage/tablespace encryption และ encrypted backup restore ก่อนตั้ง confirmation flag

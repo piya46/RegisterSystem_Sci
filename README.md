@@ -177,7 +177,7 @@ GCS_LOCATION=asia-southeast3
 GCS_MONTHLY_BUDGET_THB=650
 ```
 
-Production target คือ MariaDB บน Plesk ที่ `203.170.190.137:3306` แต่ต้องคงปิดจนกว่า static Cloud NAT IP, Plesk `/32` allowlist, TLS identity/CA, encrypted storage/backup และ read-only transport job ผ่าน ชื่อ database/user จริงไม่อยู่ใน repository
+Production target คือ MariaDB บน Plesk ที่ `203.170.190.137:3306` Hostatom endpoint ไม่ advertise TLS และไม่มี IP allowlist จึงใช้ approved production exception แบบ `SQL_SSL_MODE=disabled` เฉพาะ endpoint นี้ พร้อม endpoint pin, least-privilege runtime user, encrypted storage/backup และ read-only transport job ชื่อ database/user จริงไม่อยู่ใน repository
 
 ดูรายการ config และ safety flags ทั้งหมดที่ `backend/.env.example` รวมถึง runbook ใน `docs/SECRET_MANAGER_RUNBOOK.md`, `docs/HYBRID_DB_MIGRATION_PLAN.md`, `docs/PLESK_MARIADB_RUNBOOK.md`, `docs/GCS_OBJECT_STORAGE_RUNBOOK.md`, `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md` และ `docs/PLESK_WEB_GATEWAY_RUNBOOK.md`
 

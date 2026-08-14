@@ -64,16 +64,21 @@ test('deployment environment files contain non-secret configuration only', () =>
     );
     assert.equal(values.GCS_LOCATION, values.REGION);
     assert.match(values.SECRET_MANAGER_PREFIX, new RegExp(environment));
-    assert.equal(values.SQL_ENABLED, 'false');
-    assert.equal(values.VERIFY_SQL_TRANSPORT, 'false');
+    assert.equal(values.SQL_ENABLED, environment === 'production' ? 'true' : 'false');
+    assert.equal(values.VERIFY_SQL_TRANSPORT, environment === 'production' ? 'true' : 'false');
     assert.equal(values.SQL_PROVIDER, 'plesk');
     assert.equal(values.SQL_HOST, '203.170.190.137');
     assert.equal(values.SQL_EXPECTED_HOST, values.SQL_HOST);
-    assert.equal(values.SQL_SSL_MODE, 'verify_identity');
-    assert.equal(values.SQL_AT_REST_ENCRYPTION_CONFIRMED, 'false');
-    assert.equal(values.SQL_BACKUP_ENCRYPTION_CONFIRMED, 'false');
+    assert.equal(values.SQL_SSL_MODE, environment === 'production' ? 'disabled' : 'verify_identity');
+    assert.equal(values.SQL_AT_REST_ENCRYPTION_CONFIRMED, environment === 'production' ? 'true' : 'false');
+    assert.equal(values.SQL_BACKUP_ENCRYPTION_CONFIRMED, environment === 'production' ? 'true' : 'false');
     assert.equal(values.SQL_STATIC_EGRESS_ENABLED, 'false');
     assert.equal(values.SQL_NETWORK_ALLOWLIST_CONFIRMED, 'false');
+    if (environment === 'production') {
+      assert.equal(values.SQL_EVENT_REGISTRATION_PRIMARY, 'true');
+      assert.equal(values.SQL_ALLOW_INSECURE_PRODUCTION, 'true');
+      assert.equal(values.SQL_SSL_CA_SECRET_NAME, '');
+    }
     assert.equal(values.RUN_SQL_MIGRATIONS, 'false');
     assert.equal(values.RUN_SQL_BACKFILL, 'false');
     assert.equal(values.RUN_SQL_PROTECTION_AUDIT, 'false');
@@ -190,18 +195,34 @@ test('SQL migration Secret access is temporary and limited to the selected job p
   const runtime = buildSecretAccessPlan({});
   assert.deepEqual(runtime.migrationAccessNames, []);
 
-  const schemaOnly = buildSecretAccessPlan({ RUN_SQL_MIGRATIONS: 'true' });
+  const schemaOnly = buildSecretAccessPlan({
+    RUN_SQL_MIGRATIONS: 'true',
+    SQL_SSL_CA_SECRET_NAME: 'SQL_SSL_CA',
+  });
   assert.deepEqual(schemaOnly.migrationAccessNames, [
     'SQL_MIGRATION_PASSWORD',
     'SQL_SSL_CA',
   ]);
 
-  const backfill = buildSecretAccessPlan({ SECRET_SYNC_PROFILE: 'sql-migration' });
+  const backfill = buildSecretAccessPlan({
+    SECRET_SYNC_PROFILE: 'sql-migration',
+    SQL_SSL_CA_SECRET_NAME: 'SQL_SSL_CA',
+  });
   assert.deepEqual(backfill.migrationAccessNames, [
     'MONGODB_URI',
     'SQL_MIGRATION_PASSWORD',
     'SQL_MIRROR_IDENTITY_HASH_SECRET',
     'SQL_SSL_CA',
+  ]);
+
+  const hostatomWithoutCa = buildSecretAccessPlan({
+    SECRET_SYNC_PROFILE: 'sql-migration',
+    SQL_SSL_CA_SECRET_NAME: '',
+  });
+  assert.deepEqual(hostatomWithoutCa.migrationAccessNames, [
+    'MONGODB_URI',
+    'SQL_MIGRATION_PASSWORD',
+    'SQL_MIRROR_IDENTITY_HASH_SECRET',
   ]);
 
   const cleanup = buildSecretAccessPlan({ SECRET_SYNC_PROFILE: 'sql-migration-cleanup' });

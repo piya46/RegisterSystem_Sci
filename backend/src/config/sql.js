@@ -34,6 +34,15 @@ function normalizedSslMode() {
   ).toLowerCase();
 }
 
+function productionPlaintextExceptionEnabled() {
+  return process.env.NODE_ENV === 'production'
+    && boolEnv('SQL_ALLOW_INSECURE_PRODUCTION', false)
+    && normalizedSslMode() === 'disabled'
+    && String(process.env.SQL_PROVIDER || '').trim().toLowerCase() === 'plesk'
+    && String(process.env.SQL_HOST || '').trim() === APPROVED_PLESK_SQL_HOST
+    && String(process.env.SQL_EXPECTED_HOST || '').trim() === APPROVED_PLESK_SQL_HOST;
+}
+
 function validHost(value) {
   const host = String(value || '').trim();
   if (!host || host.length > 253) return false;
@@ -100,19 +109,27 @@ function assertSqlConfiguration() {
     throw new Error('SQL_SSL_SERVERNAME must be the DNS name present in the MariaDB certificate');
   }
   if (process.env.NODE_ENV === 'production') {
-    if (boolEnv('SQL_ALLOW_INSECURE_PRODUCTION', false) || boolEnv('SQL_ALLOW_UNVERIFIED_TLS', false)) {
-      throw new Error('SQL insecure TLS overrides are forbidden in production');
+    const plaintextException = productionPlaintextExceptionEnabled();
+    if (boolEnv('SQL_ALLOW_UNVERIFIED_TLS', false)) {
+      throw new Error('SQL unverified TLS overrides are forbidden in production');
     }
-    if (!usesSocket && sslMode !== 'verify_identity') {
+    if (boolEnv('SQL_ALLOW_INSECURE_PRODUCTION', false) && !usesSocket && !plaintextException) {
+      throw new Error(
+        `SQL_ALLOW_INSECURE_PRODUCTION is restricted to disabled TLS on Plesk ${APPROVED_PLESK_SQL_HOST}`
+      );
+    }
+    if (!usesSocket && !plaintextException && sslMode !== 'verify_identity') {
       throw new Error('SQL_SSL_MODE must be verify_identity for production TCP connections');
     }
-    if (!usesSocket && !String(process.env.SQL_SSL_CA || '').trim()) {
+    if (!usesSocket && !plaintextException && !String(process.env.SQL_SSL_CA || '').trim()) {
       throw new Error('SQL_SSL_CA is required for production TCP connections');
     }
-    if (!usesSocket && String(process.env.SQL_SSL_CA_SECRET_NAME || '').trim() !== 'SQL_SSL_CA') {
+    if (!usesSocket && !plaintextException
+        && String(process.env.SQL_SSL_CA_SECRET_NAME || '').trim() !== 'SQL_SSL_CA') {
       throw new Error('SQL_SSL_CA_SECRET_NAME must be SQL_SSL_CA so the pinned CA is loaded from Secret Manager');
     }
-    if (!usesSocket && net.isIP(host) && !servername && !boolEnv('SQL_SSL_IP_SAN_CONFIRMED', false)) {
+    if (!usesSocket && !plaintextException
+        && net.isIP(host) && !servername && !boolEnv('SQL_SSL_IP_SAN_CONFIRMED', false)) {
       throw new Error('An IP SQL_HOST requires SQL_SSL_SERVERNAME or SQL_SSL_IP_SAN_CONFIRMED=true');
     }
 
@@ -134,14 +151,16 @@ function assertSqlConfiguration() {
       if (host !== APPROVED_PLESK_SQL_HOST || expectedHost !== APPROVED_PLESK_SQL_HOST) {
         throw new Error(`Plesk SQL endpoint must be the approved host ${APPROVED_PLESK_SQL_HOST}`);
       }
-      requireProductionConfirmation(
-        'SQL_STATIC_EGRESS_ENABLED',
-        'SQL_STATIC_EGRESS_ENABLED=true is required before Cloud Run connects to Plesk MariaDB'
-      );
-      requireProductionConfirmation(
-        'SQL_NETWORK_ALLOWLIST_CONFIRMED',
-        'SQL_NETWORK_ALLOWLIST_CONFIRMED=true is required after Plesk allowlists the Cloud NAT IP'
-      );
+      if (!plaintextException) {
+        requireProductionConfirmation(
+          'SQL_STATIC_EGRESS_ENABLED',
+          'SQL_STATIC_EGRESS_ENABLED=true is required before Cloud Run connects to Plesk MariaDB'
+        );
+        requireProductionConfirmation(
+          'SQL_NETWORK_ALLOWLIST_CONFIRMED',
+          'SQL_NETWORK_ALLOWLIST_CONFIRMED=true is required after Plesk allowlists the Cloud NAT IP'
+        );
+      }
     }
 
     if (boolEnv('SQL_MIRROR_ENABLED', false)) {
@@ -379,6 +398,7 @@ module.exports = {
   closeSQL,
   connectSQL,
   executeSql,
+  productionPlaintextExceptionEnabled,
   retryableSqlConnectionError,
   sslOptions,
   sqlEnabled,

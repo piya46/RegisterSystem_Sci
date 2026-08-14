@@ -312,12 +312,21 @@ validate_sql_activation_config() {
   [[ "${SQL_ENABLED:-false}" == "true" ]] || return 0
   [[ "${VERIFY_SQL_TRANSPORT:-false}" == "true" ]] \
     || die "SQL_ENABLED=true requires VERIFY_SQL_TRANSPORT=true"
-  [[ "${SQL_SSL_MODE:-}" == "verify_identity" ]] \
-    || die "Production SQL activation requires SQL_SSL_MODE=verify_identity"
-  [[ "${SQL_SSL_CA_SECRET_NAME:-}" == "SQL_SSL_CA" ]] \
-    || die "Production SQL activation requires SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA"
-  [[ -n "${SQL_SSL_SERVERNAME:-}" || "${SQL_SSL_IP_SAN_CONFIRMED:-false}" == "true" ]] \
-    || die "Production SQL activation requires a certificate DNS identity or confirmed IP SAN"
+  if [[ "${SQL_ALLOW_INSECURE_PRODUCTION:-false}" == "true" ]]; then
+    [[ "${SQL_PROVIDER:-}" == "plesk"
+      && "${SQL_HOST:-}" == "203.170.190.137"
+      && "${SQL_EXPECTED_HOST:-}" == "203.170.190.137"
+      && "${SQL_SSL_MODE:-}" == "disabled"
+      && -z "${SQL_SSL_CA_SECRET_NAME:-}" ]] \
+      || die "Production plaintext SQL exception is restricted to the approved Plesk endpoint without a CA"
+  else
+    [[ "${SQL_SSL_MODE:-}" == "verify_identity" ]] \
+      || die "Production SQL activation requires SQL_SSL_MODE=verify_identity"
+    [[ "${SQL_SSL_CA_SECRET_NAME:-}" == "SQL_SSL_CA" ]] \
+      || die "Production SQL activation requires SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA"
+    [[ -n "${SQL_SSL_SERVERNAME:-}" || "${SQL_SSL_IP_SAN_CONFIRMED:-false}" == "true" ]] \
+      || die "Production SQL activation requires a certificate DNS identity or confirmed IP SAN"
+  fi
   [[ -n "${SQL_DATABASE:-}" && -n "${SQL_USER:-}" ]] \
     || die "SQL_DATABASE and SQL_USER must come from protected deployment variables"
   if [[ "${RUN_SQL_MIGRATIONS:-false}" == "true" ]]; then
@@ -328,15 +337,19 @@ validate_sql_activation_config() {
     || die "SQL storage encryption must be confirmed before activation"
   [[ "${SQL_BACKUP_ENCRYPTION_CONFIRMED:-false}" == "true" ]] \
     || die "SQL backup encryption and restore must be confirmed before activation"
-  [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]] \
-    || die "SQL activation requires static Cloud Run egress"
-  [[ "${SQL_NETWORK_ALLOWLIST_CONFIRMED:-false}" == "true" ]] \
-    || die "Plesk must allowlist the reserved Cloud NAT IP before SQL activation"
+  if [[ "${SQL_ALLOW_INSECURE_PRODUCTION:-false}" != "true" ]]; then
+    [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]] \
+      || die "SQL activation requires static Cloud Run egress"
+    [[ "${SQL_NETWORK_ALLOWLIST_CONFIRMED:-false}" == "true" ]] \
+      || die "Plesk must allowlist the reserved Cloud NAT IP before SQL activation"
+  fi
   if [[ "${SQL_MIRROR_ENABLED:-false}" == "true" ]]; then
     [[ "${SQL_MIRROR_REQUIRE_PROTECTED_VALUES:-false}" == "true" ]] \
       || die "SQL mirror activation requires protected sensitive values"
   fi
-  validate_sql_egress_config
+  if [[ "${SQL_STATIC_EGRESS_ENABLED:-false}" == "true" ]]; then
+    validate_sql_egress_config
+  fi
 }
 
 validate_sql_mirror_migration_config() {

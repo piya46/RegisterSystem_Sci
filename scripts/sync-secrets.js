@@ -215,9 +215,13 @@ function buildSecretAccessPlan(values = {}) {
   const cleanupOnly = profile === 'sql-migration-cleanup';
   const sqlMigrationEnabled = sqlProfileEnabled || String(values.RUN_SQL_MIGRATIONS) === 'true';
   const sqlBackfillEnabled = sqlProfileEnabled || String(values.RUN_SQL_BACKFILL) === 'true';
+  const sqlCaEnabled = Boolean(String(values.SQL_SSL_CA_SECRET_NAME || '').trim());
   const migrationAccessNames = new Set([
     ...((sqlMigrationEnabled || sqlBackfillEnabled)
-      ? ['SQL_MIGRATION_PASSWORD', 'SQL_SSL_CA']
+      ? [
+        'SQL_MIGRATION_PASSWORD',
+        ...(sqlCaEnabled ? ['SQL_SSL_CA'] : []),
+      ]
       : []),
     ...(sqlBackfillEnabled
       ? ['MONGODB_URI', 'SQL_MIRROR_IDENTITY_HASH_SECRET']
@@ -325,7 +329,7 @@ function main() {
   if (sqlProfileEnabled) names.add('SQL_PASSWORD');
   if (sqlMigrationEnabled || sqlBackfillEnabled) names.add('SQL_MIGRATION_PASSWORD');
   if (sqlBackfillEnabled) names.add('SQL_MIRROR_IDENTITY_HASH_SECRET');
-  if (sqlProfileEnabled || (String(values.SQL_ENABLED) === 'true' && values.SQL_SSL_CA_SECRET_NAME)) {
+  if ((sqlProfileEnabled || String(values.SQL_ENABLED) === 'true') && values.SQL_SSL_CA_SECRET_NAME) {
     names.add('SQL_SSL_CA');
   }
   const migrationAccessSet = new Set(migrationAccessNames);

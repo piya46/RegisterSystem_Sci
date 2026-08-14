@@ -67,11 +67,35 @@ test('event registration SQL primary mode requires SQL to be enabled', () => {
   assert.throws(assertSqlConfiguration, /SQL_EVENT_REGISTRATION_PRIMARY=true requires SQL_ENABLED=true/);
 });
 
-test('production SQL rejects an unencrypted connection', () => {
+test('production SQL rejects an unencrypted connection without an explicit endpoint exception', () => {
   configureSecurePleskSql();
   process.env.SQL_SSL_MODE = 'disabled';
 
   assert.throws(assertSqlConfiguration, /must be verify_identity/);
+});
+
+test('production SQL accepts the approved Hostatom plaintext exception', () => {
+  configureSecurePleskSql();
+  process.env.SQL_SSL_MODE = 'disabled';
+  process.env.SQL_ALLOW_INSECURE_PRODUCTION = 'true';
+  process.env.SQL_STATIC_EGRESS_ENABLED = 'false';
+  process.env.SQL_NETWORK_ALLOWLIST_CONFIRMED = 'false';
+  delete process.env.SQL_SSL_CA;
+  delete process.env.SQL_SSL_CA_SECRET_NAME;
+  delete process.env.SQL_SSL_SERVERNAME;
+
+  assert.doesNotThrow(assertSqlConfiguration);
+  assert.equal(sslOptions(), undefined);
+});
+
+test('production plaintext exception cannot target another database endpoint', () => {
+  configureSecurePleskSql();
+  process.env.SQL_SSL_MODE = 'disabled';
+  process.env.SQL_ALLOW_INSECURE_PRODUCTION = 'true';
+  process.env.SQL_HOST = '203.170.190.138';
+  process.env.SQL_EXPECTED_HOST = '203.170.190.138';
+
+  assert.throws(assertSqlConfiguration, /restricted to disabled TLS on Plesk 203\.170\.190\.137/);
 });
 
 test('production SQL rejects break-glass TLS overrides', () => {

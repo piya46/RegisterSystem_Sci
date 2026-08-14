@@ -183,6 +183,7 @@ test('SQL mirror migration readiness requires protected transport, separate acco
   const config = {
     ...baseConfig(),
     SQL_ENABLED: 'true',
+    SQL_EVENT_REGISTRATION_PRIMARY: 'true',
     VERIFY_SQL_TRANSPORT: 'true',
     SQL_PROVIDER: 'plesk',
     SQL_HOST: '203.170.190.137',
@@ -235,4 +236,35 @@ test('readiness fails closed for unsupported primary cutover and a non-TLS Maria
   assert.ok(report.blockerIds.includes('sql_primary_store'));
   assert.ok(report.blockerIds.includes('sql_server_tls_capability'));
   assert.ok(report.blockerIds.includes('secret_pins'));
+});
+
+test('readiness accepts the approved Hostatom plaintext exception without provider allowlisting', () => {
+  const config = {
+    ...baseConfig(),
+    SQL_ENABLED: 'true',
+    VERIFY_SQL_TRANSPORT: 'true',
+    SQL_EVENT_REGISTRATION_PRIMARY: 'true',
+    SQL_PROVIDER: 'plesk',
+    SQL_HOST: '203.170.190.137',
+    SQL_EXPECTED_HOST: '203.170.190.137',
+    SQL_PORT: '3306',
+    SQL_DATABASE: 'event_runtime',
+    SQL_USER: 'event_runtime_user',
+    SQL_SSL_MODE: 'disabled',
+    SQL_SSL_CA_SECRET_NAME: '',
+    SQL_ALLOW_INSECURE_PRODUCTION: 'true',
+    SQL_STATIC_EGRESS_ENABLED: 'false',
+    SQL_NETWORK_ALLOWLIST_CONFIRMED: 'false',
+    SQL_AT_REST_ENCRYPTION_CONFIRMED: 'true',
+    SQL_BACKUP_ENCRYPTION_CONFIRMED: 'true',
+  };
+  const report = evaluateProductionReadiness({
+    environment: 'production',
+    config,
+    pins: pinsFor(config, { requireSql: false }),
+    mariaDbProbe: { reachable: true, tlsAdvertised: false },
+  });
+
+  assert.equal(report.ready, true);
+  assert.deepEqual(report.blockerIds, []);
 });

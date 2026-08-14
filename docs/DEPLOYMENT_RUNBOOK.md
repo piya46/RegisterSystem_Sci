@@ -12,7 +12,7 @@
 - Artifact Registry เก็บ image แบบ unique tag; deployment ใช้ immutable digest
 - Runtime โหลด Secret Manager version ที่ pin ไว้ผ่าน ADC ของ runtime service account
 - GCS bucket แยก environment, private, regional `asia-southeast3` และ scale-to-zero เป็นค่าเริ่มต้น
-- เมื่อเปิด MariaDB เท่านั้น Cloud Run service/migration job ใช้ Direct VPC egress, Cloud NAT และ reserved IP ไปยัง Plesk `203.170.190.137:3306`
+- เมื่อเปิด SQL static egress เท่านั้น Cloud Run service/migration job ใช้ Direct VPC egress, Cloud NAT และ reserved IP; approved Hostatom production exception ปัจจุบันใช้ public egress เพราะ provider ไม่มี IP allowlist
 
 สคริปต์เก่า `deploy-cloudrun.sh` และ `deploy-cloudrun-split.sh` เป็น compatibility wrapper ที่ส่งต่อเข้า pipeline เดียวเท่านั้น
 

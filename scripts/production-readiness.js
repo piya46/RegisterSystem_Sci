@@ -78,10 +78,12 @@ function requiredSecretNames(config, { requireSql }) {
   if (boolValue(config.LINE_LOGIN_ENABLED)) names.add('LINE_LOGIN_CHANNEL_SECRET');
   if (boolValue(config.LINE_WEBHOOK_ENABLED)) names.add('LINE_WEBHOOK_CHANNEL_SECRET');
   if (boolValue(config.LINE_MESSAGING_ENABLED)) names.add('LINE_CHANNEL_ACCESS_TOKEN');
-  if (requireSql) {
+  if (boolValue(config.SQL_ENABLED)) {
     names.add('SQL_PASSWORD');
+    if (configured(config.SQL_SSL_CA_SECRET_NAME)) names.add('SQL_SSL_CA');
+  }
+  if (requireSql) {
     names.add('SQL_MIGRATION_PASSWORD');
-    names.add('SQL_SSL_CA');
     names.add('SQL_MIRROR_IDENTITY_HASH_SECRET');
   }
   return [...names].filter(Boolean).sort();
@@ -265,27 +267,37 @@ function evaluateProductionReadiness({
     );
   }
 
-  if (requireSql) {
+  if (requireSql || boolValue(config.SQL_ENABLED)) {
     const runtimeUser = String(config.SQL_USER || '').trim();
     const migrationUser = String(config.SQL_MIGRATION_USER || '').trim();
+    const plaintextException = boolValue(config.SQL_ALLOW_INSECURE_PRODUCTION)
+      && config.SQL_PROVIDER === 'plesk'
+      && config.SQL_HOST === APPROVED_PLESK_SQL_HOST
+      && config.SQL_EXPECTED_HOST === APPROVED_PLESK_SQL_HOST
+      && config.SQL_SSL_MODE === 'disabled'
+      && !configured(config.SQL_SSL_CA_SECRET_NAME);
     const requiredFlags = [
       'SQL_ENABLED',
       'VERIFY_SQL_TRANSPORT',
-      'SQL_STATIC_EGRESS_ENABLED',
-      'SQL_NETWORK_ALLOWLIST_CONFIRMED',
+      ...(!plaintextException ? [
+        'SQL_STATIC_EGRESS_ENABLED',
+        'SQL_NETWORK_ALLOWLIST_CONFIRMED',
+      ] : []),
       'SQL_AT_REST_ENCRYPTION_CONFIRMED',
       'SQL_BACKUP_ENCRYPTION_CONFIRMED',
-      'RUN_SQL_MIGRATIONS',
-      'RUN_SQL_BACKFILL',
-      'RUN_SQL_PROTECTION_AUDIT',
-      'SQL_MIRROR_REQUIRE_PROTECTED_VALUES',
+      ...(requireSql ? [
+        'RUN_SQL_MIGRATIONS',
+        'RUN_SQL_BACKFILL',
+        'RUN_SQL_PROTECTION_AUDIT',
+        'SQL_MIRROR_REQUIRE_PROTECTED_VALUES',
+      ] : []),
     ];
     const disabledFlags = requiredFlags.filter((name) => !boolValue(config[name]));
     addCheck(
       checks,
       'sql_activation_flags',
       disabledFlags.length === 0,
-      'All SQL migration safety flags are enabled',
+      requireSql ? 'All SQL migration safety flags are enabled' : 'All SQL runtime activation flags are enabled',
       disabledFlags.length > 0 ? `Review and set true only after evidence exists: ${disabledFlags.join(', ')}` : ''
     );
     addCheck(
@@ -298,46 +310,62 @@ function evaluateProductionReadiness({
       'MariaDB endpoint is pinned to the approved Plesk destination',
       `Set SQL_PROVIDER=plesk and SQL_HOST=SQL_EXPECTED_HOST=${APPROVED_PLESK_SQL_HOST}.`
     );
+    const verifiedTls = config.SQL_SSL_MODE === 'verify_identity'
+      && config.SQL_SSL_CA_SECRET_NAME === 'SQL_SSL_CA'
+      && (configured(config.SQL_SSL_SERVERNAME) || boolValue(config.SQL_SSL_IP_SAN_CONFIRMED));
     addCheck(
       checks,
       'sql_tls_policy',
-      config.SQL_SSL_MODE === 'verify_identity'
-        && config.SQL_SSL_CA_SECRET_NAME === 'SQL_SSL_CA'
-        && (configured(config.SQL_SSL_SERVERNAME) || boolValue(config.SQL_SSL_IP_SAN_CONFIRMED)),
-      'MariaDB requires CA-pinned TLS identity verification',
-      'Set SQL_SSL_MODE=verify_identity, SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA, and a certificate DNS SAN or confirmed IP SAN.'
+      verifiedTls || plaintextException,
+      plaintextException
+        ? 'MariaDB plaintext transport exception is explicitly limited to the approved Plesk endpoint'
+        : 'MariaDB requires CA-pinned TLS identity verification',
+      'Use verify_identity with a pinned CA, or explicitly approve disabled TLS only for the fixed Plesk endpoint.'
     );
     addCheck(
       checks,
       'sql_accounts',
       configured(config.SQL_DATABASE)
         && configured(runtimeUser)
-        && configured(migrationUser)
-        && runtimeUser !== migrationUser,
-      'Runtime and migration MariaDB accounts are separate',
-      'Set SQL_DATABASE, SQL_USER, and a distinct SQL_MIGRATION_USER as protected variables.'
+        && (!requireSql || (configured(migrationUser) && runtimeUser !== migrationUser)),
+      requireSql ? 'Runtime and migration MariaDB accounts are separate' : 'Runtime MariaDB account is configured',
+      requireSql
+        ? 'Set SQL_DATABASE, SQL_USER, and a distinct SQL_MIGRATION_USER as protected variables.'
+        : 'Set SQL_DATABASE and SQL_USER as protected deployment variables.'
     );
     addCheck(
       checks,
-      'sql_migration_confirmation',
-      String(config.CONFIRM_SQL_MIRROR_MIGRATION || '') === environment,
-      'SQL mirror migration has an environment-specific confirmation',
-      `Set CONFIRM_SQL_MIRROR_MIGRATION=${environment} only for the approved migration run.`
+      'event_registration_sql_primary',
+      boolValue(config.SQL_EVENT_REGISTRATION_PRIMARY),
+      'Event Registration uses MariaDB as its scoped primary repository',
+      'Set SQL_EVENT_REGISTRATION_PRIMARY=true while keeping SQL_PRIMARY_STORE=false.'
     );
-    addCheck(
-      checks,
-      'sql_outbox_during_backfill',
-      !boolValue(config.SQL_OUTBOX_ENABLED),
-      'Live SQL outbox remains disabled during initial backfill',
-      'Set SQL_OUTBOX_ENABLED=false for schema/backfill, then enable it in a reviewed follow-up release.'
-    );
+    if (requireSql) {
+      addCheck(
+        checks,
+        'sql_migration_confirmation',
+        String(config.CONFIRM_SQL_MIRROR_MIGRATION || '') === environment,
+        'SQL mirror migration has an environment-specific confirmation',
+        `Set CONFIRM_SQL_MIRROR_MIGRATION=${environment} only for the approved migration run.`
+      );
+      addCheck(
+        checks,
+        'sql_outbox_during_backfill',
+        !boolValue(config.SQL_OUTBOX_ENABLED),
+        'Live SQL outbox remains disabled during initial backfill',
+        'Set SQL_OUTBOX_ENABLED=false for schema/backfill, then enable it in a reviewed follow-up release.'
+      );
+    }
     if (mariaDbProbe) {
       addCheck(
         checks,
         'sql_server_tls_capability',
-        mariaDbProbe.reachable === true && mariaDbProbe.tlsAdvertised === true,
-        'MariaDB greeting advertises TLS capability',
-        'Enable TLS on MariaDB before supplying any real account credentials.'
+        mariaDbProbe.reachable === true
+          && (mariaDbProbe.tlsAdvertised === true || plaintextException),
+        plaintextException
+          ? 'MariaDB is reachable under the approved plaintext transport exception'
+          : 'MariaDB greeting advertises TLS capability',
+        'Enable TLS, or approve the endpoint-restricted Hostatom plaintext exception with a least-privilege runtime account.'
       );
     }
   }

@@ -2514,11 +2514,11 @@ Phase D - Decommission/Archive:
 MariaDB/MySQL Connection Requirements:
 
 - ใช้ connection pool พร้อม max/min/idle timeout และ circuit breaker
-- Production ต้องเชื่อมผ่าน private network/Private IP/VPN/Cloud SQL connector เป็นหลัก; สำหรับ Plesk ที่มีเฉพาะ public endpoint อนุญาตเป็นข้อยกเว้นเมื่อใช้ Direct VPC egress + Cloud NAT reserved IP + Plesk `/32` allowlist ครบเท่านั้น
+- Production ต้องเชื่อมผ่าน private network/Private IP/VPN/Cloud SQL connector เป็นหลัก; Hostatom public endpoint เป็น approved exception เนื่องจากผู้ให้บริการไม่มี TLS และ IP allowlist โดยต้อง pin endpoint และใช้ runtime user สิทธิ์ต่ำ
 - Plesk destination คือ `203.170.190.137:3306`; ค่า `localhost:3306` ใน Plesk ใช้ได้เฉพาะ application ที่รันบน host เดียวกันและห้ามนำไปใช้กับ Cloud Run
-- ต้องใช้ TLS 1.2+ แบบ verify certificate chain และ server identity สำหรับ DB connection เมื่อออกนอก host
-- Production TCP ต้องใช้ `SQL_SSL_MODE=verify_identity`; ห้าม `disabled`, `required`, `verify_ca` และห้าม insecure/break-glass flag
-- ต้องตรวจ TLS session หลัง connect ด้วย `Ssl_cipher`; การมี config `ssl` แต่ session ไม่ negotiate TLS ต้อง fail readiness/startup
+- ต้องใช้ TLS 1.2+ แบบ verify certificate chain และ server identity สำหรับ DB connection เมื่อออกนอก host เป็นค่าปกติ; approved Hostatom exception วันที่ 2026-08-14 อนุญาต plaintext เฉพาะ `203.170.190.137:3306` เพราะ provider ไม่มี TLS และ IP allowlist
+- Production TCP ปกติต้องใช้ `SQL_SSL_MODE=verify_identity`; `required`, `verify_ca` และ unverified TLS flag ยังถูกห้าม ส่วน `disabled` ใช้ได้เฉพาะ approved Hostatom endpoint exception พร้อม least-privilege account
+- ต้องตรวจ TLS session หลัง connect ด้วย `Ssl_cipher`; การมี config `ssl` แต่ session ไม่ negotiate TLS ต้อง fail readiness/startup ส่วน Hostatom exception ต้องยืนยันผลเป็น `tcp_plain` และ endpoint ตรงค่าที่ pin
 - ถ้า connect ด้วย IP certificate ต้องมี IP SAN ตรง หรือกำหนด `SQL_SSL_SERVERNAME` ให้ตรง DNS SAN; ห้ามปิด hostname verification
 - DB credentials ต้องมาจาก Secret Manager และ rotate ได้
 - TLS CA ต้องมาจาก Secret Manager logical name `SQL_SSL_CA` version ที่ pin, validate เป็น PEM certificate chain, ปฏิเสธ private key และห้าม trust certificate ที่ดึงจาก endpoint โดยไม่ตรวจสอบ
@@ -2535,10 +2535,10 @@ Plesk MariaDB Network Requirements:
 - Bootstrap ต้องสร้าง custom VPC, private Google access subnet, Cloud Router, Cloud NAT และ regional reserved IP แบบ idempotent
 - Plesk database access rule, Plesk firewall และ host firewall ต้อง allow เฉพาะ reserved NAT IP `/32`; ห้าม `0.0.0.0/0`, `::/0`, shared office range หรือ Cloud Run dynamic range
 - เพราะ `all-traffic` ทำให้ external dependency อื่นเห็น NAT IP เดียวกัน ต้องตรวจ/เพิ่ม source allowlist ของ MongoDB Atlas, Brevo/SMTP fallback และ provider ที่เกี่ยวข้อง พร้อม canary GCS/Secret Manager/KMS/LINE/Turnstile ก่อน promote
-- ต้องทดสอบ positive จาก Cloud Run และ negative จาก source ที่ไม่อยู่ allowlist ก่อนตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true`
+- เมื่อเลือก static egress provider ต้องผ่าน positive จาก Cloud Run และ negative จาก source ที่ไม่อยู่ allowlist ก่อนตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true`; ข้อนี้ไม่ใช้กับ approved Hostatom exception ที่ provider ไม่มี allowlist
 - Backend production และ release script ต้อง pin ทั้ง `SQL_HOST` และ `SQL_EXPECTED_HOST` เป็น `203.170.190.137`; การตั้งสองค่าให้ตรงกันแต่เป็น host อื่นต้องถูกปฏิเสธเพื่อป้องกัน endpoint substitution
 - Plesk gateway ห้ามมี SQL password, TLS CA, database user หรือ direct database connection string
-- หาก hosting plan ไม่รองรับ remote MariaDB, custom access rule, TLS identity หรือ encrypted backup ให้คง SQL ปิดและใช้ MongoDB Phase 1 ต่อ
+- หาก hosting plan ไม่รองรับ remote MariaDB หรือ encrypted backup ให้คง SQL ปิด; การไม่มี TLS/IP allowlist ใช้ approved Hostatom exception ได้เฉพาะ endpoint ที่ pin และบัญชี runtime สิทธิ์ต่ำ
 
 Data Encryption Before Storage Requirements:
 
@@ -2559,10 +2559,10 @@ Data Encryption Before Storage Requirements:
 Plesk MariaDB Activation Flags:
 
 - ค่าเริ่มต้นต้องเป็น `SQL_ENABLED=false`, `VERIFY_SQL_TRANSPORT=false`, `SQL_STATIC_EGRESS_ENABLED=false`, `SQL_NETWORK_ALLOWLIST_CONFIRMED=false`
-- เมื่อเปิดต้องมี `SQL_PROVIDER=plesk`, `SQL_HOST=SQL_EXPECTED_HOST=203.170.190.137`, `SQL_SSL_MODE=verify_identity`, `SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA`
+- เมื่อเปิดต้องมี `SQL_PROVIDER=plesk`, `SQL_HOST=SQL_EXPECTED_HOST=203.170.190.137`; transport ปกติใช้ `SQL_SSL_MODE=verify_identity` กับ `SQL_SSL_CA_SECRET_NAME=SQL_SSL_CA` หรือใช้ approved Hostatom exception ด้วย `SQL_SSL_MODE=disabled`, `SQL_SSL_CA_SECRET_NAME=` และ `SQL_ALLOW_INSECURE_PRODUCTION=true`
 - Database name, runtime user และ migration user ต้องมาจาก protected deployment variables และห้าม commit ค่าจริง
 - GitHub deployment workflow ต้อง map `SQL_DATABASE`, `SQL_USER`, `SQL_MIGRATION_USER` และ `SQL_SSL_SERVERNAME` จาก Environment variables เข้า release; การตั้งค่าไว้ใน GitHub โดย workflow ไม่ส่งต่อถือว่า activation ไม่สมบูรณ์
-- Password, migration password, TLS CA และ mirror HMAC key ต้องมาจาก pinned Secret Manager versions
+- Password, migration password และ mirror HMAC key ต้องมาจาก pinned Secret Manager versions; TLS CA ต้อง pin เมื่อใช้โหมด TLS และไม่สร้าง CA placeholder สำหรับ Hostatom exception
 - Runtime service account ห้ามอ่าน `SQL_MIGRATION_PASSWORD`; secret synchronization ต้องถอน runtime IAM binding ที่อาจค้างจากรุ่นเก่าและให้ migration service account อ่านได้เท่านั้น
 - Production activation ต้องคง `SQL_PRIMARY_STORE=false`; การเปิด SQL ไม่เท่ากับอนุมัติ wallet/receipt primary cutover
 - `VERIFY_SQL_TRANSPORT=true` ต้อง execute read-only Cloud Run Job ก่อน migration/candidate ทุก release ที่ SQL เปิด
@@ -2620,7 +2620,7 @@ Implementation Status:
 - แก้แล้ว: เพิ่ม backfill 10 domains แบบ plan-only/dry-run, batch, high-watermark, resumable checkpoint, idempotent upsert, prefix revalidation, count + aggregate checksum comparison และ PII-minimized mapper
 - แก้แล้ว: เพิ่ม Secret Manager loading สำหรับ runtime/migration SQL password, TLS CA และ identity hash secret
 - แก้แล้ว: เลือก Plesk MariaDB เป็น target, กำหนด external destination `203.170.190.137`, แยกจาก Plesk-local `localhost:3306` และคง SQL ปิดแบบ fail-safe
-- แก้แล้ว: production SQL บังคับ TLS verify identity/TLS 1.2+, ตรวจ DNS/IP SAN, ตรวจ `Ssl_cipher`, endpoint pin, encrypted storage/backup confirmation, static egress และ Plesk allowlist confirmation
+- แก้แล้ว: production SQL บังคับ TLS verify identity/TLS 1.2+ เป็นค่าปกติ และรองรับ approved Hostatom plaintext exception แบบ endpoint pin พร้อม encrypted storage/backup confirmationและ least-privilege runtime account
 - แก้แล้ว: SQL mapper เปลี่ยน raw QR/idempotency/verification/receipt identifiers เป็น domain-separated HMAC และ fail-closed เมื่อ dedicated key ขาด
 - แก้แล้ว: เพิ่ม read-only SQL protection aggregate audit ที่ไม่ดึงค่าจริง เพื่อจับ legacy plaintext ก่อนเปิด mirror read
 - แก้แล้ว: deployment script provision optional VPC/Cloud NAT/reserved IP ด้วย explicit cost gate และใช้ network เดียวกันกับ service/transport/migration job
@@ -2721,7 +2721,7 @@ Implementation Status:
 81. แก้แล้ว: Public Report/Dashboard/Lucky Draw resolve public Event ก่อนโหลดข้อมูล ใช้ canonical slug+year เดียวกัน และแสดงชื่อ/โลโก้จาก Event; link ที่ year ไม่ตรง Event ต้อง fail closed แทนการแสดงหัวข้อคนละงาน
 82. แก้แล้ว: Event Admin deep link โหลด Event รายตัวจาก backend ตามสิทธิ์, ล้าง Event เก่าทันทีเมื่อ route เปลี่ยน, แสดงโลโก้หมุนพร้อมชื่อที่ verify จาก API และไม่ fallback ไป `location.state` ของ Event อื่น
 83. แก้แล้ว: SQL mirror เคยเก็บ participant/vendor QR, idempotency key, verification code และ receipt number แบบอ่านได้; เปลี่ยนเป็น dedicated domain-separated HMAC และเพิ่ม regression test แล้ว
-84. แก้แล้ว: SQL production เคยมี break-glass flag ให้ TLS แบบไม่ตรวจ identity; ปัจจุบันบังคับ `verify_identity`, CA pin, SAN validation, TLS 1.2 และตรวจ `Ssl_cipher` จริง
+84. ปรับตาม provider constraint: SQL production ใช้ `verify_identity`, CA pin, SAN validation และ TLS 1.2 เป็นค่าปกติ; Hostatom ที่ไม่ advertise TLSและไม่มี IP allowlist ใช้ approved plaintext exception เฉพาะ endpoint pin + least-privilege account และตรวจ transport จริง
 85. ตรวจแล้วและ harden แล้ว: Google Cloud CLI ปัจจุบันระบุว่า `--wait` เดิม imply job execution จึงไม่ยืนยันว่าเป็น runtime bug; เพิ่ม `--execute-now --wait`, contract test และ read-only transport job เพื่อให้เจตนาชัดและจับ regression
 86. แก้แล้วในโค้ด/รอ infrastructure: เพิ่ม static VPC/NAT/reserved IP provisioning แบบ explicit gate, endpoint pin และ Plesk allowlist confirmation; ยังต้อง provision/ตั้งค่าจริง
 87. รอ provider evidence: KMS application key ไม่สามารถยืนยัน Plesk disk/tablespace/backup encryption แทน hosting provider ได้ จึงต้องคง at-rest/backup confirmation เป็น `false` จน restore drill ผ่าน

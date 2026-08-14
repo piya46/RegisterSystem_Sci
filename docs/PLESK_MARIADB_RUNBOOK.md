@@ -199,6 +199,16 @@ SQL_PRIMARY_STORE=false
 SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true
 ```
 
+Hostatom endpoint ปัจจุบันไม่ advertise TLS ตาม probe วันที่ 2026-08-14 จึงใช้ production exception ที่ owner อนุมัติแทนค่า TLS สองบรรทัดด้านบนได้เฉพาะกรณีนี้:
+
+```env
+SQL_SSL_MODE=disabled
+SQL_SSL_CA_SECRET_NAME=
+SQL_ALLOW_INSECURE_PRODUCTION=true
+```
+
+Hostatom ไม่มี IP allowlist สำหรับบริการนี้ จึงใช้ `SQL_STATIC_EGRESS_ENABLED=false` และ `SQL_NETWORK_ALLOWLIST_CONFIRMED=false` ใน exception โดยต้องแยก runtime user ให้มีเฉพาะสิทธิ์ DML ที่จำเป็น
+
 Secret Manager payload ที่ต้อง supply ผ่านไฟล์ local permission `0600` หรือ secure process input โดยห้ามใส่ใน command line/log:
 
 - `SQL_PASSWORD`
@@ -283,7 +293,7 @@ Transport check เป็น read-only (`SELECT 1` และ `SHOW SESSION STATU
 
 ## 9. Failure และ Rollback
 
-- TLS identity/CA/SAN fail: ห้าม bypass ด้วย `required`, `verify_ca`, `SQL_ALLOW_UNVERIFIED_TLS` หรือ insecure flag ใน production
+- TLS identity/CA/SAN fail: ห้าม bypass ด้วย `required`, `verify_ca` หรือ `SQL_ALLOW_UNVERIFIED_TLS`; `SQL_ALLOW_INSECURE_PRODUCTION` ใช้ได้เฉพาะ Hostatom endpoint ที่ pin ไว้ตาม approved exception และ runtime user ต้องเป็น least privilege
 - Plesk remote access unavailable: คง `SQL_ENABLED=false`; Phase 1 ทำงานบน MongoDB ต่อได้
 - SQL transport job fail: pipeline หยุดก่อน migration/candidate และ traffic เดิมไม่เปลี่ยน
 - Migration fail: pipeline หยุดก่อน candidate; restore เฉพาะตาม approved migration rollback ไม่แก้ schema ด้วยมือทันที

@@ -1,6 +1,10 @@
 require('dotenv').config();
 
-const { closeSQL, connectSQL } = require('../config/sql');
+const {
+  closeSQL,
+  connectSQL,
+  productionPlaintextExceptionEnabled,
+} = require('../config/sql');
 const { clearSecretCache, hydrateRuntimeSecrets } = require('../utils/secretProvider');
 
 async function verifySqlTransport() {
@@ -16,8 +20,12 @@ async function verifySqlTransport() {
   await hydrateRuntimeSecrets({ requiredNames, managedNames: requiredNames });
 
   const status = await connectSQL();
-  if (!status.connected || status.transport !== 'tcp_tls' || status.tlsActive !== true) {
-    const error = new Error('SQL transport verification did not produce an authenticated TLS connection');
+  const verifiedTls = status.transport === 'tcp_tls' && status.tlsActive === true;
+  const acceptedPlaintextException = productionPlaintextExceptionEnabled()
+    && status.transport === 'tcp_plain'
+    && status.tlsActive === false;
+  if (!status.connected || (!verifiedTls && !acceptedPlaintextException)) {
+    const error = new Error('SQL transport verification did not produce an approved connection');
     error.code = 'SQL_TRANSPORT_VERIFY_FAILED';
     throw error;
   }
@@ -27,6 +35,7 @@ async function verifySqlTransport() {
     expectedHostMatched: process.env.SQL_HOST === process.env.SQL_EXPECTED_HOST,
     transport: status.transport,
     tlsActive: status.tlsActive,
+    plaintextException: acceptedPlaintextException,
   };
 }
 

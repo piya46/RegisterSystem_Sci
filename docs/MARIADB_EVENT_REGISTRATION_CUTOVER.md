@@ -80,7 +80,7 @@ SQL_MIRROR_ENABLED=false
 SQL_OUTBOX_ENABLED=false
 ```
 
-ถ้า host รองรับ TLS แต่ไม่มี CA ให้ใช้ `SQL_SSL_MODE=required` แทน `disabled` ได้ใน development แต่ production ต้องกลับมาใช้ `verify_identity` พร้อม `SQL_SSL_CA` จริงเท่านั้น อย่าใส่ค่า placeholder เช่น `<PEM_CA_CERT>`
+ถ้า host รองรับ TLS แต่ไม่มี CA ให้ใช้ `SQL_SSL_MODE=required` แทน `disabled` ได้ใน development อย่าใส่ค่า placeholder เช่น `<PEM_CA_CERT>` สำหรับ Hostatom ปัจจุบัน probe วันที่ 2026-08-14 ยืนยันว่า endpoint ไม่ advertise TLS และผู้ให้บริการไม่มี IP allowlist เจ้าของระบบจึงอนุมัติ production exception เฉพาะ endpoint `203.170.190.137:3306` โดยตั้ง `SQL_SSL_MODE=disabled`, `SQL_ALLOW_INSECURE_PRODUCTION=true` และใช้ runtime user สิทธิ์ต่ำ
 
 ## ลำดับ migrate ไป host จริง
 
@@ -104,6 +104,11 @@ SQL_EVENT_REGISTRATION_BACKFILL_WRITE=true npm run backfill:sql-event-registrati
 SQL_ENABLED=true
 SQL_PRIMARY_STORE=false
 SQL_EVENT_REGISTRATION_PRIMARY=true
+SQL_SSL_MODE=disabled
+SQL_SSL_CA_SECRET_NAME=
+SQL_ALLOW_INSECURE_PRODUCTION=true
+SQL_STATIC_EGRESS_ENABLED=false
+SQL_NETWORK_ALLOWLIST_CONFIRMED=false
 ```
 
 `SQL_PRIMARY_STORE` ยังต้องเป็น `false` เพราะ domain อื่น เช่น auth/session/system settings/wallet/prize ยังไม่ถูก cutover ทั้งหมด Flag นี้ครอบคลุมเฉพาะ:
