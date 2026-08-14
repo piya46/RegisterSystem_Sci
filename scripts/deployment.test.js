@@ -42,6 +42,27 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 }
 
+function fixtureProcessEnv(overrides = {}) {
+  const env = {};
+  for (const name of [
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'PATH',
+    'SHELL',
+    'SYSTEMROOT',
+    'TEMP',
+    'TMP',
+    'TMPDIR',
+    'TZ',
+    'USER',
+    'WINDIR',
+  ]) {
+    if (process.env[name] !== undefined) env[name] = process.env[name];
+  }
+  return { ...env, ...overrides };
+}
+
 test('deployment environment files contain non-secret configuration only', () => {
   for (const environment of ['staging', 'production']) {
     const values = dotenv.parse(read(`deploy/environments/${environment}.env`));
@@ -260,18 +281,18 @@ test('SQL migration cleanup revokes four IAM bindings without mutating Secret ve
     '',
   ].join('\n'), { mode: 0o755 });
 
-  const env = {
-    ...process.env,
+  const env = fixtureProcessEnv({
     PATH: `${tempDir}${path.delimiter}${process.env.PATH || ''}`,
     GCLOUD_LOG: gcloudLog,
     PROJECT_ID: 'cusa-reunion',
+    DEPLOY_ENVIRONMENT: 'staging',
     SECRET_MANAGER_PREFIX: 'psevent-staging',
     MIGRATION_SERVICE_ACCOUNT: 'psevent-migration-staging',
     SECRET_SYNC_PROFILE: 'sql-migration-cleanup',
     CONFIRM_SQL_MIGRATION_ACCESS_REVOKE: 'staging',
     ALLOW_SECRET_UPLOAD: 'true',
     SECRET_VERSIONS_FILE: pinsPath,
-  };
+  });
   const result = spawnSync(process.execPath, [path.join(ROOT, 'scripts/sync-secrets.js'), 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
@@ -326,13 +347,12 @@ test('disabled optional release steps do not abort the command under errexit', (
   const result = spawnSync('bash', [path.join(ROOT, 'scripts/release.sh'), 'plan', 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: fixtureProcessEnv({
       PATH: `${commandDir}${path.delimiter}${process.env.PATH || ''}`,
       PROJECT_ID: 'cusa-reunion',
       PROJECT_NUMBER: '123456789012',
       LOAD_LOCAL_DEPLOY_CONFIG: 'false',
-    },
+    }),
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Deploy readiness: (?:BLOCKED|configuration and secret pins are valid)/);
@@ -340,13 +360,12 @@ test('disabled optional release steps do not abort the command under errexit', (
   const wrongProject = spawnSync('bash', [path.join(ROOT, 'scripts/release.sh'), 'plan', 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: fixtureProcessEnv({
       PATH: `${commandDir}${path.delimiter}${process.env.PATH || ''}`,
       PROJECT_ID: 'another-project',
       PROJECT_NUMBER: '123456789012',
       LOAD_LOCAL_DEPLOY_CONFIG: 'false',
-    },
+    }),
   });
   assert.notEqual(wrongProject.status, 0);
   assert.match(wrongProject.stderr, /approved project cusa-reunion/);
@@ -354,14 +373,13 @@ test('disabled optional release steps do not abort the command under errexit', (
   const excessiveBudget = spawnSync('bash', [path.join(ROOT, 'scripts/release.sh'), 'plan', 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: fixtureProcessEnv({
       PATH: `${commandDir}${path.delimiter}${process.env.PATH || ''}`,
       PROJECT_ID: 'cusa-reunion',
       PROJECT_NUMBER: '123456789012',
       GOOGLE_CLOUD_MONTHLY_BUDGET_THB: '1001',
       LOAD_LOCAL_DEPLOY_CONFIG: 'false',
-    },
+    }),
   });
   assert.notEqual(excessiveBudget.status, 0);
   assert.match(excessiveBudget.stderr, /between 1 and 1000/);
@@ -440,8 +458,7 @@ test('runtime renderer emits secret references without secret values', () => {
   const result = spawnSync(process.execPath, [path.join(ROOT, 'scripts/render-runtime-env.js'), 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: fixtureProcessEnv({
       DEPLOY_ENVIRONMENT: 'staging',
       PROJECT_ID: 'psevent-test1',
       PROJECT_NUMBER: '123456789012',
@@ -449,7 +466,7 @@ test('runtime renderer emits secret references without secret values', () => {
       PUBLIC_WEB_ORIGIN: 'https://reunion.scicu-alumni.com',
       SECRET_VERSIONS_FILE: pinsPath,
       RUNTIME_ENV_FILE: outputPath,
-    },
+    }),
   });
   assert.equal(result.status, 0, result.stderr);
   const rendered = fs.readFileSync(outputPath, 'utf8');
@@ -474,15 +491,14 @@ test('runtime renderer emits secret references without secret values', () => {
   const rejected = spawnSync(process.execPath, [path.join(ROOT, 'scripts/render-runtime-env.js'), 'staging'], {
     cwd: ROOT,
     encoding: 'utf8',
-    env: {
-      ...process.env,
+    env: fixtureProcessEnv({
       DEPLOY_ENVIRONMENT: 'staging',
       PROJECT_ID: 'psevent-test1',
       PROJECT_NUMBER: '123456789012',
       RELEASE_ID: 'abcdef1234567890',
       SECRET_VERSIONS_FILE: pinsPath,
       RUNTIME_ENV_FILE: outputPath,
-    },
+    }),
   });
   assert.notEqual(rejected.status, 0);
   assert.match(rejected.stderr, /belongs to a different project/);
@@ -512,8 +528,7 @@ test('SQL backfill renderer fails before job deployment when a job-specific pin 
     `projects/psevent-test1/secrets/psevent-staging-${name}/versions/${index + 1}`,
   ]));
   fs.writeFileSync(pinsPath, JSON.stringify(pins));
-  const env = {
-    ...process.env,
+  const env = fixtureProcessEnv({
     DEPLOY_ENVIRONMENT: 'staging',
     PROJECT_ID: 'psevent-test1',
     PROJECT_NUMBER: '123456789012',
@@ -524,7 +539,7 @@ test('SQL backfill renderer fails before job deployment when a job-specific pin 
     SQL_ENABLED: 'true',
     SQL_SSL_CA_SECRET_NAME: 'SQL_SSL_CA',
     SQL_BACKFILL_MODE: 'true',
-  };
+  });
 
   const rejected = spawnSync(process.execPath, [path.join(ROOT, 'scripts/render-runtime-env.js'), 'staging'], {
     cwd: ROOT,
