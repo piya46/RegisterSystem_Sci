@@ -18,6 +18,7 @@ function resetEnvironment() {
 }
 
 function disableOptionalSecretFeatures() {
+  process.env.EMAIL_PROVIDER = 'none';
   process.env.FIELD_ENCRYPTION_ENABLED = 'false';
   process.env.FIRESTORE_MIRROR_ENABLED = 'false';
   process.env.GOOGLE_DRIVE_ENABLED = 'false';
@@ -28,7 +29,11 @@ function disableOptionalSecretFeatures() {
   process.env.MOCK_EMAIL = 'true';
   process.env.PARTICIPANT_EMAIL_LOGIN_ENABLED = 'false';
   process.env.SQL_ENABLED = 'false';
+  process.env.SQL_EVENT_REGISTRATION_PRIMARY = 'false';
   process.env.SQL_MIRROR_ENABLED = 'false';
+  delete process.env.BREVO_API_KEY;
+  delete process.env.BREVO_FROM_EMAIL;
+  delete process.env.BREVO_FROM_NAME;
   delete process.env.GOOGLE_CLIENT_ID;
   delete process.env.GOOGLE_DRIVE_FOLDER_ID;
   delete process.env.LINE_CLIENT_ID;

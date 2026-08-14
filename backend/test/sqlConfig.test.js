@@ -47,6 +47,7 @@ function configureSecurePleskSql() {
 
 test('SQL remains optional when disabled', () => {
   process.env.SQL_ENABLED = 'false';
+  process.env.SQL_EVENT_REGISTRATION_PRIMARY = 'false';
   process.env.SQL_PRIMARY_STORE = 'false';
   assert.doesNotThrow(assertSqlConfiguration);
 });
