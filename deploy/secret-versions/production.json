@@ -1,1 +1,13 @@
-{}
+{
+  "BREVO_API_KEY": "projects/cusa-reunion/secrets/psevent-production-BREVO_API_KEY/versions/1",
+  "CSRF_SECRET": "projects/cusa-reunion/secrets/psevent-production-CSRF_SECRET/versions/1",
+  "DATA_BLIND_INDEX_SECRET": "projects/cusa-reunion/secrets/psevent-production-DATA_BLIND_INDEX_SECRET/versions/1",
+  "DATA_ENCRYPTION_KEY": "projects/cusa-reunion/secrets/psevent-production-DATA_ENCRYPTION_KEY/versions/1",
+  "JWT_SECRET": "projects/cusa-reunion/secrets/psevent-production-JWT_SECRET/versions/1",
+  "MONGODB_URI": "projects/cusa-reunion/secrets/psevent-production-MONGODB_URI/versions/1",
+  "SESSION_TOKEN_HASH_SECRET": "projects/cusa-reunion/secrets/psevent-production-SESSION_TOKEN_HASH_SECRET/versions/1",
+  "SLIP_PROOF_SECRET": "projects/cusa-reunion/secrets/psevent-production-SLIP_PROOF_SECRET/versions/1",
+  "SQL_PASSWORD": "projects/cusa-reunion/secrets/psevent-production-SQL_PASSWORD/versions/1",
+  "TURNSTILE_SECRET_KEY": "projects/cusa-reunion/secrets/psevent-production-TURNSTILE_SECRET_KEY/versions/1",
+  "VENDOR_QR_SECRET": "projects/cusa-reunion/secrets/psevent-production-VENDOR_QR_SECRET/versions/1"
+}
