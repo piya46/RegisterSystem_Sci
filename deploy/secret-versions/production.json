@@ -7,7 +7,8 @@
   "MONGODB_URI": "projects/cusa-reunion/secrets/psevent-production-MONGODB_URI/versions/1",
   "SESSION_TOKEN_HASH_SECRET": "projects/cusa-reunion/secrets/psevent-production-SESSION_TOKEN_HASH_SECRET/versions/1",
   "SLIP_PROOF_SECRET": "projects/cusa-reunion/secrets/psevent-production-SLIP_PROOF_SECRET/versions/1",
-  "SQL_PASSWORD": "projects/cusa-reunion/secrets/psevent-production-SQL_PASSWORD/versions/1",
+  "SQL_MIGRATION_PASSWORD": "projects/cusa-reunion/secrets/psevent-production-SQL_MIGRATION_PASSWORD/versions/1",
+  "SQL_PASSWORD": "projects/cusa-reunion/secrets/psevent-production-SQL_PASSWORD/versions/3",
   "TURNSTILE_SECRET_KEY": "projects/cusa-reunion/secrets/psevent-production-TURNSTILE_SECRET_KEY/versions/1",
   "VENDOR_QR_SECRET": "projects/cusa-reunion/secrets/psevent-production-VENDOR_QR_SECRET/versions/1"
 }
