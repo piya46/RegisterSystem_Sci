@@ -1,4 +1,10 @@
 const { boolEnv } = require('../utils/cloudCostGuardrail');
+const {
+  brevoSender,
+  emailFeatureEnabled,
+  normalizedEmailProvider,
+  smtpConfigured,
+} = require('../utils/emailProviderConfig');
 
 const CORE_SECRET_NAMES = [
   'MONGODB_URI',
@@ -25,14 +31,27 @@ function isProduction() {
 }
 
 function addEmailSecrets(names) {
-  const enabled = boolEnv('PARTICIPANT_EMAIL_LOGIN_ENABLED', Boolean(process.env.SMTP_HOST));
+  const enabled = emailFeatureEnabled(process.env);
   if (!enabled) return;
   if (process.env.NODE_ENV === 'production' && boolEnv('MOCK_EMAIL', false)) {
     throw new Error('MOCK_EMAIL cannot be enabled when participant email login is enabled in production');
   }
-  if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is required when participant email login is enabled');
-  names.add('SMTP_USER');
-  names.add('SMTP_PASS');
+  const provider = normalizedEmailProvider(process.env);
+  if (provider === 'brevo') {
+    if (!brevoSender(process.env).email) {
+      throw new Error('BREVO_FROM_EMAIL or EMAIL_FROM is required when EMAIL_PROVIDER=brevo');
+    }
+    names.add('BREVO_API_KEY');
+    return;
+  }
+  if (provider === 'smtp') {
+    if (!process.env.SMTP_HOST) throw new Error('SMTP_HOST is required when EMAIL_PROVIDER=smtp');
+    if (!smtpConfigured(process.env)) throw new Error('SMTP_USER and SMTP_PASS are required when EMAIL_PROVIDER=smtp');
+    names.add('SMTP_USER');
+    names.add('SMTP_PASS');
+    return;
+  }
+  throw new Error('EMAIL_PROVIDER must not be none when participant email login is enabled');
 }
 
 function addLineSecrets(names) {

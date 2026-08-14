@@ -26,7 +26,7 @@ import useAuth from "../hooks/useAuth";
 import QrScanner from "../components/QrScanner";
 import FollowersDialog from "../components/FollowersDialog";
 import { EmptyState } from "../components/FeedbackStates";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
 
 /* ===================== Config & Translation ===================== */

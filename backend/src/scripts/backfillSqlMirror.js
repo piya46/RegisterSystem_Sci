@@ -229,7 +229,7 @@ async function runBackfill({ apply, domains, batchSize }) {
   }
   await hydrateBackfillSecrets({ apply, domains });
   if (apply) applySqlMigrationCredentials();
-  await connectDB();
+  await connectDB({ autoIndex: false });
   if (apply) await connectSQL();
 
   const definitions = domainDefinitions();

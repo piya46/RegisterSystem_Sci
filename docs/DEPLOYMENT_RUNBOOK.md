@@ -40,14 +40,14 @@
 | `secrets` | สร้างหรือ pin Secret Manager versions | `ALLOW_SECRET_UPLOAD=true` |
 | `deploy` | test, build/push, optional migration, rollout | clean Git source; production มี confirmation |
 | `rollback` | เปลี่ยน Cloud Run traffic | revision ที่พร้อมใช้งาน |
-| `plesk` | plan/build/deploy/rollback/smoke Plesk web gateway | Node.js 22; deploy ต้องมี public build config |
+| `plesk` | plan/build/deploy/rollback/smoke Plesk web gateway | `deploy` รันจาก manual Plesk action บน `main`; GitHub ไม่ trigger Plesk |
 | `all` | CI + bootstrap + optional staging Secret + deploy | ใช้สำหรับ first staging setup; production pin ต้อง review ก่อน |
 
 ห้ามใช้ `set -x` ขณะทำ Secret operation และห้ามนำ output runtime YAML ไปแนบ issue/chat เพราะมี resource mapping แม้ไม่มี payload
 
 ## 3. Prerequisites
 
-- Node.js 22 และ npm ที่มากับ Node 22, Docker/Buildx, Google Cloud CLI, `curl`, `jq` และ Git; `.nvmrc`/`.node-version` ต้องตรงกับ GitHub และ Docker
+- Node.js `>=22.22.0 <23` และ npm ที่มากับ Node 22, Docker/Buildx, Google Cloud CLI, `curl`, `jq` และ Git; `.nvmrc`/`.node-version` ต้องตรงกับ GitHub และ Docker
 - Google Cloud project ที่ผูก billing แล้ว
 - Project target ปัจจุบันคือ `cusa-reunion`; local `gcloud`, GitHub Environment variable และ Secret pin ทุกตัวต้องตรงกัน
 - ผู้รัน bootstrap มีสิทธิ์เปิด API, จัดการ IAM/service account, Artifact Registry, Cloud Run, GCS และ WIF
@@ -59,7 +59,7 @@
 ตรวจเครื่องและแผนโดยไม่แก้ resource:
 
 ```bash
-PROJECT_ID=your-project-id ./scripts/release.sh plan staging
+PROJECT_ID=cusa-reunion ./scripts/release.sh plan staging
 ```
 
 `plan` ที่ขึ้น `BLOCKED` เพราะ pin ยังว่างถือว่าถูกต้องสำหรับ environment ใหม่
@@ -77,14 +77,14 @@ CI_DOCKER_BUILD=true ./scripts/release.sh ci
 ### 4.2 สร้าง Google Cloud resources
 
 ```bash
-PROJECT_ID=your-project-id \
+PROJECT_ID=cusa-reunion \
 GITHUB_REPOSITORY=owner/repository \
 BOOTSTRAP_GCP=true \
 BUDGET_CREATE=true \
 ./scripts/release.sh bootstrap staging
 ```
 
-หาก billing account ไม่ใช้ THB หรือผู้รันไม่มี Budget Admin ให้สร้าง Billing Budget ใน console แล้วใช้ `BUDGET_ALREADY_CONFIGURED=true` ในรอบถัดไป ค่า threshold ที่ต้องมีคือ 50%, 80%, 90% และ 100%
+หาก billing account ไม่ใช้ THB หรือผู้รันไม่มี Budget Admin ให้สร้าง Billing Budget ใน console แล้วใช้ `BUDGET_ALREADY_CONFIGURED=true` ในรอบถัดไป ค่า threshold ที่ต้องมีคือ 50%, 80%, 90% และ 100% Budget เป็น project-wide เพราะ staging/production ใช้ `cusa-reunion` ร่วมกัน; bootstrap ต้อง reuse/normalize Budget เดิมและห้ามสร้าง Budget แยกซ้ำตาม environment
 
 Bootstrap จะ:
 
@@ -113,14 +113,14 @@ BUDGET_ALREADY_CONFIGURED=true \
 
 นำ `SQL_EGRESS_IP` จาก output ไป allowlist `/32` ใน Plesk ก่อนตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true` รายละเอียดและ deny test อยู่ใน `docs/PLESK_MARIADB_RUNBOOK.md`
 
-เพราะ Direct VPC ใช้ `all-traffic` ต้องตรวจ/แก้ IP allowlist ของ MongoDB Atlas, SMTP และ external provider อื่นด้วย แล้วให้ candidate readiness ทดสอบ dependency ทั้งหมดก่อน promote
+เพราะ Direct VPC ใช้ `all-traffic` ต้องตรวจ/แก้ IP allowlist ของ MongoDB Atlas, Brevo/SMTP fallback และ external provider อื่นด้วย แล้วให้ candidate readiness ทดสอบ dependency ทั้งหมดก่อน promote
 
 ### 4.3 Initial Secret synchronization
 
-ตรวจ `backend/.env` ว่ามี integration credential ที่ generate ไม่ได้ เช่น MongoDB, Turnstile และ SMTP/LINE/OAuth ที่เปิดใช้ แล้วรัน:
+ตรวจ `backend/.env` ว่ามี integration credential ที่ generate ไม่ได้ เช่น MongoDB, Turnstile และ Brevo/LINE/OAuth/SMTP fallback ที่เปิดใช้ แล้วรัน:
 
 ```bash
-PROJECT_ID=your-project-id \
+PROJECT_ID=cusa-reunion \
 ALLOW_SECRET_UPLOAD=true \
 LOAD_LOCAL_DEPLOY_CONFIG=true \
 ./scripts/release.sh secrets staging
@@ -135,8 +135,10 @@ LOAD_LOCAL_DEPLOY_CONFIG=true \
 - Output `deploy/secret-versions/staging.json` มีเฉพาะ resource/version identifier และต้อง review ก่อน commit
 - Renderer/runtime ต้อง reject pin ที่ไม่อยู่ project เดียวกับ deployment, prefix ผิด environment, secret ID ไม่ตรง logical name หรือ version ไม่ใช่ตัวเลข
 - `backend/.env` เป็นแหล่ง Secret payload เท่านั้น ค่า credential ในไฟล์ต้องไม่เปิด Google Drive, LINE, SQL หรือ integration อื่นโดยปริยาย
-- `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านได้เฉพาะ non-secret allowlist เช่น SMTP host/from, admin OAuth client ID และ public channel ID โดยไม่พิมพ์ค่าออก log
+- `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านได้เฉพาะ non-secret allowlist เช่น Email provider/sender, SMTP fallback host/from, admin OAuth client ID และ public channel ID โดยไม่พิมพ์ค่าออก log
 - Production-like environment ห้ามใช้ `MOCK_EMAIL=true`; OTP, recipient, subject และ message body ห้ามปรากฏใน Cloud Logging
+- SQL schema/backfill/transport/audit job ต้องมี job-specific numeric pins ครบก่อนสร้าง Cloud Run job; runtime pin ชุดปกติอย่างเดียวไม่ถือว่าเพียงพอ
+- หลัง SQL migration change window ต้องรัน `SECRET_SYNC_PROFILE=sql-migration-cleanup` พร้อม `CONFIRM_SQL_MIGRATION_ACCESS_REVOKE=<environment>` เพื่อถอนสิทธิ์ migration account แม้ workflow ล้มเหลว
 
 ตรวจ diff โดยห้ามเห็น payload:
 
@@ -150,7 +152,7 @@ git diff -- deploy/secret-versions/staging.json
 หลัง commit pin metadata และ source แล้ว:
 
 ```bash
-PROJECT_ID=your-project-id \
+PROJECT_ID=cusa-reunion \
 LOAD_LOCAL_DEPLOY_CONFIG=true \
 VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 ./scripts/release.sh deploy staging
@@ -159,7 +161,7 @@ VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 สำหรับ first staging trial บน local สามารถใช้ `all` พร้อม temporary pins ได้ แต่หลังผ่านต้องรัน `secrets` แยกและ commit pin metadata ก่อนเปิด GitHub CD:
 
 ```bash
-PROJECT_ID=your-project-id \
+PROJECT_ID=cusa-reunion \
 BOOTSTRAP_GCP=true \
 ALLOW_SECRET_UPLOAD=true \
 SYNC_SECRETS=true \
@@ -194,10 +196,15 @@ VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 | `VITE_CF_TURNSTILE_SITE_KEY` | Turnstile public site key | ไม่ใช่ Secret |
 | `VITE_GOOGLE_CLIENT_ID` | OAuth public client ID เมื่อเปิดใช้ | ไม่ใช่ Secret |
 | `VITE_LIFF_ID` | LIFF public ID เมื่อเปิดใช้ | ไม่ใช่ Secret |
-| `SMTP_HOST` | SMTP endpoint เมื่อเปิด Email OTP | ไม่ใช่ Secret |
-| `SMTP_PORT` | ค่าเริ่มต้น `587` | ไม่ใช่ Secret |
-| `SMTP_SECURE` | `true`/`false` ตาม provider | ไม่ใช่ Secret |
-| `SMTP_FROM` | Verified sender; เว้นว่างเพื่อใช้ `SMTP_USER` | ไม่ใช่ Secret |
+| `EMAIL_PROVIDER` | `brevo` สำหรับ production/staging; `smtp` ใช้เฉพาะ fallback ที่อนุมัติ | ไม่ใช่ Secret |
+| `BREVO_FROM_EMAIL` | Verified sender email ใน Brevo | ไม่ใช่ Secret |
+| `BREVO_FROM_NAME` | Display sender name | ไม่ใช่ Secret |
+| `BREVO_TRANSACTIONAL_EMAIL_URL` | ค่าเริ่มต้น `https://api.brevo.com/v3/smtp/email` | ไม่ใช่ Secret |
+| `BREVO_CANARY_CONFIRMED` | `true` เฉพาะ production deploy ที่ผ่าน canary send แล้ว | ไม่ใช่ Secret |
+| `SMTP_HOST` | SMTP endpoint เฉพาะ fallback/local compatibility | ไม่ใช่ Secret |
+| `SMTP_PORT` | ค่าเริ่มต้น `587` สำหรับ SMTP fallback | ไม่ใช่ Secret |
+| `SMTP_SECURE` | `true`/`false` สำหรับ SMTP fallback | ไม่ใช่ Secret |
+| `SMTP_FROM` | Verified fallback sender; เว้นว่างเพื่อใช้ `SMTP_USER` | ไม่ใช่ Secret |
 | `LOGIN_CLIENT_ID` | Admin Google OAuth public client ID; fallback จาก `VITE_GOOGLE_CLIENT_ID` | ไม่ใช่ Secret |
 | `LINE_LOGIN_ENABLED` | เปิดเมื่อ Channel ID/Secret และ callback พร้อมแล้วเท่านั้น | ไม่ใช่ Secret |
 | `LINE_LOGIN_CHANNEL_ID` | LINE Login public Channel ID | ไม่ใช่ Secret |
@@ -206,11 +213,23 @@ VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 | `SQL_MIGRATION_USER` | แยกจาก runtime user; restricted variable | ไม่ใช่ Secret payload แต่ห้าม commit |
 | `SQL_SSL_SERVERNAME` | DNS SAN ใน MariaDB certificate | ไม่ใช่ Secret |
 
-ห้ามเพิ่ม MongoDB URI, JWT, SMTP password, LINE token, OAuth client secret หรือ service-account JSON ใน GitHub
+ห้ามเพิ่ม MongoDB URI, JWT, Brevo API key, SMTP password, LINE token, OAuth client secret หรือ service-account JSON ใน GitHub
 
 Workflow map `SQL_DATABASE`, `SQL_USER`, `SQL_MIGRATION_USER` และ `SQL_SSL_SERVERNAME` จาก `vars` เข้า release แล้ว ห้ามใส่ค่าจริงลง `deploy/environments/*.env`; ถ้าขาดตัวใด activation gate ต้องหยุดก่อน build
 
-`PARTICIPANT_EMAIL_LOGIN_ENABLED=true` ต้องมี `SMTP_HOST`, `SMTP_USER` และ `SMTP_PASS` ครบ โดย user/password อยู่ Secret Manager หน้า login ต้องอ่าน `GET /api/participant-auth/providers` และแสดงเฉพาะ provider ที่พร้อมใช้งาน
+`PARTICIPANT_EMAIL_LOGIN_ENABLED=true` ใน production/staging ต้องตั้ง `EMAIL_PROVIDER=brevo`, มี `BREVO_FROM_EMAIL` ที่ verify แล้ว และมี `BREVO_API_KEY` ใน Secret Manager; หากใช้ `EMAIL_PROVIDER=smtp` ต้องเป็น fallback ที่อนุมัติและมี `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` ครบ หน้า login ต้องอ่าน `GET /api/participant-auth/providers` และแสดงเฉพาะ provider ที่พร้อมใช้งาน
+
+Brevo canary หลัง sync/pin Secret:
+
+```bash
+npm --prefix backend run canary:brevo-email
+
+BREVO_CANARY_TO=operator@example.com \
+BREVO_CANARY_WRITE=true \
+npm --prefix backend run canary:brevo-email -- --send
+```
+
+คำสั่งแรกเป็น dry-run และไม่ส่งอีเมลจริง คำสั่งที่สองส่งจริงและไม่พิมพ์ recipient/API key แบบเต็มลง log หลัง production canary ผ่านแล้วจึงตั้ง `BREVO_CANARY_CONFIRMED=true` สำหรับ production deploy ที่อนุมัติ
 
 ห้ามตั้ง `PORT`, `K_SERVICE`, `K_REVISION`, `K_CONFIGURATION` หรือชื่อขึ้นต้น `X_GOOGLE_` ใน environment config/GitHub variables สำหรับ Cloud Run โดยเด็ดขาด สคริปต์กำหนด container port ด้วย `--port 8080` และ Cloud Run จะ inject runtime contract variables เอง; renderer และ deployment contract test ต้องปฏิเสธค่าที่สงวนไว้ก่อนสร้าง revision
 
@@ -252,13 +271,35 @@ Push/merge เข้า `main` จะรัน CI และ deploy staging เ�
 Local production deploy ใช้ได้เฉพาะ incident/controlled operation:
 
 ```bash
-PROJECT_ID=your-production-project \
+PROJECT_ID=cusa-reunion \
 CONFIRM_PRODUCTION_DEPLOY=production \
 VITE_CF_TURNSTILE_SITE_KEY=public-site-key \
 ./scripts/release.sh deploy production
 ```
 
 Routine production ควรใช้ GitHub เพื่อคง audit trail และ approval
+
+### Plesk Public Web
+
+Plesk ไม่อยู่ใน automatic GitHub pipeline ผู้ดูแลต้องรอให้ `CI / quality`
+ของ `main` และ Cloud Run backend release ผ่านก่อน แล้วทำตามลำดับ:
+
+1. Plesk > Git > ตรวจ repository/branch `main`
+2. กด `Pull now`
+3. ตรวจ latest commit ให้ตรงกับ commit ที่ CI ผ่าน
+4. กด `Deploy now`
+5. ให้ additional deployment action รัน
+   `./scripts/release.sh plesk deploy`
+6. รัน `PLESK_ORIGIN=https://reunion.scicu-alumni.com
+   ./scripts/release.sh plesk smoke`
+
+deployment target ของ Plesk อาจไม่มี `.git`; release script จะตรวจ tracked
+content กับ sibling Git mirror ก่อน build หาก mirror ไม่อยู่ที่
+`../git/RegisterSystem_Sci.git` ต้องกำหนด relative `PLESK_GIT_DIR` ตาม
+`docs/PLESK_WEB_GATEWAY_RUNBOOK.md` ห้ามข้าม source verification
+
+ห้ามตั้ง Plesk webhook, `PLESK_CD_ENABLED` หรือ FTP credential ใน GitHub
+รายละเอียดอยู่ใน `docs/PLESK_WEB_GATEWAY_RUNBOOK.md`
 
 ## 7. Deployment Transaction
 
@@ -297,20 +338,22 @@ Routine production ควรใช้ GitHub เพื่อคง audit trail �
 เมื่อเปิด ระบบจะ execute transport verification job ก่อน จากนั้น execute migration Cloud Run Job ด้วย image digest เดียวกัน, task เดียว, retry 0, `--execute-now` และ advisory lock หาก job fail pipeline จะหยุดก่อนเปลี่ยน traffic การ deploy job definition โดยไม่ execute ถือว่าไม่ผ่าน migration gate
 
 ห้ามใส่ MongoDB backfill, encryption rewrite, destructive migration หรือ source-of-truth cutover ใน routine deploy
+ให้ทำ MongoDB security migration ตามลำดับและ hard gate ใน
+`MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md` เท่านั้น
 
 ## 9. Rollback
 
 ระบุ revision ที่ตรวจแล้ว:
 
 ```bash
-PROJECT_ID=your-project-id \
+PROJECT_ID=cusa-reunion \
 ./scripts/release.sh rollback production psevent-production-r1234567-123456789
 ```
 
 หากไม่ระบุ สคริปต์เลือก ready revision ก่อนหน้าที่ไม่ใช่ revision ปัจจุบัน:
 
 ```bash
-PROJECT_ID=your-project-id ./scripts/release.sh rollback staging
+PROJECT_ID=cusa-reunion ./scripts/release.sh rollback staging
 ```
 
 หลัง rollback ต้องตรวจ:
@@ -327,7 +370,6 @@ Rollback traffic ไม่ rollback database, Secret version หรือ extern
 
 1. Backup pin file เดิมและบันทึก active revision
 2. ใส่ค่าใหม่ใน secure local source/process environment
-3. รัน `ROTATE_SECRETS=true ALLOW_SECRET_UPLOAD=true ./scripts/release.sh secrets staging`
 4. Review/commit version resource ที่เปลี่ยน
 5. Deploy staging candidate และทดสอบ flow จริง
 6. ทำ production ผ่าน PR/approval
@@ -342,8 +384,8 @@ Rollback traffic ไม่ rollback database, Secret version หรือ extern
 - GCS Standard regional, lifecycle payment slip, unlinked cleanup และ soft deleteไม่เกิน 7 วัน
 - Artifact Registry เริ่ม cleanup dry-run, เก็บล่าสุด 10, ลบเก่ากว่า 30 วันหลังอนุมัติ
 - KMS, Firestore, SQL mirror และ managed SQL ปิดจนมี forecast/approval
-- Plesk SQL reserved IP/NAT ปิดเป็นค่าเริ่มต้น มี planning cap 200 THB/เดือน และต้องรวมใน project forecast เดียวกัน
-- Static SQL provisioning ต้องผ่าน allocation check `GCS budget + SQL egress budget + core reserve <= total project budget`; ค่าเริ่มต้นคือ `700 + 200 + 100 = 1,000 THB`
+- Plesk SQL reserved IP/NAT ปิดเป็นค่าเริ่มต้น มี planning cap 250 THB/เดือน และต้องรวมใน project forecast เดียวกัน
+- Static SQL provisioning ต้องผ่าน allocation check `GCS budget + SQL egress budget + core reserve <= total project budget`; ค่าเริ่มต้นคือ `650 + 250 + 100 = 1,000 THB`
 - Billing Budget รวม project ไม่เกิน 1,000 THB/เดือน พร้อม threshold 50/80/90/100%
 - ตรวจ Cloud Logging ingestion/retention เพราะ log อาจเป็นค่าใช้จ่ายที่โตโดยไม่สัมพันธ์กับ request
 

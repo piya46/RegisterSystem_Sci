@@ -10,14 +10,33 @@ function integerEnv(name, fallback, min, max) {
   return Math.min(Math.max(normalized, min), max);
 }
 
-const connectDB = async () => {
+function mongoAutoIndexEnabled(env = process.env) {
+  const raw = String(env.MONGODB_AUTO_INDEX ?? '').trim().toLowerCase();
+  const production = String(env.NODE_ENV || '').trim().toLowerCase() === 'production';
+  if (!raw) return !production;
+  if (!['true', 'false'].includes(raw)) {
+    throw new Error('MONGODB_AUTO_INDEX must be true or false');
+  }
+  const enabled = raw === 'true';
+  if (production && enabled) {
+    throw new Error('MONGODB_AUTO_INDEX=true is forbidden in production; use an approved index migration');
+  }
+  return enabled;
+}
+
+function mongoConnectionOptions({ autoIndex } = {}) {
+  return {
+    serverSelectionTimeoutMS: integerEnv('MONGODB_SERVER_SELECTION_TIMEOUT_MS', 10000, 1000, 120000),
+    maxPoolSize: integerEnv('MONGODB_MAX_POOL_SIZE', 20, 1, 200),
+    minPoolSize: integerEnv('MONGODB_MIN_POOL_SIZE', 0, 0, 50),
+    autoIndex: typeof autoIndex === 'boolean' ? autoIndex : mongoAutoIndexEnabled(),
+  };
+}
+
+const connectDB = async (options = {}) => {
   try {
     if (!process.env.MONGODB_URI) throw new Error('MONGODB_URI is required');
-    await mongoose.connect(process.env.MONGODB_URI, {
-      serverSelectionTimeoutMS: integerEnv('MONGODB_SERVER_SELECTION_TIMEOUT_MS', 10000, 1000, 120000),
-      maxPoolSize: integerEnv('MONGODB_MAX_POOL_SIZE', 20, 1, 200),
-      minPoolSize: integerEnv('MONGODB_MIN_POOL_SIZE', 0, 0, 50),
-    });
+    await mongoose.connect(process.env.MONGODB_URI, mongoConnectionOptions(options));
     state.lastErrorCode = null;
     console.log('MongoDB connected!');
     return mongoose.connection;
@@ -41,4 +60,6 @@ function mongoStatus() {
 
 module.exports = connectDB;
 module.exports.disconnectDB = disconnectDB;
+module.exports.mongoAutoIndexEnabled = mongoAutoIndexEnabled;
+module.exports.mongoConnectionOptions = mongoConnectionOptions;
 module.exports.mongoStatus = mongoStatus;

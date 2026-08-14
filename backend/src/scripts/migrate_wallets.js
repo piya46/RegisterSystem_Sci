@@ -1,82 +1,127 @@
 const mongoose = require('mongoose');
 const Participant = require('../models/participant');
 const Wallet = require('../models/wallet');
+const { explicitMigrationApply } = require('../utils/migrationMode');
+const { connectMongoForMigration } = require('../utils/mongoMigrationConnection');
 
-async function migrateWallets() {
-  try {
-    console.log('Starting DB Migration for Wallets...');
+function walletScope(participant) {
+  return {
+    participantId: participant._id,
+    eventId: participant.eventId || null,
+    eventYear: String(participant.eventYear || ''),
+  };
+}
 
-    // Find all participants that don't have a wallet yet.
-    // Actually, we can just find all participants and try to create wallets,
-    // handling duplicate key errors gracefully.
-    const participants = await Participant.find({ status: { $ne: 'cancelled' } })
-      .select('_id eventId eventYear')
-      .lean();
+function walletScopeKey(scope) {
+  return [
+    String(scope.participantId || ''),
+    String(scope.eventId || ''),
+    String(scope.eventYear || ''),
+  ].join(':');
+}
 
-    console.log(`Found ${participants.length} valid participants.`);
-    let successCount = 0;
-    let errorCount = 0;
-    let skippedCount = 0;
+async function processParticipantBatch(participants, { dryRun, stats }) {
+  if (participants.length === 0) return;
+  const participantIds = participants.map((participant) => participant._id);
+  const existingWallets = await Wallet.find({
+    participantId: { $in: participantIds },
+  }).select('participantId eventId eventYear').lean();
+  const existingScopes = new Set(existingWallets.map(walletScopeKey));
 
-    // Process in batches
-    const batchSize = 100;
-    for (let i = 0; i < participants.length; i += batchSize) {
-      const batch = participants.slice(i, i + batchSize);
-
-      const walletsToCreate = batch.map(p => ({
-        participantId: p._id,
-        eventId: p.eventId,
-        eventYear: p.eventYear,
-        coinBalance: 0,
-        coupons: [],
-        isActive: true
-      }));
-
-      try {
-        await Wallet.insertMany(walletsToCreate, { ordered: false });
-        successCount += batch.length;
-      } catch (err) {
-        // Handle duplicate key errors from insertMany (unordered)
-        if (err.writeErrors) {
-          err.writeErrors.forEach(e => {
-            if (e.code === 11000) {
-              skippedCount++;
-            } else {
-              errorCount++;
-              console.error('Insert error:', e.errmsg);
-            }
-          });
-          const inserted = batch.length - err.writeErrors.length;
-          successCount += inserted;
-        } else {
-          errorCount += batch.length;
-          console.error('Batch error:', err.message);
-        }
-      }
-
-      process.stdout.write(`Processed ${i + batch.length} / ${participants.length}...\r`);
+  for (const participant of participants) {
+    const scope = walletScope(participant);
+    stats.participantsScanned += 1;
+    if (existingScopes.has(walletScopeKey(scope))) {
+      stats.existingWallets += 1;
+      continue;
     }
 
-    console.log('\nMigration Completed.');
-    console.log(`Successfully created: ${successCount} wallets.`);
-    console.log(`Skipped (already exists): ${skippedCount} wallets.`);
-    console.log(`Errors: ${errorCount} wallets.`);
-
-  } catch (err) {
-    console.error('Migration failed:', err);
+    stats.walletsToCreate += 1;
+    if (!dryRun) {
+      try {
+        await Wallet.create({
+          ...scope,
+          coinBalance: 0,
+          coupons: [],
+          isActive: true,
+        });
+        stats.walletsCreated += 1;
+        existingScopes.add(walletScopeKey(scope));
+      } catch (error) {
+        if (error?.code === 11000) stats.duplicateRaces += 1;
+        else throw error;
+      }
+    }
   }
 }
 
-module.exports = migrateWallets;
+async function migrateWallets({ dryRun = true, batchSize = 100 } = {}) {
+  const normalizedBatchSize = Number(batchSize);
+  if (!Number.isInteger(normalizedBatchSize) || normalizedBatchSize < 1 || normalizedBatchSize > 1000) {
+    throw new Error('Wallet migration batch size must be between 1 and 1000');
+  }
 
-// If run directly
+  const participantFilter = {
+    status: { $ne: 'cancelled' },
+    isDeleted: { $ne: true },
+  };
+  const total = await Participant.countDocuments(participantFilter);
+  const stats = {
+    dryRun,
+    participantsScanned: 0,
+    walletsToCreate: 0,
+    walletsCreated: 0,
+    existingWallets: 0,
+    duplicateRaces: 0,
+  };
+  const cursor = Participant.find(participantFilter)
+    .select('_id eventId eventYear')
+    .lean()
+    .cursor({ batchSize: normalizedBatchSize });
+
+  let batch = [];
+  for await (const participant of cursor) {
+    batch.push(participant);
+    if (batch.length < normalizedBatchSize) continue;
+    await processParticipantBatch(batch, { dryRun, stats });
+    batch = [];
+    if (stats.participantsScanned % 500 === 0 || stats.participantsScanned === total) {
+      console.log(`Wallet migration scanned ${stats.participantsScanned}/${total}`);
+    }
+  }
+  await processParticipantBatch(batch, { dryRun, stats });
+  if (batch.length > 0) {
+    console.log(`Wallet migration scanned ${stats.participantsScanned}/${total}`);
+  }
+  return stats;
+}
+
+module.exports = migrateWallets;
+module.exports.walletScope = walletScope;
+module.exports.walletScopeKey = walletScopeKey;
+
 if (require.main === module) {
   require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
-  mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-    .then(() => migrateWallets())
+  const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  if (!mongoUri) throw new Error('Missing MONGODB_URI');
+  const apply = explicitMigrationApply({
+    writeFlag: 'WALLET_MIGRATION_WRITE',
+    mongoSafetyGate: true,
+  });
+  const batchSize = Number(process.env.WALLET_MIGRATION_BATCH_SIZE || 100);
+
+  connectMongoForMigration(mongoUri)
+    .then(() => migrateWallets({ dryRun: !apply, batchSize }))
+    .then((stats) => {
+      console.log(JSON.stringify(stats, null, 2));
+      if (stats.dryRun) {
+        console.log('Dry run only. Use --apply with WALLET_MIGRATION_WRITE=true during an approved maintenance window.');
+      }
+    })
     .then(() => mongoose.disconnect())
-    .catch(err => {
-      console.error(err);
-      process.exit(1);
+    .catch(async (error) => {
+      console.error(`Wallet migration failed: ${error.message}`);
+      await mongoose.disconnect().catch(() => {});
+      process.exitCode = 1;
     });
 }

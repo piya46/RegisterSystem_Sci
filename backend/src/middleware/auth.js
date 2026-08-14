@@ -54,6 +54,7 @@ module.exports = async function (req, res, next) {
         scope: 'self_register_session',
         eventId: payload.eventId || null,
         eventYear: payload.eventYear || '',
+        jti: payload.jti || '',
       };
       req.registrationMethod = 'Self-Service (QR)';
       req.kioskPoint = payload.pointId;

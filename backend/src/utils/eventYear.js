@@ -4,6 +4,8 @@ const Event = require('../models/event');
 const { isPublicEventStatus, isRegistrationOpenStatus } = require('./eventLayout');
 const { canAccessEvent } = require('./permissions');
 
+const ONSITE_REGISTRATION_OPEN_STATUSES = new Set(['registration_open', 'event_day', 'active']);
+
 function defaultEventYear() {
   return String(new Date().getFullYear());
 }
@@ -101,6 +103,42 @@ function assertEventRegistrationOpen(event, now = new Date()) {
   }
   if (endsAt && now > endsAt) {
     const error = new Error('หมดเวลาลงทะเบียนล่วงหน้าแล้ว');
+    error.statusCode = 403;
+    throw error;
+  }
+}
+
+function assertEventOnsiteRegistrationOpen(event, now = new Date()) {
+  const config = event?.config || {};
+  const startsAt = config.kioskStartDate ? new Date(config.kioskStartDate) : null;
+  const endsAt = config.kioskEndDate ? new Date(config.kioskEndDate) : null;
+  if (!event) {
+    const error = new Error('ไม่พบกิจกรรมสำหรับลงทะเบียนหน้างาน');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (config.maintenanceMode === true) {
+    const error = new Error('ระบบกำลังปิดปรับปรุงชั่วคราว');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (config.enabledFeatures?.registration === false || config.enableRegister === false) {
+    const error = new Error('กิจกรรมนี้ปิดรับลงทะเบียน');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (!ONSITE_REGISTRATION_OPEN_STATUSES.has(event.status)) {
+    const error = new Error('กิจกรรมนี้ยังไม่เปิดระบบลงทะเบียนหน้างาน');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (startsAt && !Number.isNaN(startsAt.getTime()) && now < startsAt) {
+    const error = new Error(`ยังไม่ถึงเวลาเปิดระบบลงทะเบียนหน้างาน (${startsAt.toLocaleString('th-TH')})`);
+    error.statusCode = 403;
+    throw error;
+  }
+  if (endsAt && !Number.isNaN(endsAt.getTime()) && now > endsAt) {
+    const error = new Error('หมดเวลาลงทะเบียนหน้างานแล้ว');
     error.statusCode = 403;
     throw error;
   }
@@ -204,9 +242,9 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
       error.statusCode = 400;
       throw error;
     }
-    event = await Event.findById(eventId).select('slug eventYear status organizationId seriesId');
+    event = await Event.findById(eventId).select('slug eventYear status organizationId seriesId config');
   } else if (eventSlug) {
-    event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() }).select('slug eventYear status organizationId seriesId');
+    event = await Event.findOne({ slug: String(eventSlug).trim().toLowerCase() }).select('slug eventYear status organizationId seriesId config');
   }
 
   if (eventId || eventSlug) {
@@ -253,6 +291,7 @@ async function eventScopeFromRequest(req, baseFilter = {}, options = {}) {
 module.exports = {
   applyEventYearFilter,
   assertEventMatchesRequestedIdentity,
+  assertEventOnsiteRegistrationOpen,
   assertEventRegistrationOpen,
   defaultEventYear,
   eventScopeFromRequest,

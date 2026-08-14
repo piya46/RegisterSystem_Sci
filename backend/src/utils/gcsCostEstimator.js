@@ -22,7 +22,7 @@ function usdToThbRate() {
 }
 
 function gcsMonthlyBudgetThb() {
-  return nonNegativeNumber(process.env.GCS_MONTHLY_BUDGET_THB) || 700;
+  return nonNegativeNumber(process.env.GCS_MONTHLY_BUDGET_THB) || 650;
 }
 
 function pricingAssumptionsUsd() {

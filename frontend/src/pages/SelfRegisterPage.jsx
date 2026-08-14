@@ -9,6 +9,7 @@ export default function SelfRegisterPage() {
   const [status, setStatus] = useState("checking"); 
   const [errorMessage, setErrorMessage] = useState("");
   const [pointId, setPointId] = useState("");
+  const [eventContext, setEventContext] = useState(null);
 
   useEffect(() => {
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -22,6 +23,10 @@ export default function SelfRegisterPage() {
         // เก็บ Token เฉพาะใน SessionStorage ห้ามลง LocalStorage 
         sessionStorage.setItem('kioskToken', res.data.shortToken);
         setPointId(res.data.pointId);
+        setEventContext({
+          eventId: res.data.eventId || "",
+          eventYear: res.data.eventYear || "",
+        });
         setStatus("ready");
       } catch (err) {
         setErrorMessage(err.response?.data?.error || "ลิงก์นี้ไม่สามารถใช้งานได้");
@@ -57,5 +62,5 @@ export default function SelfRegisterPage() {
   }
 
   // ส่ง Props ให้หน้า Kiosk รู้ว่าเป็นโหมดมือถือ
-  return <KioskPage isSelfRegisterMode={true} forcePointId={pointId} />;
+  return <KioskPage isSelfRegisterMode={true} forcePointId={pointId} initialEventContext={eventContext} />;
 }

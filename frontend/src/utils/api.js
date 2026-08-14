@@ -202,7 +202,7 @@ export const listRegistrationPoints = (params) => api.get('/registration-points'
 export const listEnabledRegistrationPoints = (params) => api.get('/registration-points/enabled', { params });
 export const createRegistrationPoint = (data) => api.post('/registration-points', data);
 export const updateRegistrationPoint = (id, data) => api.put(`/registration-points/${id}`, data);
-export const deleteRegistrationPoint = (id) => api.delete(`/registration-points/${id}`);
+export const deleteRegistrationPoint = (id, params) => api.delete(`/registration-points/${id}`, { params });
 
 export const listParticipantFields = (params) => api.get('/participant-fields', { params });
 export const createParticipantField = (data) => api.post('/participant-fields', data);
@@ -247,7 +247,9 @@ export const getCurrentEvent = () => api.get('/events/current');
 export const getEventCatalog = () => api.get('/events/catalog');
 export const getEventById = (id) => api.get(`/events/${encodeURIComponent(id)}`);
 export const getLegacyMigrationPreview = () => api.get('/events/migration-preview');
-export const runLegacyEventMigration = (dryRun = false) => api.post('/events/migrate-legacy', { dryRun });
+export const runLegacyEventMigration = ({ apply = false, confirmation = "" } = {}) => (
+  api.post('/events/migrate-legacy', { apply, confirmation })
+);
 export const getPublicEvent = (slug) => api.get(`/public/events/${encodeURIComponent(slug)}`);
 export const getPublicEventById = (eventId) => api.get(`/public/events/by-id/${encodeURIComponent(eventId)}`);
 export const getPublicCurrentEvent = () => api.get('/public/events/current');

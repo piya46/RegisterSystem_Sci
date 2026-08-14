@@ -6,6 +6,26 @@ function mayUseRuntimeCredentials() {
     && boolEnv('SQL_MIGRATION_ALLOW_RUNTIME_CREDENTIALS', false);
 }
 
+function isLocalSqlHost(host) {
+  const normalized = String(host || '').trim().toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '::1'
+    || normalized === '0.0.0.0'
+    || normalized === '127.0.0.1'
+    || normalized.startsWith('127.');
+}
+
+function assertRemoteSqlMigrationTarget() {
+  if (!boolEnv('SQL_REMOTE_MIGRATION_ONLY', false)) return;
+  if (String(process.env.SQL_SOCKET_PATH || '').trim()) {
+    throw new Error('SQL_REMOTE_MIGRATION_ONLY=true rejects SQL_SOCKET_PATH; set SQL_HOST to the real database host');
+  }
+  const host = String(process.env.SQL_HOST || '').trim();
+  if (!host || isLocalSqlHost(host)) {
+    throw new Error('SQL_REMOTE_MIGRATION_ONLY=true requires SQL_HOST to be the real remote database host, not localhost');
+  }
+}
+
 function migrationPasswordSecretName() {
   return mayUseRuntimeCredentials() && !process.env.SQL_MIGRATION_PASSWORD
     ? 'SQL_PASSWORD'
@@ -21,6 +41,7 @@ async function hydrateSqlMigrationSecrets(additionalRequiredNames = []) {
 }
 
 function applySqlMigrationCredentials() {
+  assertRemoteSqlMigrationTarget();
   const allowRuntime = mayUseRuntimeCredentials();
   const migrationUser = process.env.SQL_MIGRATION_USER || (allowRuntime ? process.env.SQL_USER : '');
   const migrationPassword = process.env.SQL_MIGRATION_PASSWORD || (allowRuntime ? process.env.SQL_PASSWORD : '');
@@ -35,5 +56,7 @@ function applySqlMigrationCredentials() {
 
 module.exports = {
   applySqlMigrationCredentials,
+  assertRemoteSqlMigrationTarget,
   hydrateSqlMigrationSecrets,
+  isLocalSqlHost,
 };

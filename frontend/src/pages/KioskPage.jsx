@@ -27,8 +27,8 @@ import LocationOnIcon from "@mui/icons-material/LocationOn";
 
 import { motion as Motion } from 'framer-motion';
 import Confetti from 'react-confetti';
-import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listEnabledRegistrationPoints } from "../utils/api";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { verifyUser, createParticipantByStaff as registerOnsiteByKiosk, listParticipantFields, getSystemSettings, listEnabledRegistrationPoints, getPublicEventById } from "../utils/api";
+import { useSearchParams, useNavigate } from "react-router";
 import Turnstile from "../components/Turnstile";
 import useAuth from "../hooks/useAuth";
 import { eventContextToParams } from "../utils/eventContext";
@@ -42,7 +42,7 @@ const MourningRibbon = () => (
   </Box>
 );
 
-export default function KioskPage({ isSelfRegisterMode = false, forcePointId = null }) {
+export default function KioskPage({ isSelfRegisterMode = false, forcePointId = null, initialEventContext = null }) {
   const { user } = useAuth();
   const [fields, setFields] = useState([]);
   const [form, setForm] = useState({});
@@ -68,10 +68,10 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
   const [kioskMode, setKioskMode] = useState(false);
   const eventParams = useMemo(
     () => eventContextToParams({
-      eventId: searchParams.get("eventId") || user?.eventId || "",
-      eventYear: searchParams.get("eventYear") || user?.eventYear || "",
+      eventId: searchParams.get("eventId") || user?.eventId || initialEventContext?.eventId || "",
+      eventYear: searchParams.get("eventYear") || user?.eventYear || initialEventContext?.eventYear || "",
     }),
-    [searchParams, user?.eventId, user?.eventYear]
+    [searchParams, user?.eventId, user?.eventYear, initialEventContext?.eventId, initialEventContext?.eventYear]
   );
 
   const selectedPoint = forcePointId || searchParams.get("point") || (user?.authScope === 'kiosk_device' ? user?.registrationPoint : null);
@@ -93,13 +93,34 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
 
     const loadInitData = async () => {
       try {
-        const [resSet, resFields, resPoints] = await Promise.all([
-            getSystemSettings(),
+        setSystemStatus({ isOpen: true, message: "" });
+        const [resFields, resPoints] = await Promise.all([
             listParticipantFields(eventParams),
             listEnabledRegistrationPoints(eventParams)
         ]);
 
-        const set = resSet.data?.data;
+        let set = null;
+        let eventStatus = '';
+        if (eventParams.eventId) {
+          try {
+            const eventRes = await getPublicEventById(eventParams.eventId);
+            const event = eventRes.data?.data || null;
+            set = event?.config || null;
+            eventStatus = event?.status || '';
+          } catch (err) {
+            setSystemStatus({
+              isOpen: false,
+              message: err.response?.data?.message || "กิจกรรมนี้ยังไม่เปิดระบบลงทะเบียนหน้างาน",
+            });
+          }
+        } else {
+          const resSet = await getSystemSettings();
+          set = resSet.data?.data;
+        }
+
+        if (eventStatus && !["registration_open", "event_day", "active"].includes(eventStatus)) {
+          setSystemStatus({ isOpen: false, message: "กิจกรรมนี้ยังไม่เปิดระบบลงทะเบียนหน้างาน" });
+        }
         if (set) {
           const now = new Date();
           const start = set.kioskStartDate ? new Date(set.kioskStartDate) : null;
@@ -107,6 +128,8 @@ export default function KioskPage({ isSelfRegisterMode = false, forcePointId = n
 
           if (set.maintenanceMode) {
              setSystemStatus({ isOpen: false, message: "ระบบกำลังปิดปรับปรุงชั่วคราว ขออภัยในความไม่สะดวก" });
+          } else if (set.enabledFeatures?.registration === false || set.enableRegister === false) {
+             setSystemStatus({ isOpen: false, message: "กิจกรรมนี้ปิดรับลงทะเบียน" });
           } else if (start && now < start) {
              setSystemStatus({ isOpen: false, message: `ระบบลงทะเบียนหน้างาน จะเปิดให้ใช้งานเวลา ${start.toLocaleString('th-TH')}` });
           } else if (end && now > end) {

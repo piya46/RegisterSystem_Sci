@@ -9,7 +9,7 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import ErrorIcon from "@mui/icons-material/Error";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import { getCronLogs } from "../utils/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 export default function CronStatusPage() {
   const navigate = useNavigate();

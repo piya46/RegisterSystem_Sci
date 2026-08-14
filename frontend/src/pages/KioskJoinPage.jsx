@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { Box, Typography, CircularProgress } from '@mui/material';
 
 export default function KioskJoinPage() {

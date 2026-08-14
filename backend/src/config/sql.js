@@ -68,8 +68,15 @@ function sleep(ms) {
 }
 
 function assertSqlConfiguration() {
+  if (sqlPrimaryStore()) {
+    throw new Error(
+      'SQL_PRIMARY_STORE=true is not implemented; MongoDB must remain the primary store until every domain repository and cutover test is complete'
+    );
+  }
+  if (boolEnv('SQL_EVENT_REGISTRATION_PRIMARY', false) && !sqlEnabled()) {
+    throw new Error('SQL_EVENT_REGISTRATION_PRIMARY=true requires SQL_ENABLED=true');
+  }
   if (!sqlEnabled()) {
-    if (sqlPrimaryStore()) throw new Error('SQL_PRIMARY_STORE=true requires SQL_ENABLED=true');
     return;
   }
 
@@ -143,9 +150,6 @@ function assertSqlConfiguration() {
         'SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true is required for production SQL mirror data'
       );
     }
-  }
-  if (sqlPrimaryStore() && !boolEnv('SQL_PRIMARY_STORE_ACKNOWLEDGED', false)) {
-    throw new Error('SQL_PRIMARY_STORE=true requires SQL_PRIMARY_STORE_ACKNOWLEDGED=true');
   }
 }
 

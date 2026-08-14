@@ -76,6 +76,8 @@ async function startServer() {
     const { encryptionEnabled } = require('./utils/fieldEncryption');
     if (!encryptionEnabled()) throw new Error('Field encryption is enabled but no valid active encryption key is available');
   }
+  const { assertMongoSecurityPosture } = require('./utils/mongoSecurityPosture');
+  await assertMongoSecurityPosture();
   await connectSQL();
   await startSqlMirrorOutboxWorker();
 

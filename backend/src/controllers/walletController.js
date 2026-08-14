@@ -308,10 +308,7 @@ async function resolveWalletFromRequest(req, session = null) {
     const query = GuestToken.findOne({
       isActive: true,
       revokedAt: null,
-      $or: [
-        { tokenHash },
-        { token: tokenString },
-      ],
+      tokenHash,
     }).populate('parentWalletId');
     if (session) query.session(session);
     const guestToken = await query;

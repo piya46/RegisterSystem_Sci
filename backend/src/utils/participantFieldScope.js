@@ -1,5 +1,9 @@
 const ParticipantField = require('../models/participantField');
 const { normalizeEventYear } = require('./eventYear');
+const {
+  listParticipantFields,
+  sqlEventRegistrationPrimaryEnabled,
+} = require('../sql/eventRegistrationRepository');
 
 function eventRefsFromContext(context = {}) {
   return {
@@ -64,6 +68,9 @@ function mergeEffectiveFields(fields, context) {
 }
 
 async function listEffectiveParticipantFields(context, { enabledOnly = false } = {}) {
+  if (sqlEventRegistrationPrimaryEnabled(context)) {
+    return listParticipantFields(context, { enabledOnly });
+  }
   const fields = await ParticipantField.find(scopedFieldFilter(context, { enabledOnly: false, includeLegacy: true }))
     .sort({ order: 1, createdAt: 1 })
     .lean();

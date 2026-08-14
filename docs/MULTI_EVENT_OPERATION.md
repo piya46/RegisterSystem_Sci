@@ -98,9 +98,11 @@ From the admin UI:
 
 1. Open `Admin -> จัดการกิจกรรม`.
 2. Review the `เชื่อมข้อมูลเดิมเข้าระบบกิจกรรม` table.
-3. Click `เชื่อมข้อมูลเดิม`.
+3. A Superadmin opens an approved maintenance window and temporarily sets
+   `LEGACY_EVENT_MIGRATION_WRITE=true`.
+4. Click `เชื่อมข้อมูลเดิม` and type `MIGRATE_LEGACY_EVENT_DATA`.
 
-From the terminal:
+The terminal command is a dry run by default:
 
 ```bash
 cd backend
@@ -114,14 +116,18 @@ cd backend
 BACKFILL_EVENT_YEAR=2026 npm run migrate:legacy-events
 ```
 
-Preview only:
+Apply only during the approved maintenance window:
 
 ```bash
 cd backend
-npm run migrate:legacy-events -- --dry-run
+BACKFILL_EVENT_YEAR=2026 \
+LEGACY_EVENT_MIGRATION_WRITE=true \
+  npm run migrate:legacy-events -- --apply
 ```
 
-`--dry-run` reads the database and prints what would happen without creating events or updating records.
+The migration writes only when both `--apply` and the write flag are present.
+Either one alone fails closed. Remove the runtime write flag immediately after
+the operation and rerun the dry run; all unmapped counts must be zero.
 
 The actual migration is non-destructive. It does not delete old data and does not overwrite records that already have `eventId`.
 

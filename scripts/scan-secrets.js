@@ -11,6 +11,7 @@ const TEXT_EXTENSIONS = new Set([
   '.mjs', '.sh', '.sql', '.ts', '.tsx', '.txt', '.yaml', '.yml',
 ]);
 const SENSITIVE_ENV_NAMES = [
+  'BREVO_API_KEY',
   'CSRF_SECRET',
   'DATA_BLIND_INDEX_SECRET',
   'DATA_ENCRYPTION_KEY',
@@ -27,6 +28,7 @@ const SENSITIVE_ENV_NAMES = [
   'OBJECT_STORAGE_LOCAL_SIGNING_SECRET',
   'SESSION_TOKEN_HASH_SECRET',
   'SLIP_PROOF_SECRET',
+  'SENDGRID_API_KEY',
   'SMTP_PASS',
   'SMTP_USER',
   'SQL_MIGRATION_PASSWORD',
@@ -59,6 +61,25 @@ function lineNumber(content, offset) {
   return content.slice(0, offset).split('\n').length;
 }
 
+function readCandidateText(root, relativePath) {
+  const absoluteRoot = path.resolve(root);
+  const absolutePath = path.resolve(absoluteRoot, relativePath);
+  if (absolutePath !== absoluteRoot && !absolutePath.startsWith(`${absoluteRoot}${path.sep}`)) {
+    throw new Error(`Git candidate path escapes the repository: ${relativePath}`);
+  }
+
+  let stat;
+  try {
+    stat = fs.lstatSync(absolutePath);
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
+  if (stat.isSymbolicLink()) return fs.readlinkSync(absolutePath);
+  if (!stat.isFile()) return null;
+  return fs.readFileSync(absolutePath, 'utf8');
+}
+
 function localSecretValues() {
   const sourcePath = process.env.SECRET_SOURCE_FILE || path.join(ROOT, 'backend', '.env');
   if (!fs.existsSync(sourcePath)) return [];
@@ -75,8 +96,8 @@ function main() {
   for (const relativePath of gitCandidateFiles()) {
     const extension = path.extname(relativePath).toLowerCase();
     if (!TEXT_EXTENSIONS.has(extension)) continue;
-    const absolutePath = path.join(ROOT, relativePath);
-    const content = fs.readFileSync(absolutePath, 'utf8');
+    const content = readCandidateText(ROOT, relativePath);
+    if (content === null) continue;
 
     for (const [kind, pattern] of SIGNATURES) {
       pattern.lastIndex = 0;
@@ -104,9 +125,15 @@ function main() {
   console.log('Secret scan passed: no credential signatures or local secret values found in Git candidate files');
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(`Secret scan failed: ${error.message}`);
-  process.exitCode = 1;
+if (require.main === module) {
+  try {
+    main();
+  } catch (error) {
+    console.error(`Secret scan failed: ${error.message}`);
+    process.exitCode = 1;
+  }
 }
+
+module.exports = {
+  readCandidateText,
+};

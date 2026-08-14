@@ -3,6 +3,7 @@ const auditLog = require('../helpers/auditLog');
 const isAdmin = require('../helpers/isAdmin');
 const { serverError } = require('../utils/httpResponses');
 const { getEventContextFromRequest, normalizeEventYear } = require('../utils/eventYear');
+const sqlEventRegistration = require('../sql/eventRegistrationRepository');
 
 const DEFAULT_KIOSK_POLICY = {
   allowStaffMode: true,
@@ -94,13 +95,23 @@ function exposePublicPoint(point) {
 }
 
 function pointBelongsToContext(point, context) {
-  if (!context?.eventId || !point?.eventId) return true;
-  return String(point.eventId) === String(context.eventId);
+  if (!point) return false;
+  if (!context?.eventId) return !point.eventId;
+  return Boolean(point.eventId) && String(point.eventId) === String(context.eventId);
 }
 
 exports.listAll = async (req, res) => {
   try {
     const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: true });
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      let points = await sqlEventRegistration.listRegistrationPoints(context);
+      const roles = Array.isArray(req.user?.role) ? req.user.role : [];
+      if (!isAdmin(req.user) && roles.includes('staff')) {
+        const allowed = new Set(normalizeIdList(req.user.registrationPoints));
+        points = points.filter((point) => allowed.has(String(point._id)) || point.allowedStaff?.includes(String(req.user?._id)));
+      }
+      return res.json(points);
+    }
     const filter = context ? scopedPointFilter(context, { includeLegacy: true }) : {};
     let points = await RegistrationPoint.find(filter)
       .populate('eventId', 'name eventYear')
@@ -122,8 +133,12 @@ exports.listAll = async (req, res) => {
 exports.listEnabled = async (req, res) => {
   try {
     const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: false });
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const points = await sqlEventRegistration.listRegistrationPoints(context, { enabledOnly: true });
+      return res.json(points.map(exposePublicPoint));
+    }
     const filter = context
-      ? scopedPointFilter(context, { enabledOnly: true, includeLegacy: true })
+      ? scopedPointFilter(context, { enabledOnly: true, includeLegacy: !context.eventId })
       : scopedPointFilter(null, { enabledOnly: true, includeLegacy: true });
 
     const points = await RegistrationPoint.find(filter)
@@ -137,12 +152,25 @@ exports.listEnabled = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admin only!' });
-
     const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: true });
+    if (!context && !isAdmin(req.user)) return res.status(403).json({ error: 'Global registration points require admin access' });
     const eventRefs = context ? eventRefsFromContext(context) : {};
     const name = String(req.body.name || '').trim();
     if (name.length < 2) return res.status(400).json({ error: 'Point name is required.' });
+
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const point = await sqlEventRegistration.createRegistrationPoint(context, {
+        name,
+        description: String(req.body.description || '').trim(),
+        type: req.body.type || 'onsite',
+        enabled: req.body.enabled !== false,
+        allowedStaff: normalizeIdList(req.body.allowedStaff),
+        deviceIds: normalizeIdList(req.body.deviceIds),
+        kioskPolicy: sanitizePolicy(req.body.kioskPolicy),
+      });
+      auditLog && auditLog({ req, action: 'CREATE_REGISTRATION_POINT_SQL', detail: `name=${name}, eventId=${context.eventId || ''}` });
+      return res.json(point);
+    }
 
     const duplicateFilter = eventRefs.eventId
       ? { eventId: eventRefs.eventId, name }
@@ -171,13 +199,29 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admin only!' });
-
     const { id } = req.params;
+    const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: true });
+    if (!context && !isAdmin(req.user)) return res.status(403).json({ error: 'Global registration points require admin access' });
+
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const name = req.body.name !== undefined ? String(req.body.name || '').trim() : undefined;
+      if (name !== undefined && name.length < 2) return res.status(400).json({ error: 'Point name is required.' });
+      const point = await sqlEventRegistration.updateRegistrationPoint(id, context, {
+        name,
+        description: String(req.body.description || '').trim(),
+        type: req.body.type,
+        enabled: req.body.enabled !== undefined ? req.body.enabled === true : undefined,
+        allowedStaff: req.body.allowedStaff !== undefined ? normalizeIdList(req.body.allowedStaff) : undefined,
+        deviceIds: req.body.deviceIds !== undefined ? normalizeIdList(req.body.deviceIds) : undefined,
+        kioskPolicy: req.body.kioskPolicy !== undefined ? sanitizePolicy(req.body.kioskPolicy) : undefined,
+      });
+      if (!point) return res.status(404).json({ error: 'Not found' });
+      auditLog && auditLog({ req, action: 'UPDATE_REGISTRATION_POINT_SQL', detail: `id=${id}` });
+      return res.json(point);
+    }
+
     const point = await RegistrationPoint.findById(id);
     if (!point) return res.status(404).json({ error: 'Not found' });
-
-    const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: true });
     if (context && !pointBelongsToContext(point, context)) {
       return res.status(403).json({ error: 'Registration point does not belong to this event.' });
     }
@@ -210,11 +254,25 @@ exports.update = async (req, res) => {
 
 exports.softDelete = async (req, res) => {
   try {
-    if (!isAdmin(req.user)) return res.status(403).json({ error: 'Admin only!' });
-
     const { id } = req.params;
-    const point = await RegistrationPoint.findByIdAndUpdate(id, { enabled: false }, { new: true });
+    const context = await contextFromRequest(req, { requireEventIdentity: false, requireAccess: true });
+    if (!context && !isAdmin(req.user)) return res.status(403).json({ error: 'Global registration points require admin access' });
+
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const point = await sqlEventRegistration.softDeleteRegistrationPoint(id, context);
+      if (!point) return res.status(404).json({ error: 'Not found' });
+      auditLog && auditLog({ req, action: 'DELETE_REGISTRATION_POINT_SQL', detail: `id=${id}` });
+      return res.json({ message: 'Disabled registration point', point });
+    }
+
+    const point = await RegistrationPoint.findById(id);
     if (!point) return res.status(404).json({ error: 'Not found' });
+    if (context && !pointBelongsToContext(point, context)) {
+      return res.status(403).json({ error: 'Registration point does not belong to this event.' });
+    }
+
+    point.enabled = false;
+    await point.save();
     auditLog && auditLog({ req, action: 'DELETE_REGISTRATION_POINT', detail: `id=${id}` });
     res.json({ message: 'Disabled registration point', point });
   } catch (err) {

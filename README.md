@@ -55,7 +55,7 @@
   - **Framework:** Express.js
   - **Database:** MongoDB (Mongoose) เป็น primary store; รองรับ optional MariaDB/MySQL reporting mirror และ Firestore realtime mirror
   - **Security:** JSON Web Token (JWT), Bcrypt, Helmet, Express-Rate-Limit
-  - **Features:** Multer + Sharp (validated/optimized image upload), Google Cloud Storage/local object abstraction, Nodemailer (Email Service)
+  - **Features:** Multer + Sharp (validated/optimized image upload), Google Cloud Storage/local object abstraction, Brevo Transactional Email API with SMTP fallback
 
 -----
 
@@ -63,10 +63,10 @@
 
 ### 1\. สิ่งที่ต้องเตรียม (Prerequisites)
 
-  - [Node.js](https://nodejs.org/) 22.x ตาม `.nvmrc` และ `.node-version`
+  - [Node.js](https://nodejs.org/) `>=22.22.0 <23` ตาม `.nvmrc` และ `.node-version`
   - [MongoDB](https://www.mongodb.com/) (Local หรือ Cloud Atlas)
   - บัญชี Cloudflare (สำหรับ Turnstile - Optional)
-  - บัญชี SMTP Email (สำหรับส่ง E-Ticket - Optional)
+  - บัญชี Brevo Transactional Email API และ verified sender (สำหรับส่ง E-Ticket/OTP - Optional)
 
 ### 2\. การติดตั้ง Backend
 
@@ -108,13 +108,19 @@ JWT_SECRET=your_super_secret_key_change_me
 # ระบุ Domain ของ Frontend ที่อนุญาตให้เชื่อมต่อ
 CORS_ORIGIN=http://localhost:5173,https://your-production-domain.com
 
-# Email Settings (สำหรับการส่ง E-Ticket)
-SMTP_HOST=smtp.gmail.com
+# Email Settings (สำหรับการส่ง E-Ticket/OTP)
+EMAIL_PROVIDER=brevo
+BREVO_API_KEY=xkeysib-your-brevo-api-key
+BREVO_FROM_EMAIL=noreply@example.com
+BREVO_FROM_NAME="Event Team"
+BREVO_CANARY_TO=operator@example.com
+# SMTP fallback/local compatibility เท่านั้น
+SMTP_HOST=
 SMTP_PORT=587
 SMTP_SECURE=false
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
-SMTP_FROM="Event Team <your-email@gmail.com>"
+SMTP_USER=
+SMTP_PASS=
+SMTP_FROM="Event Team <noreply@example.com>"
 
 # Cloudflare Turnstile (Backend Verification Secret)
 TURNSTILE_SECRET_KEY=your_turnstile_secret_key
@@ -138,7 +144,7 @@ KMS_MAX_DAILY_CRYPTO_OPS=500
 GOOGLE_CLOUD_MONTHLY_BUDGET_THB=1000
 GOOGLE_CLOUD_OPTIONAL_FEATURES_ENABLED=true
 FIRESTORE_MIRROR_ENABLED=false
-FIRESTORE_PROJECT_ID=your-project-id
+FIRESTORE_PROJECT_ID=cusa-reunion
 FIRESTORE_DATABASE_ID=(default)
 FIRESTORE_PAYMENT_STATUS_COLLECTION=paymentStatus
 FIRESTORE_PAYMENT_STATUS_TTL_HOURS=24
@@ -168,7 +174,7 @@ OBJECT_STORAGE_PROVIDER=local
 OBJECT_STORAGE_PUBLIC_API_ORIGIN=http://localhost:3000
 GCS_BUCKET=
 GCS_LOCATION=asia-southeast3
-GCS_MONTHLY_BUDGET_THB=700
+GCS_MONTHLY_BUDGET_THB=650
 ```
 
 Production target คือ MariaDB บน Plesk ที่ `203.170.190.137:3306` แต่ต้องคงปิดจนกว่า static Cloud NAT IP, Plesk `/32` allowlist, TLS identity/CA, encrypted storage/backup และ read-only transport job ผ่าน ชื่อ database/user จริงไม่อยู่ใน repository
@@ -181,17 +187,22 @@ Production target คือ MariaDB บน Plesk ที่ `203.170.190.137:3306
 
 ```bash
 ./scripts/release.sh ci
-PROJECT_ID=your-project-id ./scripts/release.sh plan staging
-PROJECT_ID=your-project-id LOAD_LOCAL_DEPLOY_CONFIG=true ./scripts/release.sh deploy staging
+PROJECT_ID=cusa-reunion ./scripts/release.sh plan staging
+PROJECT_ID=cusa-reunion LOAD_LOCAL_DEPLOY_CONFIG=true ./scripts/release.sh deploy staging
 ```
 
-First-time infrastructure ใช้ `BOOTSTRAP_GCP=true`; การส่ง Secret ขึ้น Secret Manager ต้องใช้ `ALLOW_SECRET_UPLOAD=true` และ production ต้อง pin version/ผ่าน GitHub Environment approval ก่อน deploy `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านเฉพาะค่า non-secret ที่อนุญาต เช่น SMTP host/from และ OAuth client ID จาก `backend/.env`; secret payload ไม่ถูกนำมาเปิด feature โดยอัตโนมัติ สคริปต์จะ build frontend/backend เป็น Cloud Run service เดียว, deploy image digest แบบไม่รับ traffic, smoke test, promote และ rollback อัตโนมัติเมื่อ post-promotion test ไม่ผ่าน
+First-time infrastructure ใช้ `BOOTSTRAP_GCP=true`; การส่ง Secret ขึ้น Secret Manager ต้องใช้ `ALLOW_SECRET_UPLOAD=true` และ production ต้อง pin version/ผ่าน GitHub Environment approval ก่อน deploy `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านเฉพาะค่า non-secret ที่อนุญาต เช่น email provider/sender, SMTP fallback host/from และ OAuth client ID จาก `backend/.env`; secret payload ไม่ถูกนำมาเปิด feature โดยอัตโนมัติ สคริปต์จะ build frontend/backend เป็น Cloud Run service เดียว, deploy image digest แบบไม่รับ traffic, smoke test, promote และ rollback อัตโนมัติเมื่อ post-promotion test ไม่ผ่าน
 
-ขั้นตอนตั้ง WIF, GitHub variables, branch protection, Secret rotation, migration และ rollback อยู่ที่ `docs/DEPLOYMENT_RUNBOOK.md`
+ขั้นตอนตั้ง WIF, GitHub variables, branch protection, Secret rotation, migration และ rollback อยู่ที่ `docs/DEPLOYMENT_RUNBOOK.md` และลำดับ MongoDB security migration อยู่ที่ `docs/MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md`
+
+ข้อกำหนด Cloud POS, Shift/Float, Stripe PromptPay/Card, E-slip แบบ local-first,
+Inventory ledger, PO/partial receiving, settlement และ HA/DR อยู่ที่
+`docs/POS_INVENTORY_PRD.md` ปัจจุบันมีสถานะ `Planned / Not Implemented` และต้อง
+คง feature ปิดจนผ่าน Definition of Done ในเอกสารดังกล่าว
 
 ### Plesk Public Web และ Cloud Run Backend
 
-`reunion.scicu-alumni.com` ใช้ Plesk Node.js 22 เพื่อส่ง React SPA และ proxy `/api`, `/health`, `/uploads` ไป Cloud Run แบบ same-origin ส่วน Cloud Run ยังดูแล backend, database, Secret Manager, GCS/KMS และ integration ทั้งหมด Routine deploy ใช้ Git/Plesk webhook ผ่าน dedicated `plesk-production` ref ที่ CI อนุมัติ ไม่ใช้ FTP:
+`reunion.scicu-alumni.com` ใช้ Plesk Node.js `>=22.22.0 <23` เพื่อส่ง React SPA และ proxy `/api`, `/health`, `/uploads` ไป Cloud Run แบบ same-origin ส่วน Cloud Run ยังดูแล backend, database, Secret Manager, GCS/KMS และ integration ทั้งหมด Plesk ติดตาม branch `main` และผู้ดูแลต้องกด `Pull now` แล้ว `Deploy now` เองหลัง commit นั้นผ่าน CI; GitHub Actions ไม่เรียก Plesk webhook และไม่ใช้ FTP:
 
 ```bash
 ./scripts/release.sh plesk plan
@@ -200,7 +211,11 @@ PLESK_ORIGIN=https://reunion.scicu-alumni.com ./scripts/release.sh plesk smoke
 ./scripts/release.sh plesk rollback
 ```
 
-ค่าตั้ง Plesk, GitHub Environment, provider callback, security/cost guardrail และ go-live checklist อยู่ที่ `docs/PLESK_WEB_GATEWAY_RUNBOOK.md` โดย Plesk ต้องไม่มี Google service-account key หรือ backend Secret
+Plesk deployment target ไม่จำเป็นต้องมี `.git`; deployment action จะตรวจ
+tracked files กับ sibling mirror `../git/RegisterSystem_Sci.git` และหยุดก่อน
+build หาก branch/SHA/content ไม่ตรง
+
+ค่าตั้ง Plesk, manual deployment checklist, provider callback, security/cost guardrail และ go-live checklistอยู่ที่ `docs/PLESK_WEB_GATEWAY_RUNBOOK.md` โดย Plesk ต้องไม่มี Google service-account key หรือ backend Secret
 
 ### Frontend (`frontend/.env`)
 

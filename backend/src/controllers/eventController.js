@@ -20,6 +20,7 @@ const {
   sanitizeUrl,
 } = require('../utils/eventLayout');
 const { hasRole, isAdminLike, isSuperadmin } = require('../utils/permissions');
+const { assertMongoMigrationSafety } = require('../utils/migrationMode');
 const {
   claimEventPublicObject,
   parsePublicObjectId,
@@ -523,7 +524,7 @@ async function getLegacyMigrationPreview({ ensureCatalog = true } = {}) {
   };
 }
 
-async function migrateLegacyEventData({ dryRun = false } = {}) {
+async function migrateLegacyEventData({ dryRun = true } = {}) {
   const catalog = dryRun
     ? { settings: await getSettingsReadOnly(), organization: null, series: null }
     : await ensureDefaultCatalog();
@@ -703,6 +704,8 @@ function publicEventPayload(event) {
       welcomeMessage: clampShortText(event.config?.welcomeMessage),
       preRegStartDate: event.config?.preRegStartDate || null,
       preRegEndDate: event.config?.preRegEndDate || null,
+      kioskStartDate: event.config?.kioskStartDate || null,
+      kioskEndDate: event.config?.kioskEndDate || null,
       enablePickup: event.config?.enablePickup !== false,
       enableDelivery: event.config?.enableDelivery !== false,
       enabledFeatures,
@@ -877,7 +880,45 @@ exports.runLegacyMigration = async (req, res) => {
     if (!isAdminLike(req.user)) {
       return res.status(403).json({ success: false, message: 'เฉพาะ Superadmin/Admin เท่านั้นที่รัน migration ข้อมูลเดิมได้' });
     }
-    const dryRun = req.body?.dryRun === true;
+    const apply = req.body?.apply === true;
+    const dryRun = !apply;
+    if (apply && !isSuperadmin(req.user)) {
+      return res.status(403).json({ success: false, message: 'เฉพาะ Superadmin เท่านั้นที่ยืนยันการเขียน migration ได้' });
+    }
+    if (
+      apply
+      && (
+        String(process.env.NODE_ENV || '').toLowerCase() === 'production'
+        || String(process.env.DEPLOY_ENVIRONMENT || '').toLowerCase() === 'production'
+      )
+    ) {
+      return res.status(405).json({
+        success: false,
+        message: 'Production migration ต้องรันผ่าน offline migration command เท่านั้น',
+      });
+    }
+    if (apply && process.env.LEGACY_EVENT_MIGRATION_WRITE !== 'true') {
+      return res.status(503).json({
+        success: false,
+        message: 'ยังไม่เปิด maintenance gate สำหรับ migration ข้อมูลเดิม',
+      });
+    }
+    if (apply && req.body?.confirmation !== 'MIGRATE_LEGACY_EVENT_DATA') {
+      return res.status(400).json({
+        success: false,
+        message: 'ต้องยืนยัน migration ด้วย confirmation ที่ถูกต้อง',
+      });
+    }
+    if (apply) {
+      try {
+        assertMongoMigrationSafety(process.env);
+      } catch {
+        return res.status(503).json({
+          success: false,
+          message: 'หลักฐาน maintenance, backup หรือ restore drill ยังไม่ครบ',
+        });
+      }
+    }
     const result = await migrateLegacyEventData({ dryRun });
     auditLog({
       req,

@@ -1,10 +1,12 @@
 const ParticipantField = require('../models/participantField');
 const { serverError, pickAllowed } = require('../utils/httpResponses');
 const { getEventContextFromRequest } = require('../utils/eventYear');
+const { isAdminLike } = require('../utils/permissions');
 const {
   eventRefsFromContext,
   listEffectiveParticipantFields,
 } = require('../utils/participantFieldScope');
+const sqlEventRegistration = require('../sql/eventRegistrationRepository');
 
 const FIELD_FIELDS = ['name', 'label', 'type', 'required', 'options', 'order', 'enabled'];
 
@@ -42,9 +44,17 @@ function fieldBelongsToContext(field, context) {
 exports.createField = async (req, res) => {
   try {
     const context = await contextFromRequest(req, { requireAccess: true });
+    if (!context && !isAdminLike(req.user)) {
+      return res.status(403).json({ error: 'Global participant fields require admin access' });
+    }
     const eventRefs = context ? eventRefsFromContext(context) : {};
     const payload = sanitizeFieldPayload(req.body);
     if (!payload.name || !payload.label) return res.status(400).json({ error: 'Name and label are required' });
+
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const field = await sqlEventRegistration.createParticipantField(context, payload);
+      return res.json(field);
+    }
 
     const duplicateFilter = eventRefs.eventId
       ? { eventId: eventRefs.eventId, name: payload.name }
@@ -73,6 +83,14 @@ exports.listFields = async (req, res) => {
 exports.updateField = async (req, res) => {
   try {
     const context = await contextFromRequest(req, { requireAccess: true });
+    if (!context && !isAdminLike(req.user)) {
+      return res.status(403).json({ error: 'Global participant fields require admin access' });
+    }
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const field = await sqlEventRegistration.updateParticipantField(req.params.id, context, sanitizeFieldPayload(req.body));
+      if (!field) return res.status(404).json({ error: 'Field not found' });
+      return res.json(field);
+    }
     const field = await ParticipantField.findById(req.params.id);
     if (!field) return res.status(404).json({ error: 'Field not found' });
     if (!fieldBelongsToContext(field, context)) {
@@ -100,6 +118,14 @@ exports.updateField = async (req, res) => {
 exports.deleteField = async (req, res) => {
   try {
     const context = await contextFromRequest(req, { requireAccess: true });
+    if (!context && !isAdminLike(req.user)) {
+      return res.status(403).json({ error: 'Global participant fields require admin access' });
+    }
+    if (sqlEventRegistration.sqlEventRegistrationPrimaryEnabled(context)) {
+      const field = await sqlEventRegistration.deleteParticipantField(req.params.id, context);
+      if (!field) return res.status(404).json({ error: 'Field not found' });
+      return res.json({ message: 'Field disabled', field });
+    }
     const field = await ParticipantField.findById(req.params.id);
     if (!field) return res.status(404).json({ error: 'Field not found' });
     if (!fieldBelongsToContext(field, context)) {

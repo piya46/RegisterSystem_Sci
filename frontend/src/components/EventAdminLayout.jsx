@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Avatar, Box, Button, CircularProgress, Divider, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Typography } from '@mui/material';
-import { Outlet, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate, useParams, useLocation } from 'react-router';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ViewQuiltIcon from '@mui/icons-material/ViewQuilt';
@@ -10,6 +10,8 @@ import VolunteerActivismIcon from '@mui/icons-material/VolunteerActivism';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import DevicesIcon from '@mui/icons-material/Devices';
+import DynamicFormIcon from '@mui/icons-material/DynamicForm';
+import AddLocationAltIcon from '@mui/icons-material/AddLocationAlt';
 import { getEventById } from '../utils/api';
 
 const drawerWidth = 260;
@@ -70,6 +72,8 @@ export default function EventAdminLayout() {
   const settingsItems = [
     { label: 'ตั้งค่ากิจกรรม', path: 'settings', icon: <SettingsIcon /> },
     { label: 'ออกแบบหน้า (Layouts)', path: 'layouts', icon: <ViewQuiltIcon /> },
+    { label: 'ฟอร์มลงทะเบียน', path: 'registration-fields', icon: <DynamicFormIcon /> },
+    { label: 'จุดลงทะเบียน', path: 'registration-points', icon: <AddLocationAltIcon /> },
   ];
 
   if (loading) {

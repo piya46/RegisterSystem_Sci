@@ -6,6 +6,7 @@ const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { revealParticipantObject } = require('../utils/fieldEncryption');
 const { eventScopeFromRequest } = require('../utils/eventYear');
 const { serverError } = require('../utils/httpResponses');
+const { participantCategoryBreakdown } = require('../utils/participantCategoryBreakdown');
 const { REGISTRATION_TYPES, ONSITE_REGISTRATION_TYPES } = require('../utils/registrationTypes');
 
 function idString(value) {
@@ -340,63 +341,34 @@ exports.getDashboardSummary = async (req, res) => {
     ]);
 
 
-    // -------- By Department --------
-    const byDepartment = await Participant.aggregate([
-      { $match: { ...baseFilter, 'fields.dept': { $exists: true, $ne: null } } },
-      {
-        $group: {
-          _id: '$fields.dept',
-          registered: { $sum: 1 },
-          checkedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, 1, 0] } },
-          cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
-          followerRegistered: { $sum: { $ifNull: ['$followers', 0] } },
-          followerCheckedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } }
-        }
-      },
-      {
-        $project: {
-          department: '$_id',
-          registered: 1,
-          checkedIn: 1,
-          cancelled: 1,
-          followerRegistered: 1,
-          followerCheckedIn: 1,
-          totalRegisteredPeople: { $add: ['$registered', '$followerRegistered'] },
-          totalCheckedInPeople: { $add: ['$checkedIn', '$followerCheckedIn'] },
-          _id: 0
-        }
-      },
-      { $sort: { department: 1 } }
-    ]);
-
-    // -------- By Year --------
-    const byYear = await Participant.aggregate([
-      { $match: { ...baseFilter, 'fields.date_year': { $exists: true, $ne: null } } },
-      {
-        $group: {
-          _id: '$fields.date_year',
-          registered: { $sum: 1 },
-          checkedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, 1, 0] } },
-          cancelled: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
-          followerRegistered: { $sum: { $ifNull: ['$followers', 0] } },
-          followerCheckedIn: { $sum: { $cond: [{ $eq: ['$status', 'checkedIn'] }, { $ifNull: ['$followers', 0] }, 0] } }
-        }
-      },
-      {
-        $project: {
-          year: '$_id',
-          registered: 1,
-          checkedIn: 1,
-          cancelled: 1,
-          followerRegistered: 1,
-          followerCheckedIn: 1,
-          totalRegisteredPeople: { $add: ['$registered', '$followerRegistered'] },
-          totalCheckedInPeople: { $add: ['$checkedIn', '$followerCheckedIn'] },
-          _id: 0
-        }
-      },
-      { $sort: { year: 1 } }
-    ]);
+    // Department/year are encrypted quasi-identifiers, so aggregate only after
+    // an authorized decrypt instead of creating plaintext field indexes.
+    const categoryParticipants = (await Participant.find(
+      baseFilter,
+      'fields.dept fields.department fields.date_year status followers'
+    ).lean()).map(revealParticipantObject);
+    const byDepartment = participantCategoryBreakdown(categoryParticipants, {
+      fieldNames: ['dept', 'department'],
+      outputKey: 'department',
+    });
+    const byYear = participantCategoryBreakdown(categoryParticipants, {
+      fieldNames: ['date_year'],
+      outputKey: 'year',
+    });
+    await auditSensitiveAccess({
+      req,
+      action: 'SENSITIVE_DECRYPT_DASHBOARD_CATEGORIES',
+      purpose: 'admin_dashboard_category_aggregation',
+      resource: 'participants',
+      eventYear: eventScope.eventYear,
+      recordCount: categoryParticipants.length,
+      fields: [
+        'participant.fields.department',
+        'participant.fields.dept',
+        'participant.fields.date_year',
+      ],
+      extra: { aggregateOnly: true },
+    });
 
     // -------- ผู้ใช้ที่เช็คอิน --------
     const checkedInUsers = await Participant.aggregate([

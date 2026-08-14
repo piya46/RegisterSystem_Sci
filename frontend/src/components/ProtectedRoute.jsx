@@ -1,6 +1,6 @@
 // src/components/ProtectedRoute.jsx
 import React from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router";
 import useAuth from "../hooks/useAuth";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import ChangePasswordDialog from "./ChangePasswordDialog";

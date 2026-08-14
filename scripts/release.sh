@@ -7,6 +7,7 @@ DEPLOY_ENVIRONMENT="${2:-${DEPLOY_ENVIRONMENT:-staging}}"
 CONFIG_FILE="$ROOT_DIR/deploy/environments/$DEPLOY_ENVIRONMENT.env"
 RELEASE_DIR="$ROOT_DIR/.release"
 CLOUD_RUN_NETWORK_ARGS=()
+APPROVED_PROJECT_ID="cusa-reunion"
 APPROVED_PLESK_SQL_HOST="203.170.190.137"
 
 if [[ "$COMMAND" == "plesk" ]]; then
@@ -27,9 +28,10 @@ require_command() {
 }
 
 require_ci_node_version() {
-  local major
-  major="$(node -p 'process.versions.node.split(".")[0]')"
-  [[ "$major" == "22" ]] || die "Node.js 22 is required for reproducible CI/deployment (found $(node --version))"
+  node -e '
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    process.exit(major === 22 && minor >= 22 ? 0 : 1);
+  ' || die "Node.js >=22.22.0 <23 is required for reproducible CI/deployment (found $(node --version))"
 }
 
 load_config() {
@@ -67,7 +69,7 @@ load_config() {
   SQL_EGRESS_ROUTER="${SQL_EGRESS_ROUTER:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
   SQL_EGRESS_NAT="${SQL_EGRESS_NAT:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
   SQL_EGRESS_ADDRESS="${SQL_EGRESS_ADDRESS:-psevent-sql-egress-$DEPLOY_ENVIRONMENT}"
-  SQL_EGRESS_MONTHLY_BUDGET_THB="${SQL_EGRESS_MONTHLY_BUDGET_THB:-200}"
+  SQL_EGRESS_MONTHLY_BUDGET_THB="${SQL_EGRESS_MONTHLY_BUDGET_THB:-250}"
   GOOGLE_CLOUD_CORE_RESERVE_THB="${GOOGLE_CLOUD_CORE_RESERVE_THB:-100}"
   export REGION ARTIFACT_REPOSITORY CPU MEMORY MIN_INSTANCES MAX_INSTANCES CONCURRENCY
   export REQUEST_TIMEOUT PUBLIC_SERVICE RUNTIME_SERVICE_ACCOUNT MIGRATION_SERVICE_ACCOUNT
@@ -85,6 +87,9 @@ resolve_project() {
   fi
   [[ -n "$PROJECT_ID" && "$PROJECT_ID" != "(unset)" ]] || die "Set PROJECT_ID or configure a gcloud project"
   [[ "$PROJECT_ID" =~ ^[a-z][a-z0-9-]{4,28}[a-z0-9]$ ]] || die "Invalid PROJECT_ID: $PROJECT_ID"
+  [[ "$PROJECT_ID" == "$APPROVED_PROJECT_ID" ]] \
+    || die "PROJECT_ID must be the approved project $APPROVED_PROJECT_ID"
+  validate_cloud_cost_config
   PROJECT_NUMBER="${PROJECT_NUMBER:-$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')}"
   [[ "$PROJECT_NUMBER" =~ ^[0-9]+$ ]] || die "Unable to resolve PROJECT_NUMBER"
   GCS_BUCKET="${GCS_BUCKET:-$(printf '%s' "$PROJECT_ID-$SERVICE-assets" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9.-' | cut -c1-63 | sed 's/[^a-z0-9]*$//')}"
@@ -95,6 +100,18 @@ resolve_project() {
   DEPLOYER_SERVICE_ACCOUNT_EMAIL="${DEPLOYER_SERVICE_ACCOUNT_EMAIL:-$DEPLOYER_SERVICE_ACCOUNT@$PROJECT_ID.iam.gserviceaccount.com}"
   export PROJECT_ID PROJECT_NUMBER GCS_BUCKET APP_ORIGIN PUBLIC_WEB_ORIGIN
   export RUNTIME_SERVICE_ACCOUNT_EMAIL MIGRATION_SERVICE_ACCOUNT_EMAIL DEPLOYER_SERVICE_ACCOUNT_EMAIL
+}
+
+validate_cloud_cost_config() {
+  local total="${GOOGLE_CLOUD_MONTHLY_BUDGET_THB:-1000}"
+  local gcs="${GCS_MONTHLY_BUDGET_THB:-650}"
+  local core="${GOOGLE_CLOUD_CORE_RESERVE_THB:-100}"
+  [[ "$total" =~ ^[0-9]+$ && "$total" -gt 0 && "$total" -le 1000 ]] \
+    || die "GOOGLE_CLOUD_MONTHLY_BUDGET_THB must be an integer between 1 and 1000"
+  [[ "$gcs" =~ ^[0-9]+$ && "$core" =~ ^[0-9]+$ ]] \
+    || die "GCS and Google Cloud core reserve budgets must be non-negative integers"
+  (( gcs + core <= total )) \
+    || die "GCS and core reserve budgets exceed the total Google Cloud budget"
 }
 
 release_id() {
@@ -146,7 +163,18 @@ read_local_backend_value() {
 
 load_local_nonsecret_config() {
   [[ "${LOAD_LOCAL_DEPLOY_CONFIG:-false}" == "true" ]] || return 0
-  local keys=(SMTP_HOST SMTP_PORT SMTP_SECURE SMTP_FROM LOGIN_CLIENT_ID)
+  local keys=(
+    EMAIL_PROVIDER
+    BREVO_FROM_EMAIL
+    BREVO_FROM_NAME
+    BREVO_TRANSACTIONAL_EMAIL_URL
+    BREVO_EMAIL_TIMEOUT_MS
+    SMTP_HOST
+    SMTP_PORT
+    SMTP_SECURE
+    SMTP_FROM
+    LOGIN_CLIENT_ID
+  )
   if [[ "${LINE_LOGIN_ENABLED:-false}" == "true" ]]; then
     keys+=(LINE_LOGIN_CHANNEL_ID LINE_LOGIN_SCOPE)
   fi
@@ -196,7 +224,7 @@ quality_gate() {
   bash -n "$ROOT_DIR/scripts/release.sh" "$ROOT_DIR/scripts/plesk-release.sh" \
     "$ROOT_DIR/deploy-cloudrun.sh" "$ROOT_DIR/deploy-cloudrun-split.sh"
   node "$ROOT_DIR/scripts/scan-secrets.js"
-  node --test "$ROOT_DIR/scripts/deployment.test.js" "$ROOT_DIR/scripts/plesk-promotion.test.js"
+  node --test "$ROOT_DIR/scripts/"*.test.js
 
   if [[ "${CI_DOCKER_BUILD:-false}" == "true" ]]; then
     require_command docker
@@ -263,10 +291,6 @@ validate_sql_egress_config() {
     || die "SQL_EGRESS_SUBNET_CIDR must be an RFC1918 /24 to /28 range"
   [[ "$SQL_EGRESS_MONTHLY_BUDGET_THB" =~ ^[0-9]+$ && "$SQL_EGRESS_MONTHLY_BUDGET_THB" -gt 0 ]] \
     || die "SQL_EGRESS_MONTHLY_BUDGET_THB must be a positive integer"
-  [[ "${GOOGLE_CLOUD_MONTHLY_BUDGET_THB:-1000}" =~ ^[0-9]+$ ]] \
-    || die "GOOGLE_CLOUD_MONTHLY_BUDGET_THB must be an integer"
-  [[ "${GCS_MONTHLY_BUDGET_THB:-700}" =~ ^[0-9]+$ && "$GOOGLE_CLOUD_CORE_RESERVE_THB" =~ ^[0-9]+$ ]] \
-    || die "GCS and Google Cloud core reserve budgets must be integers"
   (( SQL_EGRESS_MONTHLY_BUDGET_THB + GCS_MONTHLY_BUDGET_THB + GOOGLE_CLOUD_CORE_RESERVE_THB <= GOOGLE_CLOUD_MONTHLY_BUDGET_THB )) \
     || die "GCS, SQL egress, and core reserve budgets exceed the total Google Cloud budget"
 }
@@ -283,6 +307,8 @@ set_cloud_run_network_args() {
 }
 
 validate_sql_activation_config() {
+  [[ "${SQL_PRIMARY_STORE:-false}" != "true" ]] \
+    || die "SQL_PRIMARY_STORE is not implemented; MongoDB must remain the primary store"
   [[ "${SQL_ENABLED:-false}" == "true" ]] || return 0
   [[ "${VERIFY_SQL_TRANSPORT:-false}" == "true" ]] \
     || die "SQL_ENABLED=true requires VERIFY_SQL_TRANSPORT=true"
@@ -311,6 +337,30 @@ validate_sql_activation_config() {
       || die "SQL mirror activation requires protected sensitive values"
   fi
   validate_sql_egress_config
+}
+
+validate_sql_mirror_migration_config() {
+  validate_sql_activation_config
+  [[ "${SQL_ENABLED:-false}" == "true" ]] \
+    || die "SQL mirror migration requires SQL_ENABLED=true"
+  [[ "${CONFIRM_SQL_MIRROR_MIGRATION:-}" == "$DEPLOY_ENVIRONMENT" ]] \
+    || die "SQL mirror migration requires CONFIRM_SQL_MIRROR_MIGRATION=$DEPLOY_ENVIRONMENT"
+  [[ "${RUN_SQL_MIGRATIONS:-false}" == "true" ]] \
+    || die "SQL mirror migration requires RUN_SQL_MIGRATIONS=true"
+  [[ "${RUN_SQL_BACKFILL:-false}" == "true" ]] \
+    || die "SQL mirror migration requires RUN_SQL_BACKFILL=true"
+  [[ "${RUN_SQL_PROTECTION_AUDIT:-false}" == "true" ]] \
+    || die "SQL mirror migration requires RUN_SQL_PROTECTION_AUDIT=true"
+  [[ "${SQL_MIRROR_REQUIRE_PROTECTED_VALUES:-false}" == "true" ]] \
+    || die "SQL mirror migration requires SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true"
+  [[ "${SQL_OUTBOX_ENABLED:-false}" != "true" ]] \
+    || die "Initial SQL backfill requires SQL_OUTBOX_ENABLED=false"
+  [[ -n "${SQL_MIGRATION_USER:-}" && "${SQL_MIGRATION_USER:-}" != "${SQL_USER:-}" ]] \
+    || die "SQL_MIGRATION_USER must be set and different from SQL_USER"
+  [[ "${SQL_BACKFILL_BATCH_SIZE:-100}" =~ ^[0-9]+$ ]] \
+    || die "SQL_BACKFILL_BATCH_SIZE must be an integer"
+  (( SQL_BACKFILL_BATCH_SIZE >= 1 && SQL_BACKFILL_BATCH_SIZE <= 1000 )) \
+    || die "SQL_BACKFILL_BATCH_SIZE must be between 1 and 1000"
 }
 
 configure_sql_static_egress() {
@@ -478,10 +528,17 @@ configure_budget() {
   fi
   [[ -n "$billing_account" ]] || die "Unable to resolve BILLING_ACCOUNT_ID for budget creation"
   gcloud services enable billingbudgets.googleapis.com --project "$PROJECT_ID"
-  local display_name="PSEvent $DEPLOY_ENVIRONMENT <= 1000 THB"
-  local existing
-  existing="$(gcloud billing budgets list --billing-account "$billing_account" \
-    --filter "displayName=$display_name" --format='value(name)' --limit 1 2>/dev/null || true)"
+  local display_name="PSEvent $PROJECT_ID total <= 1000 THB"
+  local existing=""
+  local candidate
+  for candidate in \
+    "$display_name" \
+    "PSEvent staging <= 1000 THB" \
+    "PSEvent production <= 1000 THB"; do
+    existing="$(gcloud billing budgets list --billing-account "$billing_account" \
+      --filter "displayName=$candidate" --format='value(name)' --limit 1 2>/dev/null || true)"
+    [[ -z "$existing" ]] || break
+  done
   if [[ -z "$existing" ]]; then
     gcloud billing budgets create \
       --billing-account "$billing_account" \
@@ -492,6 +549,16 @@ configure_budget() {
       --threshold-rule percent=0.80 \
       --threshold-rule percent=0.90 \
       --threshold-rule percent=1.00
+  else
+    gcloud billing budgets update "$existing" \
+      --display-name "$display_name" \
+      --budget-amount "${GOOGLE_CLOUD_MONTHLY_BUDGET_THB:-1000}THB" \
+      --filter-projects "projects/$PROJECT_ID" \
+      --clear-threshold-rules \
+      --add-threshold-rule percent=0.50 \
+      --add-threshold-rule percent=0.80 \
+      --add-threshold-rule percent=0.90 \
+      --add-threshold-rule percent=1.00
   fi
 }
 
@@ -616,6 +683,43 @@ run_sql_migrations() {
     --service-account "$MIGRATION_SERVICE_ACCOUNT_EMAIL" \
     --env-vars-file "$migration_env" \
     --command node --args backend/src/scripts/migrateSqlSchema.js,--apply \
+    --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 900s \
+    --cpu 1 --memory 512Mi --labels "application=psevent,environment=$DEPLOY_ENVIRONMENT" \
+    "${CLOUD_RUN_NETWORK_ARGS[@]}" --execute-now --wait --quiet
+}
+
+run_sql_backfill() {
+  [[ "${RUN_SQL_BACKFILL:-false}" == "true" ]] || return 0
+  [[ "${SQL_ENABLED:-false}" == "true" ]] || die "RUN_SQL_BACKFILL=true requires SQL_ENABLED=true"
+  local backfill_env="$RELEASE_DIR/sql-backfill-$DEPLOY_ENVIRONMENT.yaml"
+  local batch_size="${SQL_BACKFILL_BATCH_SIZE:-100}"
+  SQL_BACKFILL_MODE=true RUNTIME_ENV_FILE="$backfill_env" RELEASE_ID="$RELEASE_ID" \
+    node "$ROOT_DIR/scripts/render-runtime-env.js" "$DEPLOY_ENVIRONMENT" >/dev/null
+  chmod 600 "$backfill_env"
+  log "Backfilling the protected SQL reporting mirror from the MongoDB source of truth"
+  gcloud run jobs deploy "$SERVICE-sql-backfill" \
+    --project "$PROJECT_ID" --region "$REGION" --image "$IMAGE_URI" \
+    --service-account "$MIGRATION_SERVICE_ACCOUNT_EMAIL" \
+    --env-vars-file "$backfill_env" \
+    --command node --args "backend/src/scripts/backfillSqlMirror.js,--apply,--batch-size=$batch_size" \
+    --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 3600s \
+    --cpu 1 --memory 1Gi --labels "application=psevent,environment=$DEPLOY_ENVIRONMENT" \
+    "${CLOUD_RUN_NETWORK_ARGS[@]}" --execute-now --wait --quiet
+}
+
+run_sql_protection_audit() {
+  [[ "${RUN_SQL_PROTECTION_AUDIT:-false}" == "true" ]] || return 0
+  [[ "${SQL_ENABLED:-false}" == "true" ]] || die "RUN_SQL_PROTECTION_AUDIT=true requires SQL_ENABLED=true"
+  local audit_env="$RELEASE_DIR/sql-protection-audit-$DEPLOY_ENVIRONMENT.yaml"
+  SQL_PROTECTION_AUDIT_MODE=true RUNTIME_ENV_FILE="$audit_env" RELEASE_ID="$RELEASE_ID" \
+    node "$ROOT_DIR/scripts/render-runtime-env.js" "$DEPLOY_ENVIRONMENT" >/dev/null
+  chmod 600 "$audit_env"
+  log "Auditing SQL mirror columns for non-protected identifiers"
+  gcloud run jobs deploy "$SERVICE-sql-protection-audit" \
+    --project "$PROJECT_ID" --region "$REGION" --image "$IMAGE_URI" \
+    --service-account "$RUNTIME_SERVICE_ACCOUNT_EMAIL" \
+    --env-vars-file "$audit_env" \
+    --command node --args backend/src/scripts/auditSqlMirrorProtection.js \
     --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 900s \
     --cpu 1 --memory 512Mi --labels "application=psevent,environment=$DEPLOY_ENVIRONMENT" \
     "${CLOUD_RUN_NETWORK_ARGS[@]}" --execute-now --wait --quiet
@@ -800,6 +904,47 @@ plan_release() {
   fi
 }
 
+preflight_release() {
+  resolve_project
+  require_command node
+  local site_key
+  site_key="$(read_public_frontend_value VITE_CF_TURNSTILE_SITE_KEY)"
+  [[ -z "${VITE_CF_TURNSTILE_SITE_KEY:-}" && -n "$site_key" ]] \
+    && export VITE_CF_TURNSTILE_SITE_KEY="$site_key"
+
+  local arguments=("$DEPLOY_ENVIRONMENT")
+  [[ "${PREFLIGHT_WEB:-false}" == "true" ]] && arguments+=(--web)
+  [[ "${PREFLIGHT_SQL:-false}" == "true" ]] && arguments+=(--sql)
+  [[ "${PREFLIGHT_MARIADB_PROBE:-false}" == "true" ]] && arguments+=(--probe-mariadb)
+  [[ "${PREFLIGHT_JSON:-false}" == "true" ]] && arguments+=(--json)
+  node "$ROOT_DIR/scripts/production-readiness.js" "${arguments[@]}"
+}
+
+migrate_sql_mirror() {
+  resolve_project
+  require_command gcloud
+  require_command jq
+  require_command node
+  require_ci_node_version
+  validate_sql_mirror_migration_config
+  ensure_clean_release_source
+  if [[ "${SKIP_QUALITY_GATE:-false}" != "true" ]]; then quality_gate; fi
+  gcloud run services describe "$SERVICE" --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1 \
+    || die "Cloud Run service shell is missing. Bootstrap $DEPLOY_ENVIRONMENT before SQL migration."
+
+  RELEASE_ID="$(release_id)"
+  export RELEASE_ID
+  mkdir -p "$RELEASE_DIR"
+  chmod 700 "$RELEASE_DIR"
+  build_and_push
+  set_cloud_run_network_args
+  run_sql_transport_check
+  run_sql_migrations
+  run_sql_backfill
+  run_sql_protection_audit
+  log "SQL reporting-mirror migration completed; MongoDB remains the primary store"
+}
+
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/release.sh COMMAND [staging|production] [revision]
@@ -807,8 +952,10 @@ Usage: ./scripts/release.sh COMMAND [staging|production] [revision]
 Commands:
   ci          Install locked dependencies, test, lint, audit, and optionally build Docker.
   plan        Show the non-secret deployment plan and readiness blockers.
+  preflight   Check production/web/SQL readiness without writing data or infrastructure.
   bootstrap   Provision keyless Google Cloud IAM, Artifact Registry, GCS, optional approved SQL egress, and service shell.
   secrets     Create/pin Secret Manager versions; requires ALLOW_SECRET_UPLOAD=true.
+  migrate-sql Build an immutable job image, verify TLS, apply schema, backfill, and audit the SQL reporting mirror.
   deploy      Run quality gates, build/push, migrate if enabled, canary, promote, and smoke test.
   rollback    Route traffic to an explicit revision or the previous ready revision.
   plesk       Delegate plan/ci/build/deploy/smoke to the Plesk web release entrypoint.
@@ -829,11 +976,17 @@ case "$COMMAND" in
   plan)
     plan_release
     ;;
+  preflight)
+    preflight_release
+    ;;
   bootstrap)
     bootstrap_gcp
     ;;
   secrets)
     sync_secrets
+    ;;
+  migrate-sql)
+    migrate_sql_mirror
     ;;
   deploy)
     deploy_release

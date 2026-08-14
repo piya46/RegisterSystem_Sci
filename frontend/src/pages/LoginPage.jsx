@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import useAuth from "../hooks/useAuth";
 import {
   Box, Card, CardContent, Typography, TextField, Button,

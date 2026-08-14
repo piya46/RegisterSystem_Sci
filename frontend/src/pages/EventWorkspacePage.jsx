@@ -11,29 +11,14 @@ import {
   Container,
   Divider,
   Grid,
-  InputAdornment,
-  Paper,
   Stack,
-  TextField,
   Typography,
 } from "@mui/material";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
-import DashboardIcon from "@mui/icons-material/Dashboard";
-import SettingsIcon from "@mui/icons-material/Settings";
-import DesignServicesIcon from "@mui/icons-material/DesignServices";
-import PeopleIcon from "@mui/icons-material/People";
-import QrCodeIcon from "@mui/icons-material/QrCode2";
-import StoreIcon from "@mui/icons-material/Store";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
-import PublicIcon from "@mui/icons-material/Public";
-import SearchIcon from "@mui/icons-material/Search";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import AssignmentTurnedInIcon from "@mui/icons-material/AssignmentTurnedIn";
 import useAuth from "../hooks/useAuth";
 import { getEventCatalog } from "../utils/api";
-import { EmptyState, LoadingState } from "../components/FeedbackStates";
 
 const RECENT_EVENTS_KEY = "psevent.recentEvents";
 
@@ -57,6 +42,18 @@ const statusColors = {
   archived: "default",
 };
 
+const featureLabels = {
+  registration: "ลงทะเบียน",
+  checkin: "เช็คอิน",
+  dashboard: "Dashboard",
+  publicReport: "Public report",
+  donations: "Donations",
+  packages: "Packages",
+  luckyDraw: "Lucky draw",
+  certificate: "Certificate",
+  wallet: "Wallet",
+};
+
 function getId(value) {
   return value?._id || value?.id || value || "";
 }
@@ -70,27 +67,19 @@ function hasAnyRole(user, roles) {
   return userRoles.includes("superadmin") || roles.some((role) => userRoles.includes(role));
 }
 
-function toolPath(path, event) {
-  const params = new URLSearchParams();
-  if (event?.eventYear) params.set("eventYear", event.eventYear);
-  const eventId = getId(event);
-  if (eventId) params.set("eventId", eventId);
-  const query = params.toString();
-  return query ? `${path}?${query}` : path;
-}
-
-
 export default function EventWorkspacePage() {
   const { eventId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const [catalog, setCatalog] = useState({ events: [], organizations: [], series: [], settings: {} });
+  const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [message, setMessage] = useState("");
 
   const canManageSystem = hasAnyRole(user, ["admin", "org_admin", "event_admin", "event_manager"]);
 
   const loadCatalog = useCallback(async () => {
     setMessage("");
+    setLoadingCatalog(true);
     try {
       const res = await getEventCatalog();
       const data = res.data?.data || {};
@@ -102,6 +91,8 @@ export default function EventWorkspacePage() {
       });
     } catch (error) {
       setMessage(error.response?.data?.message || "โหลดรายการกิจกรรมไม่สำเร็จ");
+    } finally {
+      setLoadingCatalog(false);
     }
   }, []);
 
@@ -126,6 +117,12 @@ export default function EventWorkspacePage() {
       });
   }, [catalog.events, catalog.settings?.currentEventId]);
 
+  useEffect(() => {
+    if (eventId || loadingCatalog || !canManageSystem || filteredEvents.length !== 1) return;
+    const onlyEventId = getId(filteredEvents[0]);
+    if (onlyEventId) navigate(`/admin/events/${onlyEventId}/dashboard`, { replace: true });
+  }, [eventId, loadingCatalog, canManageSystem, filteredEvents, navigate]);
+
   const organizationById = useMemo(
     () => Object.fromEntries(catalog.organizations.map((item) => [getId(item), item])),
     [catalog.organizations]
@@ -135,8 +132,10 @@ export default function EventWorkspacePage() {
     [catalog.series]
   );
 
-  const openTool = (path, event = selectedEvent, newTab = false) => {
-    const finalPath = toolPath(path, event);
+  const openEventDashboard = (event = selectedEvent, newTab = false) => {
+    const eventIdForPath = getId(event);
+    if (!eventIdForPath) return;
+    const finalPath = `/admin/events/${eventIdForPath}/dashboard`;
     if (newTab) {
       window.open(finalPath, "_blank", "noopener,noreferrer");
       return;
@@ -174,13 +173,22 @@ export default function EventWorkspacePage() {
         {message && <Alert severity={message.includes("คัดลอก") ? "success" : "error"} sx={{ mb: 2 }} onClose={() => setMessage("")}>{message}</Alert>}
 
         <Grid container spacing={3}>
-          {catalog.events.length === 0 && (
+          {loadingCatalog && catalog.events.length === 0 && (
+            <Grid item xs={12}>
+              <Box display="flex" alignItems="center" justifyContent="center" minHeight={260} gap={2}>
+                <CircularProgress size={28} />
+                <Typography color="text.secondary" fontWeight={700}>กำลังโหลดรายการกิจกรรม...</Typography>
+              </Box>
+            </Grid>
+          )}
+
+          {!loadingCatalog && catalog.events.length === 0 && (
             <Grid item xs={12}>
               <Alert severity="info">ยังไม่มีกิจกรรมที่ผูกกับบัญชีนี้ ติดต่อ Superadmin เพื่อมอบหมายสิทธิ์</Alert>
             </Grid>
           )}
 
-          {catalog.events.length > 0 && filteredEvents.length === 0 && (
+          {!loadingCatalog && catalog.events.length > 0 && filteredEvents.length === 0 && (
             <Grid item xs={12}>
               <Alert severity="info">ไม่พบกิจกรรมที่ตรงกับคำค้นหา</Alert>
             </Grid>
@@ -191,6 +199,10 @@ export default function EventWorkspacePage() {
             const isCurrent = id === getId(catalog.settings?.currentEventId);
             const participants = Number(event.eventDataCounts?.participants || 0);
             const donations = Number(event.eventDataCounts?.donations || 0);
+            const enabledFeatures = Object.entries(event.config?.enabledFeatures || {})
+              .filter(([, enabled]) => enabled !== false)
+              .map(([key]) => key)
+              .filter((key) => featureLabels[key]);
 
             return (
               <Grid item xs={12} sm={6} md={4} key={id}>
@@ -211,7 +223,7 @@ export default function EventWorkspacePage() {
                       borderColor: "#ffc107"
                     }
                   }}
-                  onClick={() => openTool("/dashboard", event)}
+                  onClick={() => openEventDashboard(event)}
                 >
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Stack direction="row" spacing={2} alignItems="flex-start" mb={2}>
@@ -243,6 +255,15 @@ export default function EventWorkspacePage() {
                       <Chip size="small" color={statusColors[event.status] || "default"} label={statusLabels[event.status] || event.status} />
                       <Chip size="small" variant="outlined" label={event.linkingMode === "isolated" ? "แยกข้อมูล" : "งานต่อเนื่อง"} />
                     </Stack>
+
+                    {enabledFeatures.length > 0 && (
+                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap mb={2}>
+                        {enabledFeatures.slice(0, 4).map((feature) => (
+                          <Chip key={feature} size="small" variant="outlined" label={featureLabels[feature]} />
+                        ))}
+                        {enabledFeatures.length > 4 && <Chip size="small" variant="outlined" label={`+${enabledFeatures.length - 4}`} />}
+                      </Stack>
+                    )}
 
                     <Divider sx={{ my: 1.5 }} />
 

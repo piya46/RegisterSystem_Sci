@@ -1,6 +1,6 @@
 # Google Cloud Storage Object and Image Runbook
 
-เอกสารนี้เป็น runbook สำหรับรูป Event, Payment QR, Payment Slip และ Avatar ของ PSEvent โดยมีเป้าหมายให้ค่าใช้จ่าย Google Cloud รวมไม่เกิน 1,000 บาท/เดือน และกันงบสำหรับ Cloud Storage ไม่เกิน 700 บาท/เดือนในภาวะใช้งานปกติ
+เอกสารนี้เป็น runbook สำหรับรูป Event, Payment QR, Payment Slip และ Avatar ของ PSEvent โดยมีเป้าหมายให้ค่าใช้จ่าย Google Cloud รวมไม่เกิน 1,000 บาท/เดือน และกันงบสำหรับ Cloud Storage ไม่เกิน 650 บาท/เดือนในภาวะใช้งานปกติ
 
 ## 1. Architecture และ Source of Truth
 
@@ -49,7 +49,7 @@ Official references ที่ตรวจล่าสุด 2026-07-17:
 ## 3. Budget Policy
 
 - Google Cloud ทั้งโครงการ: 1,000 บาท/เดือน
-- GCS sub-budget: 700 บาท/เดือน
+- GCS sub-budget: 650 บาท/เดือน
 - Secret Manager/KMS/Firestore และส่วนสำรองอื่น: 300 บาท/เดือน
 - GCS operational ceiling: 560 บาท หรือ 80% ของ sub-budget
 - ตั้ง Google Cloud Budget Alert รวมอย่างน้อยที่ 500, 700, 850 และ 1,000 บาท
@@ -137,7 +137,7 @@ OBJECT_STORAGE_PUBLIC_API_ORIGIN=https://api.example.com
 LEGACY_UPLOADS_PUBLIC_ENABLED=false
 GCS_REQUIRE_LEGACY_UPLOADS_DISABLED=true
 
-GOOGLE_CLOUD_PROJECT=your-production-project
+GOOGLE_CLOUD_PROJECT=cusa-reunion
 GCS_BUCKET=your-private-production-bucket
 GCS_LOCATION=asia-southeast3
 GCS_OBJECT_PREFIX=psevent/production
@@ -160,7 +160,7 @@ GCS_SLIP_RETENTION_DAYS=365
 GCS_LIFECYCLE_DELETE_GRACE_DAYS=2
 
 OBJECT_STORAGE_CLEANUP_SCHEDULER_ENABLED=true
-GCS_MONTHLY_BUDGET_THB=700
+GCS_MONTHLY_BUDGET_THB=650
 GCS_COST_USD_TO_THB=33.5
 GCS_COST_STANDARD_STORAGE_USD_PER_GIB_MONTH=0.02
 GCS_COST_CLASS_A_USD_PER_THOUSAND=0.005

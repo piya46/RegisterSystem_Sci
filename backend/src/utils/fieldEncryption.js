@@ -17,6 +17,12 @@ const DEFAULT_SENSITIVE_FIELDS = [
   'usr_add',
   'usr_add_post',
   'address',
+  'department',
+  'dept',
+  'date_year',
+  'nationalId',
+  'citizenId',
+  'idCard',
 ];
 
 const DEFAULT_BLIND_INDEX_FIELDS = [
@@ -25,6 +31,9 @@ const DEFAULT_BLIND_INDEX_FIELDS = [
   'fullname',
   'phone',
   'email',
+  'nationalId',
+  'citizenId',
+  'idCard',
 ];
 
 const DEFAULT_SENSITIVE_DONATION_FIELDS = [
@@ -40,6 +49,9 @@ const DEFAULT_SEARCH_FIELDS = [
   'fullname',
   'phone',
   'email',
+  'nationalId',
+  'citizenId',
+  'idCard',
 ];
 
 function listFromEnv(name, fallback) {
@@ -133,9 +145,11 @@ function activeEncryptionKey() {
 function decryptionKey(kid) {
   const keys = configuredEncryptionKeys();
   if (keys.size === 0) return null;
-  if (kid && keys.has(kid)) return keys.get(kid);
-  const activeKey = activeEncryptionKey();
-  return activeKey;
+  if (!kid) return activeEncryptionKey();
+  if (!keys.has(kid)) {
+    throw new Error(`Missing data encryption key for encrypted value kid=${kid}`);
+  }
+  return keys.get(kid);
 }
 
 function blindIndexSecret() {
@@ -375,6 +389,7 @@ function revealParticipantObject(participant) {
 module.exports = {
   blindIndex,
   decryptValue,
+  donationSensitiveFields,
   e2eeStrictMode,
   encryptedKeyId,
   encryptValue,
@@ -382,9 +397,12 @@ module.exports = {
   isEncryptedValue,
   needsKeyRotation,
   participantBlindIndexes,
+  participantBlindIndexFields,
   participantFieldMatch,
+  participantSearchFields,
   participantSearchTokens,
   participantSearchTokensForQuery,
+  participantSensitiveFields,
   protectParticipantFields,
   protectDonationPayload,
   reencryptValue,

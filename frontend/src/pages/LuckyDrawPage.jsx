@@ -9,7 +9,7 @@ import ReplayIcon from '@mui/icons-material/Replay';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import IosShareIcon from '@mui/icons-material/IosShare';
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import Confetti from 'react-confetti';
 import { listPrizes, drawPrize, cancelPrizeWinner } from '../utils/api';
 import { EmptyState } from '../components/FeedbackStates';

@@ -1,0 +1,120 @@
+name: SQL Mirror Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment whose protected SQL mirror will be migrated
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  migrate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: sql-mirror-migration-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      APP_ORIGIN: ${{ vars.APP_ORIGIN }}
+      PUBLIC_WEB_ORIGIN: ${{ vars.PUBLIC_WEB_ORIGIN || 'https://reunion.scicu-alumni.com' }}
+      RELEASE_ID: ${{ github.sha }}
+      VITE_CF_TURNSTILE_SITE_KEY: ${{ vars.VITE_CF_TURNSTILE_SITE_KEY }}
+      VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+      VITE_LIFF_ID: ${{ vars.VITE_LIFF_ID }}
+      SMTP_HOST: ${{ vars.SMTP_HOST }}
+      SMTP_PORT: ${{ vars.SMTP_PORT || '587' }}
+      SMTP_SECURE: ${{ vars.SMTP_SECURE || 'false' }}
+      SMTP_FROM: ${{ vars.SMTP_FROM }}
+      LOGIN_CLIENT_ID: ${{ vars.LOGIN_CLIENT_ID }}
+      SQL_ENABLED: "true"
+      VERIFY_SQL_TRANSPORT: "true"
+      SQL_PROVIDER: plesk
+      SQL_HOST: 203.170.190.137
+      SQL_EXPECTED_HOST: 203.170.190.137
+      SQL_PORT: "3306"
+      SQL_DATABASE: ${{ vars.SQL_DATABASE }}
+      SQL_USER: ${{ vars.SQL_USER }}
+      SQL_MIGRATION_USER: ${{ vars.SQL_MIGRATION_USER }}
+      SQL_SSL_MODE: verify_identity
+      SQL_SSL_CA_SECRET_NAME: SQL_SSL_CA
+      SQL_SSL_SERVERNAME: ${{ vars.SQL_SSL_SERVERNAME }}
+      SQL_SSL_IP_SAN_CONFIRMED: ${{ vars.SQL_SSL_IP_SAN_CONFIRMED || 'false' }}
+      SQL_STATIC_EGRESS_ENABLED: ${{ vars.SQL_STATIC_EGRESS_ENABLED || 'false' }}
+      SQL_NETWORK_ALLOWLIST_CONFIRMED: ${{ vars.SQL_NETWORK_ALLOWLIST_CONFIRMED || 'false' }}
+      SQL_AT_REST_ENCRYPTION_CONFIRMED: ${{ vars.SQL_AT_REST_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_BACKUP_ENCRYPTION_CONFIRMED: ${{ vars.SQL_BACKUP_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_PRIMARY_STORE: "false"
+      SQL_MIRROR_ENABLED: "false"
+      SQL_MIRROR_REQUIRE_PROTECTED_VALUES: "true"
+      SQL_OUTBOX_ENABLED: "false"
+      RUN_SQL_MIGRATIONS: "true"
+      RUN_SQL_BACKFILL: "true"
+      RUN_SQL_PROTECTION_AUDIT: "true"
+      SQL_BACKFILL_BATCH_SIZE: ${{ vars.SQL_BACKFILL_BATCH_SIZE || '100' }}
+      CONFIRM_SQL_MIRROR_MIGRATION: ${{ inputs.environment }}
+      SQL_MIGRATION_ENABLED: ${{ vars.SQL_MIGRATION_ENABLED || 'false' }}
+    steps:
+      - name: Require the protected migration gate
+        run: |
+          if [[ "$SQL_MIGRATION_ENABLED" != "true" ]]; then
+            echo "SQL migration is disabled for this protected environment" >&2
+            exit 1
+          fi
+
+      - name: Check out main
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.0
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            hosting/plesk-gateway/package-lock.json
+
+      - name: Authenticate to Google Cloud with OIDC
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.DEPLOYER_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Validate non-secret migration inputs and Secret Manager pins
+        env:
+          PREFLIGHT_SQL: "true"
+        run: ./scripts/release.sh preflight "${{ inputs.environment }}"
+
+      - name: Build immutable jobs, verify TLS, migrate, backfill, and audit
+        run: ./scripts/release.sh migrate-sql "${{ inputs.environment }}"
+
+      - name: Record mandatory migration IAM cleanup
+        if: always()
+        run: >-
+          echo "::notice title=SQL migration IAM cleanup required::
+          From an approved operator context, run SECRET_SYNC_PROFILE=sql-migration-cleanup
+          CONFIRM_SQL_MIGRATION_ACCESS_REVOKE=${DEPLOY_ENVIRONMENT}
+          ALLOW_SECRET_UPLOAD=true ./scripts/release.sh secrets ${DEPLOY_ENVIRONMENT}
+          before closing the change window."

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { Box, Typography, Container, Paper, Button, CircularProgress, Dialog, DialogTitle, DialogContent, DialogActions, Stepper, Step, StepLabel, Snackbar, Alert, Stack } from '@mui/material';
 import { useForm, FormProvider } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -44,6 +44,8 @@ export default function PreRegistrationPage({ mode = "register" }) {
     pickupOptions,
     availableSizes,
     setAvailableSizes,
+    canUseDonations,
+    canUsePackages,
     canReuseRegistration,
     generateSchema
   } = useRegistrationForm(eventSlug, mode);
@@ -92,6 +94,23 @@ export default function PreRegistrationPage({ mode = "register" }) {
   });
 
   const { watch, trigger, handleSubmit, setValue } = methods;
+
+  useEffect(() => {
+    if (!canUseDonations) {
+      setValue('wantToDonate', false);
+      setValue('wantPackage', false);
+      setValue('packageType', '');
+      setValue('packageSize', '');
+      setValue('pickupMethod', '');
+      setValue('donationAmount', '');
+      return;
+    }
+    if (!canUsePackages) {
+      setValue('wantPackage', false);
+      setValue('packageSize', '');
+      setValue('pickupMethod', '');
+    }
+  }, [canUseDonations, canUsePackages, setValue]);
 
   useEffect(() => {
     if (!eventInfo?.slug || eventSlug) return;
@@ -361,8 +380,8 @@ export default function PreRegistrationPage({ mode = "register" }) {
 
               {activeStep === 1 && (
                 <StepPackageSelection
-                  canUseDonations={eventInfo?.config?.enabledFeatures?.donations !== false}
-                  canUsePackages={eventInfo?.config?.enabledFeatures?.packages !== false}
+                  canUseDonations={canUseDonations}
+                  canUsePackages={canUsePackages}
                   availablePackages={availablePackages}
                   pickupOptions={{ pickup: eventInfo?.config?.enablePickup, delivery: eventInfo?.config?.enableDelivery }}
                   availableSizes={availableSizes}

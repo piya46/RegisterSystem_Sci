@@ -27,7 +27,7 @@ import * as api from "../utils/api";
 import AdminUserDialog from "../components/AdminUserDialog";
 import AdminPasswordDialog from "../components/AdminPasswordDialog";
 import AdminGenerateLinkDialog from "../components/AdminGenerateLinkDialog";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 /* ---------- Premium Gold Theme ---------- */
 const Y = {

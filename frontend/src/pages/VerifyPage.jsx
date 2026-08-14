@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { Box, Container, Typography, Card, CardContent, CircularProgress, Alert, Button, Avatar } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -15,7 +15,7 @@ export default function VerifyPage() {
     try {
       decodedFragment = decodeURIComponent(fragment);
     } catch {
-      decodedFragment = '';
+      // Invalid fragments fall back to the stored verification ID.
     }
     return pathVerificationId
       || decodedFragment

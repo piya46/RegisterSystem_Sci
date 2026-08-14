@@ -4,7 +4,7 @@
   "private": true,
   "description": "Same-origin SPA gateway from Plesk to the PSEvent Cloud Run API",
   "engines": {
-    "node": "22.x"
+    "node": ">=22.22.0 <23"
   },
   "scripts": {
     "start": "node app.js",

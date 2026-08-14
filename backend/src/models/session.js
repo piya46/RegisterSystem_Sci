@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 
 const sessionSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin', required: true },
-  token: { type: String, select: false },
   tokenHash: { type: String, index: true, select: false },
   previousTokenHash: { type: String, index: true, select: false },
   previousTokenExpiresAt: { type: Date },
@@ -22,7 +21,6 @@ const sessionSchema = new mongoose.Schema({
 sessionSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 sessionSchema.set('toJSON', {
   transform: (doc, ret) => {
-    delete ret.token;
     delete ret.tokenHash;
     delete ret.previousTokenHash;
     delete ret.previousTokenHashes;
@@ -31,7 +29,6 @@ sessionSchema.set('toJSON', {
 });
 sessionSchema.set('toObject', {
   transform: (doc, ret) => {
-    delete ret.token;
     delete ret.tokenHash;
     delete ret.previousTokenHash;
     delete ret.previousTokenHashes;

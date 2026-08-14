@@ -6,13 +6,14 @@ const Participant = require('../models/participant');
 const Admin = require('../models/admin');
 const RegistrationPoint = require('../models/registrationPoint');
 const Event = require('../models/event');
-const SystemSetting = require('../models/SystemSetting');
 const RegistrationReuseChallenge = require('../models/registrationReuseChallenge');
+const ScopedRegistrationSession = require('../models/scopedRegistrationSession');
 const canRegisterAtPoint = require('../helpers/canRegisterAtPoint');
 const auditLog = require('../helpers/auditLog');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
 const { serverError } = require('../utils/httpResponses');
 const {
+  assertEventOnsiteRegistrationOpen,
   assertEventRegistrationOpen,
   eventScopeFromRequest,
   getEventContextFromRequest,
@@ -74,8 +75,8 @@ function setCached(key, value) {
 }
 
 function pointMatchesEvent(point, eventContext) {
-  if (!eventContext?.eventId || !point?.eventId) return true;
-  return String(point.eventId) === String(eventContext.eventId);
+  if (!eventContext?.eventId) return !point?.eventId;
+  return Boolean(point?.eventId) && String(point.eventId) === String(eventContext.eventId);
 }
 
 async function assertPointAccess(user, pointId, res, { eventContext = null, deviceId = '', mode = 'staff' } = {}) {
@@ -120,6 +121,27 @@ async function eventForReuse(slug) {
     error.statusCode = 403;
     throw error;
   }
+  return event;
+}
+
+async function eventForScopedToken(eventId, eventYear = '') {
+  if (!eventId || !mongoose.Types.ObjectId.isValid(String(eventId))) {
+    const error = new Error('Token นี้ไม่มีข้อมูลกิจกรรมที่ถูกต้อง');
+    error.statusCode = 403;
+    throw error;
+  }
+  const event = await Event.findById(eventId);
+  if (!event) {
+    const error = new Error('ไม่พบกิจกรรมของ token นี้');
+    error.statusCode = 403;
+    throw error;
+  }
+  if (eventYear && normalizeEventYear(event.eventYear) !== normalizeEventYear(eventYear)) {
+    const error = new Error('ปีของกิจกรรมใน token ไม่ตรงกับกิจกรรมจริง');
+    error.statusCode = 403;
+    throw error;
+  }
+  assertEventOnsiteRegistrationOpen(event);
   return event;
 }
 
@@ -280,6 +302,7 @@ exports.generateKioskToken = async (req, res) => {
     const { pointId, deviceId } = req.body;
     if (!pointId) return res.status(400).json({ error: 'ต้องระบุ Registration Point' });
     const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (eventContext.event) assertEventOnsiteRegistrationOpen(eventContext.event);
     if (!(await assertPointAccess(req.user, pointId, res, { eventContext, deviceId, mode: 'kiosk' }))) return;
     const eventId = eventContext.eventId ? String(eventContext.eventId) : null;
     const eventYear = normalizeEventYear(eventContext.eventYear);
@@ -305,12 +328,13 @@ exports.verifyKioskToken = async (req, res) => {
     if (decoded.role !== 'kiosk_device' || !decoded.pointId) {
       return res.status(403).json({ success: false, message: 'Token ไม่ถูกต้องสำหรับ Kiosk' });
     }
+    const event = await eventForScopedToken(decoded.eventId, decoded.eventYear);
 
     const point = await RegistrationPoint.findById(decoded.pointId).lean();
     if (!point || point.enabled !== true) {
       return res.status(403).json({ success: false, message: 'จุดลงทะเบียนนี้ถูกปิดใช้งานหรือไม่พบในระบบ' });
     }
-    if (point.eventId && decoded.eventId && String(point.eventId) !== String(decoded.eventId)) {
+    if (!point.eventId || String(point.eventId) !== String(event._id)) {
       return res.status(403).json({ success: false, message: 'Kiosk token ไม่ตรงกับกิจกรรมของจุดลงทะเบียน' });
     }
     if (point.type !== 'kiosk' && point.kioskPolicy?.allowKioskMode !== true) {
@@ -320,17 +344,7 @@ exports.verifyKioskToken = async (req, res) => {
       return res.status(403).json({ success: false, message: 'อุปกรณ์นี้ไม่ได้รับอนุญาตให้ใช้ Kiosk token นี้' });
     }
 
-    const settings = await SystemSetting.findOne().lean();
     const now = new Date();
-    if (settings?.maintenanceMode === true) {
-      return res.status(403).json({ success: false, message: 'ระบบกำลังปิดปรับปรุง' });
-    }
-    if (settings?.kioskStartDate && now < new Date(settings.kioskStartDate)) {
-      return res.status(403).json({ success: false, message: `ยังไม่ถึงเวลาเปิด Kiosk (${new Date(settings.kioskStartDate).toLocaleString('th-TH')})` });
-    }
-    if (settings?.kioskEndDate && now > new Date(settings.kioskEndDate)) {
-      return res.status(403).json({ success: false, message: 'หมดเวลาใช้งาน Kiosk แล้ว' });
-    }
 
     res.json({
       success: true,
@@ -338,8 +352,11 @@ exports.verifyKioskToken = async (req, res) => {
         pointId: String(point._id),
         pointName: point.name,
         pointType: point.type,
-        eventId: decoded.eventId || '',
-        eventYear: decoded.eventYear || '',
+        eventId: String(event._id),
+        eventYear: normalizeEventYear(event.eventYear),
+        eventName: event.name,
+        eventStatus: event.status,
+        features: event.config?.enabledFeatures || {},
         deviceId: decoded.deviceId || '',
         expiresAt: decoded.exp ? new Date(decoded.exp * 1000) : null,
         serverTime: now,
@@ -353,6 +370,9 @@ exports.verifyKioskToken = async (req, res) => {
     }
     if (err.name === 'JsonWebTokenError' || err.name === 'NotBeforeError') {
       return res.status(403).json({ success: false, message: 'Kiosk token ไม่ถูกต้อง' });
+    }
+    if (err.statusCode) {
+      return res.status(err.statusCode).json({ success: false, message: err.message });
     }
     serverError(res, err);
   }
@@ -464,6 +484,7 @@ exports.generateSelfRegisterLink = async (req, res) => {
     }
 
     const eventContext = await getEventContextFromRequest(req, { requireEventIdentity: true });
+    if (eventContext.event) assertEventOnsiteRegistrationOpen(eventContext.event);
     if (!(await assertPointAccess(req.user, pointId, res, { eventContext }))) return;
     const eventId = eventContext.eventId ? String(eventContext.eventId) : null;
     const eventYear = normalizeEventYear(eventContext.eventYear);
@@ -531,21 +552,53 @@ exports.requestShortSession = async (req, res) => {
     if (decoded.role !== 'self_register_master') {
       return res.status(403).json({ error: 'Token ไม่ถูกต้องสำหรับโหมดนี้' });
     }
+    const event = await eventForScopedToken(decoded.eventId, decoded.eventYear);
+    if (!mongoose.Types.ObjectId.isValid(String(decoded.pointId || ''))) {
+      return res.status(403).json({ error: 'QR Code ไม่ตรงกับจุดลงทะเบียน' });
+    }
+    const point = await RegistrationPoint.findById(decoded.pointId).lean();
+    if (!point || point.enabled !== true || !point.eventId || String(point.eventId) !== String(event._id)) {
+      return res.status(403).json({ error: 'QR Code ไม่ตรงกับจุดลงทะเบียนของกิจกรรมนี้' });
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const remainingMasterSeconds = Number(decoded.exp || 0) - nowSeconds;
+    const expiresInSeconds = Math.min(15 * 60, remainingMasterSeconds);
+    if (expiresInSeconds <= 0) {
+      return res.status(403).json({ error: 'QR Code นี้หมดเวลาการใช้งานแล้ว' });
+    }
+    const jti = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
+    await ScopedRegistrationSession.create({
+      jti,
+      scope: 'self_register_session',
+      eventId: event._id,
+      eventYear: normalizeEventYear(event.eventYear),
+      pointId: point._id,
+      staffId: decoded.staffId,
+      expiresAt: new Date(Date.now() + expiresInSeconds * 1000),
+    });
 
     // ออก Session ใหม่ให้อายุแค่ 15 นาที สำหรับกรอกข้อมูล 1 คน
     const shortToken = jwt.sign(
       {
         role: 'self_register_session',
-        pointId: decoded.pointId,
-        eventId: decoded.eventId || null,
-        eventYear: decoded.eventYear || '',
+        pointId: String(point._id),
+        eventId: String(event._id),
+        eventYear: normalizeEventYear(event.eventYear),
         staffId: decoded.staffId,
+        jti,
       },
       process.env.JWT_SECRET,
-      { expiresIn: '15m', audience: 'self-register-session', issuer: TOKEN_ISSUER }
+      { expiresIn: expiresInSeconds, audience: 'self-register-session', issuer: TOKEN_ISSUER }
     );
 
-    res.json({ shortToken, pointId: decoded.pointId, eventId: decoded.eventId || null, eventYear: decoded.eventYear || '' });
+    res.json({
+      shortToken,
+      pointId: String(point._id),
+      eventId: String(event._id),
+      eventYear: normalizeEventYear(event.eventYear),
+      expiresAt: new Date(Date.now() + expiresInSeconds * 1000),
+    });
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(403).json({ error: 'QR Code นี้หมดเวลาการใช้งานแล้ว' });

@@ -23,6 +23,13 @@ test.afterEach(() => {
   }
 });
 
+test('cost estimator defaults to the reviewed 650 THB GCS allocation', () => {
+  delete process.env.GCS_MONTHLY_BUDGET_THB;
+  const result = estimateGcsMonthlyCost();
+  assert.equal(result.monthlyBudgetThb, 650);
+  assert.equal(result.operationalCeilingThb, 520);
+});
+
 test('cost estimator includes storage, operations, and Asia internet egress', () => {
   process.env.GCS_COST_USD_TO_THB = '33.5';
   process.env.GCS_MONTHLY_BUDGET_THB = '700';

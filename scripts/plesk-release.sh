@@ -19,9 +19,20 @@ require_command() {
 }
 
 require_node_22() {
-  local major
-  major="$(node -p 'process.versions.node.split(".")[0]')"
-  [[ "$major" == "22" ]] || die "Plesk Node.js 22 is required (found $(node --version))"
+  node -e '
+    const [major, minor] = process.versions.node.split(".").map(Number);
+    process.exit(major === 22 && minor >= 22 ? 0 : 1);
+  ' || die "Plesk Node.js >=22.22.0 <23 is required (found $(node --version))"
+}
+
+validate_manual_deploy_source() {
+  require_command git
+  local release_id
+  release_id="$(node "$ROOT_DIR/scripts/verify-plesk-source.js")" \
+    || die "Plesk deployment source verification failed"
+  [[ "$release_id" =~ ^[0-9a-f]{40}$ ]] || die "Unable to resolve the Plesk Git commit"
+  export PLESK_GIT_COMMIT="$release_id"
+  log "Manual deployment source verified: ${PLESK_EXPECTED_BRANCH:-main} @ $release_id"
 }
 
 read_frontend_public_value() {
@@ -82,12 +93,15 @@ restart_gateway() {
 plan() {
   printf '%s\n' \
     'Plesk target: reunion.scicu-alumni.com' \
-    'Runtime: Node.js 22 / Production' \
+    'Deployment: manual Pull now, then manual Deploy now' \
+    'Git branch: main' \
+    'Runtime: Node.js >=22.22.0 <23 / Production' \
     'Application root: hosting/plesk-gateway' \
     'Document root: hosting/plesk-gateway/public' \
     'Startup file: app.js' \
+    'Plesk Git mirror fallback: ../git/RegisterSystem_Sci.git' \
     'Required public variables: PUBLIC_HOST, UPSTREAM_ORIGIN, VITE_CF_TURNSTILE_SITE_KEY' \
-    'Optional public variables: VITE_GOOGLE_CLIENT_ID, VITE_LIFF_ID, UPSTREAM_TIMEOUT_MS' \
+    'Optional public variables: VITE_GOOGLE_CLIENT_ID, VITE_LIFF_ID, UPSTREAM_TIMEOUT_MS, PLESK_GIT_DIR' \
     'Runtime secrets on Plesk: none'
 }
 
@@ -97,13 +111,14 @@ Usage: ./scripts/plesk-release.sh COMMAND
 
 Commands:
   plan    Print non-secret Plesk Node.js settings.
+  verify-source Verify the deployed tree against the selected Plesk Git commit.
   ci      Install and test the gateway without deploying.
   build   Test the gateway, build the frontend, and prepare public files.
   deploy  Build and update the Passenger restart marker.
   rollback Swap to the previous prepared frontend release and restart Passenger.
   smoke   Verify the public Plesk gateway and proxied Cloud Run API.
 
-Plesk Git additional deployment action:
+Plesk Git manual deployment action:
   ./scripts/release.sh plesk deploy
 USAGE
 }
@@ -117,14 +132,19 @@ case "$COMMAND" in
   plan)
     plan
     ;;
+  verify-source)
+    validate_manual_deploy_source
+    ;;
   ci)
     install_and_test_gateway
     ;;
   build)
+    validate_manual_deploy_source
     install_and_test_gateway
     build_frontend
     ;;
   deploy)
+    validate_manual_deploy_source
     install_and_test_gateway
     build_frontend
     restart_gateway

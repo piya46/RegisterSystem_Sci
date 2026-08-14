@@ -19,6 +19,27 @@ test('SQL migration plan is ordered, non-destructive, and checksummed', () => {
   }
 });
 
+test('SQL migration plan rejects destructive or non-restart-safe DDL', () => {
+  const migration = (id, statement) => [{
+    id,
+    description: 'test migration',
+    statements: [statement],
+  }];
+
+  assert.throws(
+    () => validateMigrationPlan(migration('900_unsafe_table', 'CREATE TABLE unsafe_table (id INT)')),
+    /restart-safe/
+  );
+  assert.throws(
+    () => validateMigrationPlan(migration('901_unsafe_index', 'CREATE INDEX unsafe_index ON safe_table (id)')),
+    /restart-safe/
+  );
+  assert.throws(
+    () => validateMigrationPlan(migration('902_destructive', 'DROP TABLE safe_table')),
+    /Destructive SQL/
+  );
+});
+
 test('SQL mirror aggregate checksum is order-independent and resumable', () => {
   const first = '1'.repeat(64);
   const second = '2'.repeat(64);

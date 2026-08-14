@@ -4,6 +4,7 @@ const { kmsDataKeyStatus } = require('./kmsDataKeys');
 const { secretProviderStatus } = require('./secretProvider');
 const { sqlMirrorOutboxWorkerStatus } = require('./sqlMirrorOutboxWorker');
 const { objectStorageStatus } = require('./objectStorage');
+const { mongoSecurityPostureStatus } = require('./mongoSecurityPosture');
 
 function publicReadiness() {
   const mongo = mongoStatus();
@@ -12,6 +13,7 @@ function publicReadiness() {
   const secrets = secretProviderStatus();
   const outbox = sqlMirrorOutboxWorkerStatus();
   const objectStorage = objectStorageStatus();
+  const mongoSecurity = mongoSecurityPostureStatus();
 
   const checks = {
     secrets: secrets.healthy ? 'up' : 'down',
@@ -20,13 +22,17 @@ function publicReadiness() {
     kms: kms.enabled ? (kms.cachedKeyCount > 0 ? 'up' : 'down') : 'disabled',
     sqlMirrorOutbox: outbox.enabled ? (outbox.healthy ? 'up' : 'down') : 'disabled',
     objectStorage: objectStorage.initialized && objectStorage.healthy ? 'up' : 'down',
+    mongoSecurityPosture: mongoSecurity.required
+      ? (mongoSecurity.checked && mongoSecurity.healthy ? 'up' : 'down')
+      : 'disabled',
   };
   const ready = checks.secrets === 'up'
     && checks.mongodb === 'up'
     && checks.sql !== 'down'
     && checks.kms !== 'down'
     && checks.sqlMirrorOutbox !== 'down'
-    && checks.objectStorage !== 'down';
+    && checks.objectStorage !== 'down'
+    && checks.mongoSecurityPosture !== 'down';
 
   return {
     ready,

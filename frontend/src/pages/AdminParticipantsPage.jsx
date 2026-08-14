@@ -9,7 +9,7 @@ import {
   Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router';
 
 // Icons
 import EditIcon from '@mui/icons-material/Edit';

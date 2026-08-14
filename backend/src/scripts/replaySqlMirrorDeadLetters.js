@@ -65,7 +65,7 @@ async function main() {
   const options = replayOptions();
   try {
     await hydrateRuntimeSecrets({ requiredNames: ['MONGODB_URI'], managedNames: ['MONGODB_URI'] });
-    await connectDB();
+    await connectDB({ autoIndex: false });
     const report = await replayDeadLetters(options);
     if (options.apply && report.replayed > 0) {
       const auditLog = require('../helpers/auditLog');

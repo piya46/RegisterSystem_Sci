@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Container, Typography, Card, CardContent, Button, Stack, CircularProgress, IconButton, Dialog, DialogTitle, DialogContent, Alert, TextField, DialogActions, MenuItem } from '@mui/material';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import axios from 'axios';
 import LiveSlip from '../components/LiveSlip';
 import QrScanner from '../components/QrScanner';

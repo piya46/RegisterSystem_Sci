@@ -18,6 +18,11 @@ const CONFIG_KEYS = [
   'DATA_ENCRYPTION_KEY_ID',
   'DONATION_IDEMPOTENCY_REQUIRED',
   'E2EE_STRICT_MODE',
+  'EMAIL_PROVIDER',
+  'BREVO_FROM_EMAIL',
+  'BREVO_FROM_NAME',
+  'BREVO_TRANSACTIONAL_EMAIL_URL',
+  'BREVO_EMAIL_TIMEOUT_MS',
   'EVENT_MEDIA_ALLOW_EXTERNAL_URLS',
   'FIELD_ENCRYPTION_ENABLED',
   'FIELD_ENCRYPTION_SECRET_NAME',
@@ -71,6 +76,7 @@ const CONFIG_KEYS = [
   'KMS_DATA_KEY_ENABLED',
   'KMS_KEY_RESOURCE',
   'KMS_MAX_DAILY_CRYPTO_OPS',
+  'LEGACY_EVENT_MIGRATION_WRITE',
   'LEGACY_UPLOADS_PUBLIC_ENABLED',
   'LINE_ALLOW_LEGACY_USER_ID_LOGIN',
   'LINE_LOGIN_ENABLED',
@@ -84,6 +90,8 @@ const CONFIG_KEYS = [
   'MONGODB_MAX_POOL_SIZE',
   'MONGODB_MIN_POOL_SIZE',
   'MONGODB_SERVER_SELECTION_TIMEOUT_MS',
+  'MONGODB_AUTO_INDEX',
+  'MONGO_SECURITY_POSTURE_REQUIRED',
   'OBJECT_STORAGE_CLEANUP_SCHEDULER_ENABLED',
   'OBJECT_STORAGE_PROVIDER',
   'PARTICIPANT_AUTH_OTP_TTL_MS',
@@ -115,6 +123,7 @@ const CONFIG_KEYS = [
   'SQL_ALLOW_UNVERIFIED_TLS',
   'SQL_AT_REST_ENCRYPTION_CONFIRMED',
   'SQL_BACKUP_ENCRYPTION_CONFIRMED',
+  'SQL_BACKFILL_BATCH_SIZE',
   'SQL_CONNECT_MAX_ATTEMPTS',
   'SQL_CONNECT_RETRY_BASE_MS',
   'SQL_CONNECT_TIMEOUT_MS',
@@ -141,7 +150,6 @@ const CONFIG_KEYS = [
   'SQL_POOL_MIN',
   'SQL_PORT',
   'SQL_PRIMARY_STORE',
-  'SQL_PRIMARY_STORE_ACKNOWLEDGED',
   'SQL_PROVIDER',
   'SQL_QUERY_TIMEOUT_MS',
   'SQL_QUEUE_LIMIT',
@@ -240,6 +248,25 @@ function writeYaml(filePath, values) {
   fs.chmodSync(filePath, 0o600);
 }
 
+function jobRequiredSecretNames(config, mode = process.env) {
+  const names = new Set();
+  const migrationMode = mode.MIGRATION_MODE === 'true';
+  const backfillMode = mode.SQL_BACKFILL_MODE === 'true';
+  const runtimeSqlMode = mode.SQL_TRANSPORT_VERIFY_MODE === 'true'
+    || mode.SQL_PROTECTION_AUDIT_MODE === 'true';
+
+  if (migrationMode || backfillMode) names.add('SQL_MIGRATION_PASSWORD');
+  if (backfillMode) {
+    names.add('MONGODB_URI');
+    names.add('SQL_MIRROR_IDENTITY_HASH_SECRET');
+  }
+  if (runtimeSqlMode) names.add('SQL_PASSWORD');
+  if ((migrationMode || backfillMode || runtimeSqlMode) && config.SQL_SSL_CA_SECRET_NAME) {
+    names.add('SQL_SSL_CA');
+  }
+  return [...names].sort();
+}
+
 function main() {
   const { config, environment, gcsBucket, origin, publicOrigin, projectId } = resolveConfiguration();
   const pins = readPins(environment, {
@@ -253,7 +280,10 @@ function main() {
     GCS_BUCKET: gcsBucket,
   });
   const { managedRuntimeSecretNames, requiredRuntimeSecretNames } = require('../backend/src/config/runtimeSecrets');
-  const requiredNames = requiredRuntimeSecretNames();
+  const requiredNames = [...new Set([
+    ...requiredRuntimeSecretNames(),
+    ...jobRequiredSecretNames(config),
+  ])].sort();
   const missingPins = requiredNames.filter((name) => !pins[name]);
   if (missingPins.length > 0) {
     throw new Error(`Missing pinned Secret Manager versions: ${missingPins.join(', ')}`);
@@ -275,6 +305,7 @@ function main() {
   ])].join(',');
   const values = {
     NODE_ENV: 'production',
+    DEPLOY_ENVIRONMENT: environment,
     HOST: '0.0.0.0',
     RELEASE_ID: config.RELEASE_ID,
     SERVE_FRONTEND: 'true',
@@ -319,6 +350,8 @@ function main() {
     PARTICIPANT_REGISTRATION_IDEMPOTENCY_REQUIRED: config.PARTICIPANT_REGISTRATION_IDEMPOTENCY_REQUIRED || 'true',
     ALLOW_LEGACY_CERTIFICATE_PARTICIPANT_ID: 'false',
     SQL_MIGRATION_WRITE: process.env.MIGRATION_MODE === 'true' ? 'true' : 'false',
+    SQL_BACKFILL_WRITE: process.env.SQL_BACKFILL_MODE === 'true' ? 'true' : 'false',
+    SQL_PROTECTION_AUDIT: process.env.SQL_PROTECTION_AUDIT_MODE === 'true' ? 'true' : 'false',
   };
   if (process.env.SQL_TRANSPORT_VERIFY_MODE === 'true') values.SQL_TRANSPORT_VERIFY = 'true';
 

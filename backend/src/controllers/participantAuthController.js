@@ -10,6 +10,7 @@ const { generateOTP, generateRef, hashOTP, verifyOTP } = require('../utils/otp')
 const sendMail = require('../utils/sendMail');
 const { lineLoginEnabled } = require('../utils/lineSecurity');
 const { boolEnv } = require('../utils/cloudCostGuardrail');
+const { emailDeliveryConfigured, emailFeatureEnabled } = require('../utils/emailProviderConfig');
 const {
   assertParticipantStepUpToken,
   issueParticipantSessionToken,
@@ -28,9 +29,9 @@ const PARTICIPANT_AUTH_GENERIC_RESPONSE = {
 
 exports.providers = (req, res) => {
   const production = process.env.NODE_ENV === 'production';
-  const emailEnabled = boolEnv('PARTICIPANT_EMAIL_LOGIN_ENABLED', Boolean(process.env.SMTP_HOST));
+  const emailEnabled = boolEnv('PARTICIPANT_EMAIL_LOGIN_ENABLED', emailFeatureEnabled(process.env));
   const emailConfigured = emailEnabled
-    && Boolean(process.env.SMTP_HOST)
+    && emailDeliveryConfigured(process.env)
     && !(production && boolEnv('MOCK_EMAIL', false));
   res.set('Cache-Control', 'public, max-age=60');
   return res.json({

@@ -8,7 +8,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { verifyKioskToken } from '../utils/api';
 
 const CHECKS = [

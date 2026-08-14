@@ -6,7 +6,7 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import useAuth from "../hooks/useAuth";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import getAvatarUrl from "../utils/getAvatarUrl";
 import { uploadAvatar } from "../utils/api";
 import { appendQuery, eventContextFromSearch, eventContextToParams } from "../utils/eventContext";

@@ -98,13 +98,12 @@ participantSchema.index({ eventYear: 1, status: 1, registeredPoint: 1, createdAt
 participantSchema.index({ eventId: 1, status: 1, registeredPointId: 1, createdAt: -1 }, { sparse: true });
 participantSchema.index({ eventYear: 1, status: 1, registeredPointName: 1, createdAt: -1 });
 participantSchema.index({ registeredAt: -1 });
-participantSchema.index({ 'fields.phone': 1 }, { sparse: true });
-participantSchema.index({ 'fields.name': 1 }, { sparse: true });
-participantSchema.index({ 'fields.dept': 1 }, { sparse: true });
-participantSchema.index({ 'fields.date_year': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.phone': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.email': 1 }, { sparse: true });
 participantSchema.index({ 'secureIndex.name': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.nationalId': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.citizenId': 1 }, { sparse: true });
+participantSchema.index({ 'secureIndex.idCard': 1 }, { sparse: true });
 participantSchema.index({ secureSearch: 1 }, { sparse: true });
 participantSchema.index({ eventYear: 1, prizeWonAt: 1, isForfeited: 1 });
 participantSchema.index({ eventId: 1, prizeWonAt: 1, isForfeited: 1 }, { sparse: true });

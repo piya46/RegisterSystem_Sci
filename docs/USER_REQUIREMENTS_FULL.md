@@ -2,15 +2,25 @@
 
 เอกสารนี้จัดทำจากการตรวจโครงสร้างโปรเจกต์ปัจจุบันทั้ง backend, frontend, model, route, controller, middleware, utility และเอกสารเดิมใน repository เพื่อใช้เป็นข้อกำหนดผู้ใช้และข้อกำหนดระบบสำหรับพัฒนา ตรวจรับ ทดสอบ flow และยกระดับความปลอดภัย
 
+หมายเหตุปรับปรุง 2026-08-14: เอกสารนี้ถูกปรับให้เข้ากับทิศทางระบบปัจจุบันที่แยก `Event System`, `POS System` และ `SSO/Identity System` เป็น bounded context คนละส่วน แต่ใช้งานร่วมกันผ่าน identity/session, permission claim, event context, audit log, notification provider และ reporting contract เดียวกัน โดย Email Provider เป้าหมายเปลี่ยนจาก SMTP/SendGrid ทั่วไปเป็น Brevo Transactional Email API
+
 ## 1. ขอบเขตระบบ
 
-ระบบ PSEvent เป็นแพลตฟอร์มจัดการกิจกรรมแบบหลายงาน รองรับการสร้างองค์กร ชุดกิจกรรม รอบกิจกรรม การเปิดหน้าสาธารณะ การลงทะเบียนล่วงหน้า การลงทะเบียนหน้างาน การเช็คอินด้วย QR การจัดการผู้เข้าร่วม การรับเงินสนับสนุนและแพ็กเกจ การสุ่มรางวัล การทำรายงาน Dashboard การออก Ticket/Certificate/Receipt การจัดการ Wallet/Coupon และการบริหารผู้ใช้หลังบ้าน
+ระบบ PSEvent เป็นแพลตฟอร์มจัดการกิจกรรมแบบหลายงาน รองรับการสร้างองค์กร ชุดกิจกรรม รอบกิจกรรม การเปิดหน้าสาธารณะ การลงทะเบียนล่วงหน้า การลงทะเบียนหน้างาน การเช็คอินด้วย QR การจัดการผู้เข้าร่วม การรับเงินสนับสนุนและแพ็กเกจ การสุ่มรางวัล การทำรายงาน Dashboard การออก Ticket/Certificate/Receipt การจัดการ Wallet/Coupon การบริหารผู้ใช้หลังบ้าน และโมดูล Cloud POS/Inventory/PO/Settlement ที่ผูกกับ Event, Vendor และ Location
+
+การประยุกต์ Requirement ชุด Enterprise POS/Inventory/Event/SSO/E-Signature ให้เข้ากับระบบนี้ต้องตีความดังนี้:
+
+- `Event System` เป็นระบบหลักที่ใช้งานจริงก่อน ครอบคลุม event catalog, landing/register, participant, field, point, check-in, ticket, donation/package, wallet/coupon, report และ SQL event registration primary tables
+- `POS System` เป็น subsystem แยกและยังอยู่สถานะ `Planned / Not Implemented` จนกว่าจะผ่าน PRD, threat model, accounting/legal approval, migration และ smoke test; POS ต้องใช้ `eventId`, `organizationId`, `vendorId`, `locationId`, `shiftId` เป็น contract ร่วมกับ Event แต่ห้ามปะปนกับ package stock เดิม
+- `SSO/Identity System` เป็น boundary กลางสำหรับ admin/staff/participant identity, session, step-up auth, LINE/LIFF link และ Email OTP; Event และ POS ต้องตรวจสิทธิ์ผ่าน claim/scope เดียวกัน แต่แต่ละระบบต้องมี authorization check ของตนเอง
+- ระบบทั้งสามแชร์ audit, secret management, object storage, email/LINE notification และ reporting mirror ได้ แต่ห้ามให้ component หนึ่งเขียนข้าม domain โดยตรงนอก API/outbox/reconciliation ที่กำหนด
+- Email delivery สำหรับ OTP, ticket, receipt, reset password และ notification ต้องใช้ Brevo Transactional Email API เป็น provider หลัก; SMTP ใช้ได้เฉพาะ fallback/local compatibility ระหว่าง migration เท่านั้น
 
 แหล่งข้อมูลที่ตรวจ:
 
 - Backend: `backend/src/app.js`, `routes`, `controllers`, `models`, `middleware`, `utils`, `helpers`, `services`
 - Frontend: `frontend/src/App.jsx`, `pages`, `components`, `hooks`, `providers`, `utils/api.js`
-- เอกสารเดิม: `README.md`, `SECURITY.md`, `docs/MULTI_EVENT_OPERATION.md`, `docs/MULTI_EVENT_E2EE_ROADMAP.md`
+- เอกสารเดิม: `README.md`, `SECURITY.md`, `docs/MULTI_EVENT_OPERATION.md`, `docs/MULTI_EVENT_E2EE_ROADMAP.md`, `docs/POS_INVENTORY_PRD.md`
 
 ## 2. เป้าหมายหลักของระบบ
 
@@ -21,6 +31,9 @@
 5. ระบบต้องควบคุมสิทธิ์ระดับ role, permission, organization scope, event scope และ registration point scope
 6. ข้อมูลส่วนบุคคลต้องถูกปกป้องด้วย consent, encryption, audit log, retention, masking และ export control
 7. ระบบต้องมีมาตรการป้องกัน bot, brute force, CSRF, session hijacking, replay, privilege escalation และ data leakage
+8. ระบบต้องรองรับ POS แบบ mobile/cloud โดยผูก order, payment, shift และ stock กับ Event/vendor/location อย่างตรวจสอบได้
+9. ระบบต้องรองรับ inventory ledger, stock allocation, PO, partial receiving และ payable จากสินค้าที่รับจริง
+10. ระบบต้องกู้ cart/outbox จากอุปกรณ์ได้โดยไม่ใช้ข้อมูล offline เป็นหลักฐานการชำระหรือเปิดช่อง double charge
 
 ## 3. ผู้ใช้และบทบาท
 
@@ -76,6 +89,16 @@
 - `event_manager`: จัดการ event/layout/participant operations แต่ไม่ควร export ข้อมูลอ่อนไหว
 - `auditor`: อ่าน event และ audit/report ได้ แต่แก้ไขไม่ได้
 
+### 3.9 POS, Store และ Inventory Roles
+
+- `pos_cashier`: ขายสินค้าในกะ/จุดขายที่ได้รับมอบหมาย, ยืนยัน float และ blind close
+- `pos_supervisor`: อนุมัติ override/incident ตาม policy โดยห้ามเห็น expected close ก่อน cashier submit
+- `store_manager`: เปิดกะ, กำหนด float, review variance, negative stock และ alert
+- `inventory_staff`: รับ/โอน/นับ/ปรับ stock ตาม location และ permission
+- `procurement_admin`: สร้าง/approve/force-close PO ตาม separation of duties
+- `accountant`: reconcile Gross/Fee/Net, refund, payout และ Accounts Payable
+- ทุก role ต้องตรวจ organization, Event, vendor, location, terminal และ shift scope เพิ่มจาก role name
+
 ## 4. โครงสร้างข้อมูลและความสัมพันธ์
 
 ### 4.1 Core Event Hierarchy
@@ -110,6 +133,12 @@
 - `ApiLog` เก็บ audit log พร้อม TTL
 - `RegistrationReuseChallenge` เก็บ OTP challenge สำหรับดึงข้อมูลลงทะเบียนเดิม
 - `GuestToken` เก็บ token แชร์ wallet พร้อม TTL
+- `PosLocation`/`PosTerminal`/`PosDeviceSession` กำหนดขอบเขตอุปกรณ์และจุดขาย
+- `PosShift`/`ShiftCloseSubmission` เก็บ float, blind declaration และ reconciliation แบบ versioned
+- `Product`/`ProductVariant`/`InventoryMovement`/`InventoryBalance`/`StockReservation` เป็น unified inventory ledger; ห้ามใช้ยอด stock field เดียวเป็นหลักฐานย้อนหลัง
+- `PosOrder`/`PosPayment`/`PaymentProviderEvent` เก็บ pricing snapshot, payment state และ provider evidence แบบ idempotent
+- `ESlipRecord` เก็บ metadata/checksum ของ private GCS object; ห้ามเก็บ E-slip binary ใน MongoDB
+- `Supplier`/`PurchaseOrder`/`GoodsReceipt`/`AccountsPayableEntry` รองรับ partial receiving และ payable จาก accepted quantity จริง
 
 ### 4.3 ความสัมพันธ์สำคัญ
 
@@ -121,6 +150,37 @@
 - `Prize.draw` ใช้ participant ที่ checked-in และยังไม่เคยได้รางวัลใน scope เดียวกัน
 - `Wallet.pay` ต้องตรวจ wallet, guest token, vendor และบันทึก `Transaction`
 - ทุกการ decrypt/export/report ข้อมูลอ่อนไหวต้องสร้าง sensitive audit log
+- POS flow ต้องเป็น `assigned shift -> float acknowledgement -> order -> payment confirmation -> inventory/receipt -> blind close -> reconciliation -> manager review`
+- Stripe webhook ที่ตรวจ signature แล้วเป็น authority สำหรับ online payment fulfillment; client callback, screenshot และ IndexedDB ใช้ยืนยันชำระไม่ได้
+- PO flow ต้องเป็น `approved PO -> one or more goods receipts -> inventory movements -> AP from accepted quantity -> close/reconcile`
+
+### 4.4 System Boundary และ Shared Contracts ระหว่าง Event, POS, SSO
+
+ระบบต้องแบ่ง ownership ชัดเจนเพื่อให้ Event, POS และ SSO แยกพัฒนา/ทดสอบ/deploy ได้โดยไม่ทำข้อมูลปะปน แต่ผู้ใช้ยังรู้สึกว่าเป็น ecosystem เดียวกัน
+
+Bounded Context:
+
+- `SSO/Identity`: owns admin, staff, participant identity, provider link, session, cookie/JWT issuance, step-up challenge, token revocation และ permission claim
+- `Event`: owns organization, event series, event lifecycle, registration schema, participant registration/check-in, ticket/certificate, package/donation/wallet ที่ผูกกับ event
+- `POS`: owns product catalog, POS location/terminal/device, shift/float, order/payment, inventory ledger, receipt/e-slip, PO/AP และ settlement ที่ผูกกับ event/vendor/location
+- `Notification`: owns delivery provider abstraction สำหรับ Brevo Email API, LINE Messaging API และ delivery audit/outbox; business domain เรียกผ่าน service contract เท่านั้น
+- `Reporting/Mirror`: owns MariaDB reporting/runtime tables, reconciliation snapshots และ cutover runs; ไม่ถือเป็น source of truth ของ domain ที่ยังไม่ cutover
+
+Shared Contract:
+
+- ทุก request ข้ามระบบต้องส่ง identity และ scope อย่างน้อย `subjectId`, `role`, `permissions`, `organizationIds`, `eventIds`, และเมื่อต้องใช้ POS ต้องมี `vendorId`, `locationId`, `terminalId`, `shiftId`
+- `eventId` เป็น canonical context สำหรับการเชื่อม Event และ POS; `eventYear` เป็น compatibility/report field เท่านั้น
+- Public URL ใช้ `eventSlug`; internal service/API ใช้ opaque id หรือ Mongo ObjectId ตาม domain และห้าม expose sequential SQL id เป็น credential
+- Cross-system write ใช้ API, outbox, webhook หรือ reconciliation job เท่านั้น ห้ามให้ frontend หรือ Plesk gateway เขียน DB ข้าม domain โดยตรง
+- Audit log ต้องมี `domain`, `actor`, `eventId`, `sourceSystem`, `action`, `reason`, `correlationId` และไม่บันทึก PII plaintext
+
+Acceptance Criteria:
+
+- Event registration ยังทำงานได้แม้ POS ถูกปิดทุก feature flag
+- POS ต้องเปิดต่อ Event ได้โดยไม่ต้องเปลี่ยน Event registration flow ที่ใช้งานอยู่
+- SSO outage ต้อง fail closed สำหรับ admin/POS write แต่ public read-only page ที่ cache ได้ต้องแสดงตาม policy
+- การ revoke session หรือ step-up auth จาก SSO ต้องมีผลกับ Event และ POS action ที่ต้องใช้สิทธิ์ทันที
+- Email provider failure ต้องสร้าง delivery audit/outbox/retry แต่ห้าม rollback transaction ที่ commit สำเร็จแล้ว เช่น participant registration
 
 ## 5. ข้อกำหนดระดับกิจกรรม
 
@@ -856,6 +916,50 @@ Implementation Status:
 - `/liff/wallet`
 - `/liff/ticket`
 - `/liff/certificate`
+
+### 11.6 Central SSO และ Cross-System Session Boundary
+
+ระบบ SSO/Identity ต้องถูกมองเป็นบริการกลางที่แยกจาก Event และ POS แต่ให้ทั้งสองระบบใช้ร่วมกันผ่าน session/cookie/JWT และ permission claim ที่ตรวจสอบได้
+
+Requirements:
+
+- Admin/staff login, participant login, LINE/LIFF link, Email OTP, step-up OTP และ logout-all ต้องอยู่ภายใต้ identity boundary เดียวกัน
+- Event และ POS ห้ามสร้าง auth token ของตนเองแบบแยกมาตรฐาน; ต้องขอ token/session จาก SSO หรือใช้ middleware กลางที่ตรวจ signature, token version, session hash และ revocation
+- SSO token ต้องส่งผ่าน HttpOnly, Secure, SameSite cookie สำหรับ browser flow; bearer/scoped token ใช้เฉพาะ kiosk/device/service integration ที่มี audience และ expiry ชัดเจน
+- Permission claim ต้องมี domain/action เช่น `event:read`, `participant:export`, `pos:sell`, `shift:review`, `inventory:adjust` และต้องตรวจ organization/event/vendor/location/point scope ซ้ำที่ backend domain
+- Step-up auth ต้องเป็น reusable security service สำหรับ high-risk action ของ Event และ POS เช่น export/decrypt, reset role, void/refund, stock adjustment, PO approve และ shift reopen
+- Session revocation, password reset, LINE unlink/relink, logout-all และ tokenVersion change ต้องทำให้ Event/POS token เดิมใช้งานไม่ได้ทันทีหรือภายใน grace window ที่กำหนด
+- SSO ต้องมี capability endpoint ให้ frontend เห็น provider ที่พร้อมจริง เช่น email, line, google/admin login โดยไม่เปิดเผยว่า account ใดมีอยู่ในระบบ
+
+Acceptance Criteria:
+
+- POS cashier ที่ login ผ่าน SSO ต้องถูกจำกัดด้วย `pos:*` permission และ event/vendor/location/shift scope แม้มี admin session cookie
+- Event staff ที่ไม่มี `pos:*` ต้องเข้า POS write endpoint ไม่ได้
+- Participant Email OTP/LINE login ต้องไม่ให้สิทธิ์ admin/POS โดยเด็ดขาด
+- การปิด Brevo/LINE provider ต้องทำให้ capability endpoint ซ่อน provider นั้นโดย provider อื่นยังใช้ได้
+
+### 11.7 Email Delivery Provider: Brevo Transactional Email API
+
+Email provider เป้าหมายของระบบคือ Brevo Transactional Email API สำหรับ OTP, E-ticket, resend ticket, reset password, step-up auth, receipt/certificate notification และ fallback alert ที่ส่งทาง email
+
+Provider Requirements:
+
+- Production ต้องตั้ง `EMAIL_PROVIDER=brevo`
+- ต้องใช้ `BREVO_API_KEY` จาก Secret Manager/equivalent secret injection เท่านั้น ห้าม commit ลง repository หรือ Plesk gateway
+- ต้องตั้ง sender ที่ verify แล้วผ่าน `BREVO_FROM_EMAIL` และ `BREVO_FROM_NAME`; event-level `contactEmail` ใช้เป็น reply/contact policy ได้แต่ห้าม override sender เป็นอีเมลที่ไม่ verify
+- SMTP config (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`) ใช้เป็น fallback/local compatibility ได้เท่านั้น และต้องไม่เป็น provider หลักใน production หลัง cutover
+- Code ต้องมี provider abstraction เพื่อให้ Email OTP, ticket, reset password และ notification ไม่ผูกกับ Brevo SDK โดยตรงใน controller
+- Delivery failure ต้องไม่เปิดเผย recipient, OTP, token, QR, ticket payload หรือ provider response ที่มี PII ลง log
+- Email request OTP ต้องตอบ generic และห้ามบอกว่า email มีอยู่หรือไม่
+- ต้องมี idempotency/retry policy สำหรับ notification ที่ retry ได้ และต้องไม่ส่ง OTP ซ้ำจาก replay request ที่ fingerprint เดิม
+
+Acceptance Criteria:
+
+- `GET /api/participant-auth/providers` ต้องแสดง `email=true` เฉพาะเมื่อ Brevo หรือ fallback provider พร้อมใช้งานจริง
+- Production ต้อง fail closed ถ้า `PARTICIPANT_EMAIL_LOGIN_ENABLED=true` แต่ `EMAIL_PROVIDER=brevo`, `BREVO_API_KEY` หรือ verified sender ไม่ครบ
+- การส่ง ticket/email ล้มต้อง audit และไม่ rollback participant registration ที่ commit สำเร็จ
+- Brevo API key ต้องอยู่ใน secret classification ระดับ `secret` และต้องมี rotation/canary/rollback runbook
+- Production rollout ต้องผ่าน Brevo canary send test และตั้ง `BREVO_CANARY_CONFIRMED=true` ใน deployment config ที่ได้รับอนุมัติ
 
 ## 12. ข้อกำหนด Registration Point
 
@@ -1651,7 +1755,7 @@ Private access flow:
 - Bucket configure/migration account ต้องแยกจาก runtime และยกเลิกสิทธิ์หลัง maintenance
 - ห้าม runtime เปลี่ยน bucket IAM/lifecycle/retention
 - `GCS_BUCKET`, project, region, prefix เป็น config ไม่ใช่ secret
-- local signing secret, DB/JWT/session/CSRF/LINE/SMTP keys ต้องอยู่ Secret Manager และ pin version ใน production
+- local signing secret, DB/JWT/session/CSRF/LINE/Brevo/SMTP fallback keys ต้องอยู่ Secret Manager และ pin version ใน production
 - GCS ใช้ Google-managed encryption at rest เป็น default ที่คุ้มค่า
 - KMS ใช้ unwrap field data key แบบ cached; ห้ามเรียก KMS ต่อการเปิดรูปหรือ signed URL
 - CMEK สำหรับ GCS เปิดเฉพาะ compliance requirement และต้องเพิ่ม cost/availability/rotation/rollback requirement ก่อน
@@ -1663,7 +1767,7 @@ Private access flow:
 Budget allocation:
 
 - Google Cloud รวม: ไม่เกิน 1,000 บาท/เดือนสำหรับ normal load
-- GCS: 700 บาท/เดือน
+- GCS: 650 บาท/เดือน
 - Secret Manager/KMS/Firestore และ buffer: 300 บาท/เดือน
 - GCS operational ceiling 80% = 560 บาท ก่อนใช้ reserve
 
@@ -1740,7 +1844,7 @@ Acceptance Criteria:
 - production readiness fail เมื่อ GCS security/location/lifecycle/cost policy drift
 - production readiness fail เมื่อ bucket มี default hold หรือ retention เกินค่าที่อนุมัติ
 - avatar transaction rollback ต้องไม่เปลี่ยน avatar เดิม และ unlinked avatar ใหม่ต้องถูก cleanup ได้
-- scenario normal load + reserve ต้องไม่เกิน GCS 700 บาทและ Google Cloud รวม 1,000 บาท/เดือน
+- scenario normal load + reserve ต้องไม่เกิน GCS 650 บาทและ Google Cloud รวม 1,000 บาท/เดือน
 - `npm audit --omit=dev`, backend tests, frontend lint/build ต้องผ่านก่อน deploy
 
 ## 19. ข้อกำหนด LINE Integration
@@ -2125,9 +2229,13 @@ Implementation Status:
 
 ### 22.4 Data Protection
 
-- Sensitive participant fields ต้องเข้ารหัส AES-256-GCM ด้วย key ring
+- Sensitive participant fields และ quasi-identifiers เช่น `department`,
+  `dept`, `date_year`, national/citizen ID ต้องเข้ารหัส AES-256-GCM ด้วย key ring
 - Donation sensitive fields ต้องเข้ารหัสเช่นเดียวกัน
 - ค้นหาข้อมูล encrypted ต้องใช้ blind index/search token
+- Dashboard/report ที่ต้อง group quasi-identifier ต้อง aggregate หลัง authorized
+  decrypt พร้อม audit หรือใช้ approved protected aggregate projection
+  ห้ามคง plaintext field index เพื่อความสะดวก
 - `DATA_BLIND_INDEX_SECRET` ต้อง stable และแยกจาก encryption key ได้
 - Key rotation ต้องมี dry-run, apply, audit และ backup ก่อนเสมอ
 - `E2EE_STRICT_MODE` ต้อง fail-closed เมื่อ backend พยายาม decrypt
@@ -2193,12 +2301,12 @@ Production ต้องตั้งอย่างน้อย:
 - `CORS_ORIGIN`
 - `COOKIE_SECURE=true`
 - `COOKIE_SAME_SITE`
-- Turnstile keys, SMTP, LINE secrets, Google OAuth client ID
+- Turnstile keys, Brevo Email API key, SMTP fallback credentials, LINE secrets, Google OAuth client ID
 
 Secret Classification Requirements:
 
 - `config`: ค่าที่ไม่เป็นความลับ เช่น `NODE_ENV`, feature flags, public URL, frontend public keys ที่ตั้งใจเปิดเผยได้; `PORT` ใช้กำหนดได้เฉพาะ local/runtime ที่รองรับ แต่ Cloud Run ต้องให้ platform inject เอง
-- `secret`: ค่าที่ใช้ยืนยันตัวตน/ลงนาม/เชื่อมต่อบริการ เช่น JWT secret, session hash secret, CSRF secret, SMTP password, LINE secret, OAuth client secret, database password, vendor QR secret, slip proof secret, Turnstile secret
+- `secret`: ค่าที่ใช้ยืนยันตัวตน/ลงนาม/เชื่อมต่อบริการ เช่น JWT secret, session hash secret, CSRF secret, Brevo API key, SMTP fallback password, LINE secret, OAuth client secret, database password, vendor QR secret, slip proof secret, Turnstile secret
 - `key material`: encryption key, wrapped data key, blind-index secret และ private signing key ต้องถือเป็นระดับสูงกว่า secret ทั่วไป
 - Production ห้ามเก็บ `secret` หรือ `key material` แบบ plaintext ใน git, image, frontend bundle, logs, error response หรือ migration output
 - `.env` ใช้ได้เฉพาะ local/dev หรือ temporary staging เท่านั้น Production ต้องใช้ Secret Manager, platform secret injection หรือ workload identity ที่ตรวจ audit ได้
@@ -2225,15 +2333,15 @@ Runtime Loading Requirements:
 - ต้อง fail-closed ถ้า production เปิด `SECRET_MANAGER_ENABLED=true` แต่ secret สำคัญโหลดไม่ได้
 - ต้อง mask secret values ใน log ทุกกรณี แสดงได้เฉพาะ secret name, version, checksum prefix ที่ไม่ย้อนกลับเป็นค่าเดิมได้ และ audit correlation id
 - ต้องมี secret access audit event สำหรับ boot, reload, rotation, failure แต่ไม่บันทึก payload
-- ต้องรองรับ hot reload แบบปลอดภัยเฉพาะ secret ที่ rotate ได้โดยไม่ทำให้ session/transaction พัง เช่น SMTP/LINE token; ส่วน JWT/session/encryption ต้องใช้ staged rotation
-- ต้องมี startup validation ว่า secret จำเป็นครบ เช่น JWT, CSRF, session hash, DB, encryption, Turnstile, LINE, SMTP ตาม feature flags ที่เปิด
+- ต้องรองรับ hot reload แบบปลอดภัยเฉพาะ secret ที่ rotate ได้โดยไม่ทำให้ session/transaction พัง เช่น Brevo/SMTP/LINE token; ส่วน JWT/session/encryption ต้องใช้ staged rotation
+- ต้องมี startup validation ว่า secret จำเป็นครบ เช่น JWT, CSRF, session hash, DB, encryption, Turnstile, LINE, Brevo/SMTP ตาม feature flags ที่เปิด
 
 Secret Rotation Requirements:
 
 - JWT/session secrets ต้องรองรับ rotation แบบ dual-read/single-write ชั่วคราว เช่น `JWT_SECRET_ACTIVE`, `JWT_SECRET_PREVIOUS[]`, `JWT_SECRET_PREVIOUS_EXPIRES_AT`
 - CSRF/session hash/vendor QR/slip proof secrets ต้องมี grace window หรือ forced invalidation policy ที่ชัดเจน
 - Database password rotation ต้องทำแบบ create new DB user/password -> add secret version -> deploy canary -> shift traffic -> revoke old user -> disable/destroy old secret version
-- LINE/SMTP/OAuth secret rotation ต้องมี canary test ก่อน rollout
+- LINE/Brevo/SMTP/OAuth secret rotation ต้องมี canary test ก่อน rollout
 - DATA encryption key rotation ต้องไม่ใช้ secret rotation ธรรมดา ต้องใช้ key rotation/re-encryption job พร้อม dry-run, backup และ audit
 - ต้องมี rollback plan เมื่อ secret version ใหม่ใช้ไม่ได้ โดยไม่ใช้ `latest` แบบ immediate rollout ใน production
 - ต้องมี policy disable old secret version ก่อน destroy และรอ observation window ตามความเสี่ยง
@@ -2426,7 +2534,7 @@ Plesk MariaDB Network Requirements:
 - Bootstrap static egress ต้องเป็น opt-in และต้องมีทั้ง `SQL_STATIC_EGRESS_ENABLED=true` กับ `CONFIRM_SQL_STATIC_EGRESS=<environment>`
 - Bootstrap ต้องสร้าง custom VPC, private Google access subnet, Cloud Router, Cloud NAT และ regional reserved IP แบบ idempotent
 - Plesk database access rule, Plesk firewall และ host firewall ต้อง allow เฉพาะ reserved NAT IP `/32`; ห้าม `0.0.0.0/0`, `::/0`, shared office range หรือ Cloud Run dynamic range
-- เพราะ `all-traffic` ทำให้ external dependency อื่นเห็น NAT IP เดียวกัน ต้องตรวจ/เพิ่ม source allowlist ของ MongoDB Atlas, SMTP และ provider ที่เกี่ยวข้อง พร้อม canary GCS/Secret Manager/KMS/LINE/Turnstile ก่อน promote
+- เพราะ `all-traffic` ทำให้ external dependency อื่นเห็น NAT IP เดียวกัน ต้องตรวจ/เพิ่ม source allowlist ของ MongoDB Atlas, Brevo/SMTP fallback และ provider ที่เกี่ยวข้อง พร้อม canary GCS/Secret Manager/KMS/LINE/Turnstile ก่อน promote
 - ต้องทดสอบ positive จาก Cloud Run และ negative จาก source ที่ไม่อยู่ allowlist ก่อนตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true`
 - Backend production และ release script ต้อง pin ทั้ง `SQL_HOST` และ `SQL_EXPECTED_HOST` เป็น `203.170.190.137`; การตั้งสองค่าให้ตรงกันแต่เป็น host อื่นต้องถูกปฏิเสธเพื่อป้องกัน endpoint substitution
 - Plesk gateway ห้ามมี SQL password, TLS CA, database user หรือ direct database connection string
@@ -2478,14 +2586,14 @@ Plesk MariaDB Operational Requirements:
 - ต้องมี encrypted backup, retention, off-host copy ตาม RPO/RTO และ restore ใน isolated environment จริง
 - ต้องตรวจ connection/storage/traffic/backup quota ของ hosting package และกำหนด alert ก่อนช่วง Event peak
 - ต้องระบุ maintenance owner, hosting support contact, certificate expiry owner, credential rotation owner และ incident escalation path
-- Reserved NAT IP/Cloud NAT มีค่าใช้จ่ายแม้ไม่มี SQL write; planning cap เริ่มต้น `SQL_EGRESS_MONTHLY_BUDGET_THB=200` และต้องรวมใน Google Cloud budget 1,000 บาท
-- ก่อน provision ต้องตรวจ `GCS_MONTHLY_BUDGET_THB + SQL_EGRESS_MONTHLY_BUDGET_THB + GOOGLE_CLOUD_CORE_RESERVE_THB <= GOOGLE_CLOUD_MONTHLY_BUDGET_THB`; baseline คือ `700 + 200 + 100 <= 1,000`
+- Reserved NAT IP/Cloud NAT มีค่าใช้จ่ายแม้ไม่มี SQL write; planning cap เริ่มต้น `SQL_EGRESS_MONTHLY_BUDGET_THB=250` และต้องรวมใน Google Cloud budget 1,000 บาท
+- ก่อน provision ต้องตรวจ `GCS_MONTHLY_BUDGET_THB + SQL_EGRESS_MONTHLY_BUDGET_THB + GOOGLE_CLOUD_CORE_RESERVE_THB <= GOOGLE_CLOUD_MONTHLY_BUDGET_THB`; baseline คือ `650 + 250 + 100 <= 1,000`
 - การเปลี่ยน `SQL_STATIC_EGRESS_ENABLED=false` ต้องส่ง `--clear-network` ให้ revision ใหม่อย่างชัดเจนเพื่อไม่คง Direct VPC โดยปริยาย แต่ไม่ลบ VPC/NAT/IP; teardown ต้องมี change approval และยืนยันว่า service/job/revision ที่รับ traffic ทุกตัวไม่ใช้ network แล้ว
 - Runbook หลักคือ `docs/PLESK_MARIADB_RUNBOOK.md`
 
 Migration Safety Requirements:
 
-- ทุก migration ต้องมี `--dry-run` default และต้องใช้ explicit env เช่น `SQL_MIGRATION_WRITE=true` จึงจะเขียนจริง
+- ทุก migration ต้องเป็น dry-run default และต้องใช้ทั้ง `--apply` กับ explicit write flag เฉพาะงานพร้อมกันจึงจะเขียนจริง; มีเพียง argument หรือ flag อย่างเดียวต้อง fail closed
 - ก่อน migration จริงต้องมี MongoDB backup และ SQL backup/snapshot
 - Backfill ต้องทำ batch, resumable, idempotent และไม่ล็อก production request นาน
 - ต้องมี validation report: count, checksum, orphan FK, duplicate key, null required field, amount totals, wallet ledger sum, receipt uniqueness
@@ -2624,15 +2732,56 @@ Implementation Status:
 92. แก้แล้ว: Secret sync เคย grant runtime account อ่าน `SQL_MIGRATION_PASSWORD`; เปลี่ยนเป็นถอน runtime binding และ grant เฉพาะ migration account
 93. แก้แล้ว: GitHub CD เคยไม่มีทางส่ง database/runtime/migration user และ TLS server name ที่ห้าม commit; เพิ่ม protected Environment variable mapping ทั้ง staging/production
 94. แก้แล้ว: การตรวจ endpoint เดิมยอมรับ host ใดก็ได้ถ้า `SQL_HOST` ตรง `SQL_EXPECTED_HOST`; เพิ่ม immutable approved Plesk host `203.170.190.137` ใน application/release guard
-95. แก้แล้ว: Plesk webhook trigger เคยยอมให้ expected host ว่าง; เปลี่ยนเป็นบังคับ host และ reject URL ที่ hostname ไม่ตรงก่อนส่ง payload
+95. ปรับตามข้อกำหนดล่าสุด: ยกเลิก Plesk webhook/automatic deployment ทั้งหมด โดย Plesk ติดตาม `main` และผู้ดูแลต้องกด `Pull now` กับ `Deploy now` เองหลังตรวจว่า commit ผ่าน CI; deployment action ต้องปฏิเสธ branch อื่นและ tracked source ที่ถูกแก้บน host
 96. แก้แล้ว: `TRUST_PROXY` validator เคยยอมรับ public CIDR กว้าง เช่น `0.0.0.0/0`; จำกัด explicit CIDR เป็น IPv4 `/32` หรือ IPv6 `/128` เท่านั้นและเพิ่ม regression test
 97. แก้แล้ว: Secret validation ยังไม่ตรวจรูปแบบ SQL CA และไม่ตรวจ mirror HMAC key ซ้ำกับ signing/blind-index key; เพิ่ม PEM validation และ key-separation gate แล้ว
 98. แก้แล้ว: Outbox เคยมอง malformed/plaintext blind index เป็น transient error ทำให้ retry ซ้ำ; เปลี่ยนเป็น permanent dead-letter เพื่อหยุดเขียนและรอ data remediation
 99. แก้แล้ว: SQL protection audit เดิมยังไม่ตรวจ participant email/phone/name/LINE blind-index columns; เพิ่ม aggregate violation check โดยไม่ select ค่าออกจากฐานข้อมูล
-100. แก้แล้ว: Release plan เคยสรุปทุก renderer failure ว่า Secret pins ไม่ครบ แม้ blocker เป็น runtime variable เช่น SMTP; เปลี่ยนข้อความให้ระบุทั้ง configuration และ pins โดยไม่เปิดเผยค่า
+100. แก้แล้ว: Release plan เคยสรุปทุก renderer failure ว่า Secret pins ไม่ครบ แม้ blocker เป็น runtime variable เช่น email provider/sender; เปลี่ยนข้อความให้ระบุทั้ง configuration และ pins โดยไม่เปิดเผยค่า
 101. แก้แล้ว: เมื่อปิด SQL static egress การ deploy โดยไม่ส่ง network flag อาจคง Direct VPC เดิมไว้; release ส่ง `--clear-network` ให้ revision ใหม่เพื่อป้องกัน egress/cost ค้างโดยไม่ตั้งใจ
 102. แก้แล้ว: Trust-proxy default test เคยอาศัย process environment ว่าง แต่ quality gate โหลด environment ของ staging ก่อนรัน ทำให้ CI ล้มแม้ validator ทำงานถูกต้อง; test ต้องแยกและคืนค่า `TRUST_PROXY` ทุกครั้ง พร้อมทดสอบ deployment allowlist แยกต่างหากเพื่อไม่ให้ configuration จริงปนกับ unit-test default
 103. แก้แล้ว: Deployment contract test เคยผ่านเฉพาะเครื่องที่ติดตั้ง Google Cloud CLI และ `jq` แม้ไม่ได้เรียก Cloud API; เพิ่ม isolated command stubs ภายใน test เพื่อให้ quality gate บน clean Node 22 image ตรวจ logic เดียวกันได้โดยไม่พึ่งเครื่องมือหรือ credential ภายนอก
+104. แก้แล้ว: privacy/key-rotation migration เดิมมีโอกาสเขียน audit หรือ re-encrypt record ที่ไม่ใช่ candidate ในโหมด dry-run; ปัจจุบัน dry-run เป็น zero-write, apply ต้องมี `--apply` และ write flag พร้อมกัน และแก้เฉพาะ candidate ที่ตรวจพบ
+105. แก้แล้ว: SQL migration รุ่นที่สองสร้าง index แบบไม่ restart-safe ขณะที่ MariaDB DDL implicit commit; เปลี่ยนเป็น `CREATE INDEX IF NOT EXISTS` และเพิ่ม contract test ปฏิเสธ DDL destructive/non-idempotent
+106. แก้แล้ว: dependency audit พบ advisory ใน React Router/gaxios/brace-expansion/PostCSS; อัปเกรดและ override เป็นรุ่นแก้ไขแล้ว พร้อมบังคับ runtime `>=22.22.0 <23`, lint/build/test และ full npm audit
+107. แก้แล้วในโค้ด/รอ data apply: `dept`, `department` และ `date_year` เคยอยู่ plaintext พร้อม index แม้เป็น quasi-identifier; เพิ่ม application encryption, เปลี่ยน dashboard เป็น authorized decrypt + metadata audit และเตรียม allowlisted index cleanup ที่หยุดทันทีหากยังพบ plaintext
+108. แก้แล้ว: scope migration เดิมตีความการไม่ตั้ง assign flag ว่าเป็น global โดยปริยาย; apply ต้องระบุ `REG_POINT_LEGACY_SCOPE_DECISION` และ `PARTICIPANT_FIELD_LEGACY_SCOPE_DECISION` เป็น `global` หรือ `current-event` ชัดเจน
+109. แก้แล้วในโค้ด/รอ data apply: production ปิด Mongoose auto-index, มี index diff แบบ dry-run, TTL reconfiguration ผ่าน `collMod`, explicit replacement gate และไม่ drop stale index โดย generic script
+110. ตรวจ production-like data แบบ zero-write แล้ว: participant ล่าสุด 986 รายมี plaintext sensitive/quasi-identifier 7,324 ค่า, donation 108 รายมี 223 ค่า, plaintext participant index 6 ตัว, stale guest-token index 1 ตัว, TTL ผิด policy 4 ตัว และ scope index ต้องแทนที่ 2 ตัว จึงยังห้าม go-live/apply/ปิด MongoDB จน Atlas snapshot และ restore drill ผ่าน
+111. ตรวจแล้ว: Guest token และ admin session ไม่มี plaintext token document เหลือ แต่ stale bearer index ยังต้องลบหลัง privacy recheck เป็นศูนย์ตาม `MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md`
+112. ยืนยัน architecture: MariaDB ยังเป็น optional reporting mirror; `SQL_PRIMARY_STORE=false` และห้ามปิด MongoDB แม้ SQL backfill สำเร็จ จน full repository cutover, dual-write convergence, load/failover/restore และ rollback ผ่านในโครงการแยก
+113. พบ live-write ระหว่าง audit: participant เพิ่มจาก 985 เป็น 986 และ record ใหม่ขาด `eventYear`; migration ต้องหยุด writer/scheduler/public write ก่อน capture baseline และสคริปต์ต้องตรวจ count drift หลัง maintenance
+114. แก้แล้ว: wallet และ participant-point dry-run เคยทำ N+1 query หลายร้อยครั้งจนเสี่ยง timeout/quiesce; เปลี่ยนเป็น bounded batch lookup/cache และ reject point ID/name mapping ที่ ambiguous หรือข้าม Event
+115. แก้แล้ว: Mongo apply ทุกตัวรวม certificate/object/key rotation ต้องมี `--apply`, script-specific write flag, maintenance confirmation, backup reference และ successful restore-drill reference พร้อมกัน; placeholder หรือหลักฐานขาดต้อง fail ก่อนการเขียนครั้งแรก
+116. แก้แล้ว: Plesk deployment target อาจไม่มี `.git` เพราะ Git extension เก็บ repository แยกจาก web target ทำให้ source guard เดิมหยุด deploy; deployment action ต้อง resolve read-only sibling mirror, ยืนยัน `main`/SHA และเทียบ Git blob ของ tracked file ทุกไฟล์ก่อน build โดย fail closed เมื่อ mirror, file, type, executable mode หรือ SHA ไม่ตรง
+117. แก้แล้วใน runbook: Plesk Git action อาจไม่ inherit Node.js environment ตอน build; อนุญาต fallback local `frontend/.env` เฉพาะ public `VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID`, `VITE_LIFF_ID` ผ่าน allowlist และห้าม backend/DB/GCP Secret ทุกชนิด
+118. แก้แล้ว: Secret scanner เคยพยายามอ่านไฟล์ tracked ที่ถูกลบตาม Requirement ทำให้ CI ล้มก่อนยืนยันการลบ workflow เก่า; scanner ต้องข้ามเฉพาะ candidate ที่ไม่มีอยู่จริง, ยังตรวจไฟล์ existing/untracked ตามเดิม และห้าม follow symlink ออกนอก repository
+119. แก้แล้ว: SQL migration workflow เคยอ่าน Environment-level `SQL_MIGRATION_ENABLED` ใน job `if` ก่อน runner ประกาศ protected environment ทำให้ค่าว่างและ skip เงียบได้; gate ต้องทำใน step แรกหลัง Environment approval และ fail พร้อมข้อความเมื่อยังไม่เปิด
+120. แก้แล้ว: Field decrypt เคย fallback ไป active key เมื่อ ciphertext ระบุ `kid` ที่ไม่มีใน key ring; unknown/retired `kid` ต้อง fail closed ทันทีและมี regression test เพื่อรักษา key-version/rotation contract
+121. แก้แล้ว: HTTP legacy-event migration apply เคยมี write flag/confirmation แต่ไม่บังคับ snapshot/restore evidence; production ต้องปฏิเสธ HTTP apply และใช้ offline migration command เท่านั้น ส่วน non-production apply ยังต้องผ่าน maintenance, backup และ restore-drill gate
+122. แก้แล้ว: `grantSuperadmin` เคยเขียน role ให้ username ค่าเริ่มต้นทันที; ปัจจุบันไม่มี default target, เป็น dry-run โดยปริยาย, apply ต้องมี `--apply` + write flag + exact target confirmation + approved change reference และบันทึก role/audit ใน Mongo transaction เดียวกัน
+123. แก้แล้ว: Runtime renderer เคยตรวจเฉพาะ Secret pins ของ service ปกติ ทำให้ schema/backfill job อาจถูกสร้างก่อนพบว่า migration password, CA หรือ mirror HMAC pin ขาด; ต้องรวม job-specific required pins ตาม mode และ fail ก่อน deploy job
+124. แก้แล้ว: Migration service account เคยคงสิทธิ์อ่าน MongoDB URI, migration password, mirror HMAC และ SQL CA หลัง change window; เพิ่ม cleanup-only profile ที่ต้องยืนยัน environment, ไม่แตะ Secret payload/version/pin file และถอน IAM ทั้งหมดแม้ migration สำเร็จหรือล้มเหลว
+125. แก้แล้ว: Deployment config เคยไม่ตรึง project ที่เปลี่ยนใหม่ ทำให้ local release อาจใช้ `gcloud config` หรือ GitHub variable ผิดบัญชี; staging/production ต้องระบุ `PROJECT_ID=cusa-reunion` และ release/Secret sync ต้องปฏิเสธ project อื่นก่อนอ่านหรือเขียน Cloud resource
+126. แก้แล้ว: การถอน IAM ราย Secret ยังไม่พอหาก migration account มี inherited project-level `secretAccessor`/Admin/Editor/Owner; Secret sync และ cleanup ต้องตรวจ project policy, ปฏิเสธ broad role และยอมรับเฉพาะ per-secret binding ตาม change window
+127. ปรับตามข้อมูลผู้ดูแล: Domain `reunion.scicu-alumni.com` ผูกกับ Plesk แล้ว, repository ติดตาม `main`, deployment เป็น manual และ Plesk CD ปิด; บันทึกเป็น non-secret environment contract แต่ยังไม่ถือว่าเว็บ deploy สำเร็จจน default page ถูกแทนที่และ external smoke ผ่าน
+128. แก้แล้ว: Budget bootstrap เคยใช้ชื่อแยก staging/production ทั้งที่ทั้งสอง environment ใช้ project เดียว จึงเสี่ยงสร้าง alert ซ้ำและสื่อความหมายผิด; ต้องใช้ project-wide Budget เดียว, reuse/normalize legacy Budget, บังคับยอดรวมไม่เกิน 1,000 บาท และตรวจ component allocation ก่อน Cloud API call
+129. แก้แล้ว: GCS cost estimator เคย fallback 700 บาทขณะที่ deployment allocation/runbook ใช้ 650 บาท; fallback, environment และ acceptance test ต้องใช้ GCS sub-budget 650 บาทตรงกัน
+130. แก้แล้วใน Requirement: Cost acceptance เคยระบุให้พร้อมก่อนเปิด Plesk auto-deploy ซึ่งขัดกับ manual-only contract; ต้องพร้อมก่อนเปิด production traffic และ Plesk automatic deployment ยังคงปิดเสมอ
+131. พบจาก external smoke วันที่ 2026-08-01: Domain/HTTPS พร้อมแต่ยังแสดงหน้า default Plesk และ gateway/API ตอบ 404; config readiness ห้ามถูกใช้แทน live readiness ต้องผ่าน manual `Pull now`/`Deploy now`, release SHA verification และ external smoke ก่อน go-live
+132. ปรับ Requirement ใหม่: `LINE Notify` ยุติบริการแล้วตั้งแต่ 31 มีนาคม 2025 จึงห้ามออกแบบ integration ใหม่ด้วย endpoint/token เดิม; manager alert ต้องใช้ LINE Messaging API ผ่าน Official Account หรือ Web Dashboard พร้อม quota/fallback
+133. แก้ข้อเสี่ยงใน Requirement: IndexedDB ถูกล้าง/แก้ได้และไม่ใช่หลักฐานทางบัญชี; canonical E-slip ต้องอยู่ private GCS, MongoDB เก็บ metadata/checksum และ local copy เป็น cache/outbox เท่านั้น
+134. แก้ข้อเสี่ยงใน Requirement: Stripe client callback/หน้าจอสำเร็จห้ามทำ fulfillment; ต้องตรวจ signed webhook, deduplicate event, validate amount/currency/scope และรองรับ event ซ้ำหรือมาผิดลำดับ
+135. ปรับ Offline-first boundary: อินเทอร์เน็ตขาดต้องห้ามเริ่ม/ยืนยัน Stripe PromptPay/card; offline ใช้กู้ cart/close draft/outbox ได้ ส่วน offline cash ปิดโดย default และต้องมี approval/ledger/reconciliation แยกหากจะเปิด
+136. แก้ข้อกล่าวอ้าง HA: replica-set auto-failover ไม่รับรอง absolute zero downtime และไม่ป้องกัน region outage หาก Cloud Run/Plesk/GCS ยัง single-region; ต้องกำหนด SLO/RPO/RTO และทดสอบทั้ง application topology
+137. พบข้อขัดแย้งกับงบ: MongoDB 3-node HA, PITR และ cross-region database/GCS copy มีต้นทุนเพิ่มที่งบ Google Cloud 1,000 บาทเดิมไม่ได้ครอบคลุมอัตโนมัติ; ต้อง forecast/อนุมัติงบก่อน provision และห้ามลด security/backup เพื่อให้ตัวเลขผ่าน
+138. พบข้อขัดแย้งกับ model เดิม: `Package.stock/sold` และ SQL mirror constraint ไม่ยอม stock ติดลบ จึงห้าม reuse เป็น POS inventory โดยตรง; POS ต้องใช้ immutable movement ledger, materialized balance และ reporting schema/migration ใหม่
+139. ปรับ Card Surcharge: ปิดโดย default จนได้รับ legal/accounting/acquirer/network approval, แสดงแยกก่อนจ่าย, version policy และห้ามใช้ estimated Stripe fee เป็น actual fee
+140. ปรับ Gross/Fee/Net: actual fee/net settlement ต้อง reconcile จาก Stripe Balance Transaction; refund, chargeback, reserve และ payout adjustment เป็น ledger แยก ไม่เขียนทับยอดขาย
+141. เพิ่ม Blind Close security: API/browser/IndexedDB/log ต้องไม่มี expected amount ก่อน cashier submit; manager review หลัง freeze declaration เท่านั้นและ amendment ต้องสร้าง version ใหม่
+142. เพิ่ม PO/AP integrity: partial receiving ต้องสร้าง Goods Receipt แยกและ stock/AP เพิ่มจาก accepted quantity จริงแบบ idempotent; force close ยกเลิกเฉพาะ outstanding และห้ามลบ AP เดิม
+143. ปรับปุ่มบันทึกสลิป: server ต้องสร้าง/เก็บ canonical receipt อัตโนมัติหลัง verified payment; ปุ่มใช้ retry/ยืนยัน local cache หรือ share เท่านั้น การลืมกดห้ามทำให้ receipt ต้นฉบับสูญหาย
+144. สถานะปัจจุบัน: POS/Inventory, Stripe, shift, PO, settlement, 3-node HA, PITR และ geo-replication เป็น `Planned / Not Implemented`; ห้ามตีความการเพิ่ม Requirement ว่า production รองรับแล้ว
 
 ## 24. Test และ Acceptance Checklist
 
@@ -2921,7 +3070,7 @@ Acceptance Criteria:
 - Upload เอกสาร/template ไม่เก็บแบบ public uncontrolled บน VPS
 - Signed URL มีอายุสั้น
 - Bucket เป็น private + Public Access Prevention และ Event อื่นเปิด payment slip ไม่ได้
-- Normal-load forecast รวม reserve อยู่ใน GCS sub-budget 700 บาท/เดือน
+- Normal-load forecast รวม reserve อยู่ใน GCS sub-budget 650 บาท/เดือน
 - Receipt number ไม่ซ้ำเมื่อออกพร้อมกัน
 - Certificate revoked แล้ว verify page ต้องแสดง revoked
 - Raw participantId certificate URL ต้องใช้ไม่ได้เมื่อ legacy flag ปิด และ audit/access log ต้องไม่มี opaque token
@@ -2993,7 +3142,7 @@ Acceptance Criteria:
 - GitHub Actions ทุกตัวต้อง pin ด้วย full commit SHA และ Dependabot ต้องเปิดสำหรับ Actions/backend/frontend
 - CI ต้องไม่รับ Google credential และต้องไม่ติดต่อ production database
 - CI และ local quality gate ต้องสแกน tracked/untracked Git candidate files เพื่อหา credential signature และเทียบกับค่า Secret ใน local source โดยรายงานเฉพาะชนิด/path/line ห้ามพิมพ์ payload
-- Required status check ต้องถูกตั้งใน branch protection ก่อนเปิด auto-deploy
+- Required status check ต้องถูกตั้งใน branch protection ก่อน production deployment
 
 ### 26.3 CD Trigger, Environment และ Approval
 
@@ -3039,9 +3188,9 @@ Acceptance Criteria:
 - Pinned resource ต้องตรง project ที่ deploy, environment `SECRET_MANAGER_PREFIX`, logical secret name และ numeric version; cross-project/cross-environment pin ต้อง fail ก่อน deployและ fail ซ้ำที่ runtime
 - ไฟล์ `deploy/secret-versions/<environment>.json` เก็บได้เฉพาะ resource/version identifier และต้องไม่มี Secret payload
 - การสร้าง/rotate Secret ต้องใช้ `ALLOW_SECRET_UPLOAD=true`; Secret ที่มีอยู่ต้องไม่ rotate เว้นแต่ตั้ง `ROTATE_SECRETS=true`
-- ค่า integration ที่ระบบสร้างเองไม่ได้ เช่น MongoDB URI, Turnstile, SMTP, LINE, OAuth และ SQL password ต้องขาดแล้วหยุด ไม่ generate ค่าปลอม
+- ค่า integration ที่ระบบสร้างเองไม่ได้ เช่น MongoDB URI, Turnstile, Brevo API key, SMTP fallback, LINE, OAuth และ SQL password ต้องขาดแล้วหยุด ไม่ generate ค่าปลอม
 - Local `.env` ต้องเป็น Secret payload source เท่านั้นและห้ามทำให้ optional integration ถูกเปิดโดยปริยาย; feature activation ต้องมาจาก reviewed environment config/GitHub variable แบบ explicit
-- `PARTICIPANT_EMAIL_LOGIN_ENABLED=true` ใน production-like environment ต้องใช้ SMTP จริงและห้าม `MOCK_EMAIL=true`; OTP, recipient และ email body ห้ามถูกเขียนลง application/Cloud logs
+- `PARTICIPANT_EMAIL_LOGIN_ENABLED=true` ใน production-like environment ต้องใช้ `EMAIL_PROVIDER=brevo` พร้อม `BREVO_API_KEY` และ verified sender จริง หรือ approved SMTP fallback เท่านั้น และห้าม `MOCK_EMAIL=true`; OTP, recipient และ email body ห้ามถูกเขียนลง application/Cloud logs
 - LINE Login, LINE Messaging, Google Drive, Firestore, KMS และ SQL ต้องมี enable flag แยกกัน; การพบ credential ใน source อย่างเดียวไม่ถือว่าเปิด feature
 - Public auth-provider capability endpoint ต้องคืนเฉพาะสถานะพร้อมใช้แบบ boolean และหน้า login ต้องซ่อน provider ที่ปิด/ตั้งค่าไม่ครบโดยไม่เปิดเผย provider identifier หรือ Secret
 - Signing key ที่ระบบสร้างได้ต้อง random อย่างน้อย 256 bit และแยกหน้าที่ JWT, session hash, CSRF, vendor QR และ slip proof
@@ -3139,9 +3288,9 @@ Acceptance Criteria:
 #### 26.13.1 Architecture และ Ownership
 
 - Canonical origin สำหรับผู้ใช้ต้องเป็น `https://reunion.scicu-alumni.com` ซึ่งผูก Domain/SSL กับ Plesk แล้ว งาน Phase 1 นี้ห้ามเปลี่ยน DNS โดยไม่มี change request แยก
-- Plesk ต้องรัน Node.js 22 application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว
-- Cloud Run ต้องคงเป็น backend/API compute และเป็น component เดียวที่เข้าถึง MongoDB, Secret Manager, GCS, KMS, Firestore, MariaDB/SQL, SMTP และ server-side provider secrets
-- Plesk ห้ามมี Google service-account JSON, ADC token, MongoDB URI, JWT/session/CSRF key, SMTP password, LINE channel secret, Turnstile secret, KMS plaintext key หรือ database password
+- Plesk ต้องรัน Node.js `>=22.22.0 <23` application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว
+- Cloud Run ต้องคงเป็น backend/API compute และเป็น component เดียวที่เข้าถึง MongoDB, Secret Manager, GCS, KMS, Firestore, MariaDB/SQL, Brevo/SMTP fallback และ server-side provider secrets
+- Plesk ห้ามมี Google service-account JSON, ADC token, MongoDB URI, JWT/session/CSRF key, Brevo API key, SMTP password, LINE channel secret, Turnstile secret, KMS plaintext key หรือ database password
 - Cloud Run frontend bundle ใช้เป็น fallback/diagnostic ได้ แต่หลัง go-live ห้ามถือ `run.app` เป็น canonical URL ที่ส่งให้ผู้ใช้
 - เนื่องจาก Phase 1 ไม่ใช้ external HTTPS Load Balancer เพื่อคุมงบ Cloud Run endpoint ยังคง public สำหรับ Plesk upstream; ทุก API จึงต้องรักษา auth/RBAC/CSRF/rate-limit/idempotency ที่ backend และห้ามพึ่ง CORS/Plesk WAF เป็น authorization
 
@@ -3180,7 +3329,7 @@ Acceptance Criteria:
 
 #### 26.13.5 Plesk Runtime และ Build Contract
 
-- Plesk Node.js ต้องเป็น 22.x, mode `Production`, application root `hosting/plesk-gateway`, document root `hosting/plesk-gateway/public` และ startup file `app.js`
+- Plesk Node.js ต้องเป็น `>=22.22.0 <23`, mode `Production`, application root `hosting/plesk-gateway`, document root `hosting/plesk-gateway/public` และ startup file `app.js`
 - Passenger/Plesk เป็นผู้ inject `PORT`; source, Plesk environment และ deployment action ห้าม hard-code `PORT`
 - `UPSTREAM_ORIGIN` ต้องไม่มี path/query/credential และต้องเปลี่ยนจาก staging ไป production เฉพาะหลัง production acceptance ผ่าน
 - `VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID`, `VITE_LIFF_ID` เป็น public build-time identifiers เท่านั้น ห้ามนำ Secret มาใส่ `VITE_*`
@@ -3188,19 +3337,19 @@ Acceptance Criteria:
 - Public release ต้องสลับ directory แบบไม่เผย partial build, เก็บ previous release อย่างน้อยหนึ่งชุด และมี release ID ที่ตรงกับ Git SHA
 - Rollback metadata ต้อง validate ก่อน swap; metadata เสียหรือ current release ไม่ครบต้อง fail โดยไม่ทำลาย release ที่กำลังให้บริการ
 
-#### 26.13.6 Git Pipeline และ Deployment Flow
+#### 26.13.6 Git และ Manual Deployment Flow
 
-- Routine deploy ต้องใช้ Plesk Git ไม่ใช้ FTP โดย private repository ใช้ read-only deploy key และติดตาม dedicated branch `plesk-production` ไม่ใช่ `main` โดยตรง
-- GitHub Plesk workflow ต้องเริ่มหลัง CI ของ push `main` สำเร็จ, ตรวจ same repository/fork boundary และ checkout SHA ที่ CI ตรวจ
-- Workflow ต้อง fast-forward `plesk-production` ไปยัง approved SHA ด้วย `force=false` ก่อนยิง webhook; non-fast-forward/race ต้อง fail เพื่อไม่ deploy commit ที่ยังไม่ผ่าน CI
-- สิทธิ์ `contents: write` ใช้เฉพาะ release-ref promotion step, token ห้าม persist ใน checkout/ส่งต่อ Plesk และ workflow ห้ามมีสิทธิ์ `id-token`/Secret อื่นที่ไม่จำเป็น
-- `PLESK_CD_ENABLED` ต้องเริ่ม `false`; job ต้องไม่ทำงานจน manual deploy, smoke, rollback drill และ provider/cost checks ผ่าน
-- Plesk webhook URL ต้องเป็น HTTPS และเก็บเป็น GitHub Environment secret `PLESK_GIT_WEBHOOK_URL`; workflow/log ห้ามพิมพ์ URL
-- `PLESK_WEBHOOK_HOST` ต้องบังคับมีค่าและตรง hostname ของ webhook Secret; missing/mismatch ต้องหยุดก่อนส่ง request
-- Environment `plesk-production` ต้องมี `PLESK_ORIGIN`, expected webhook host, required reviewer และ branch restriction ตาม plan ที่รองรับ
-- Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก repository root และสร้าง Passenger restart marker หลัง build สำเร็จเท่านั้น
-- หลัง webhook workflow ต้อง retry external smoke แบบ bounded และต้อง fail เมื่อ gateway readiness, SPA, security headers, release header หรือ same-origin API ผิด contract
-- FTP/SFTP credential, Plesk password และ SSH private key ห้ามอยู่ใน repository หรือ GitHub Actions
+- Routine deploy ต้องใช้ Plesk Git ไม่ใช้ FTP โดยติดตาม branch `main`
+- GitHub Actions ทำเฉพาะ CI และ Cloud Run deployment; ห้าม pull/deploy Plesk, ห้ามเรียก Plesk webhook และห้ามมี `contents: write` เพื่อเลื่อน Plesk release ref
+- ผู้ดูแลต้องรอ `CI / quality` ของ commit บน `main` ผ่าน และ deploy Cloud Run backend ที่เกี่ยวข้องให้พร้อมก่อนแตะ Plesk
+- ใน Plesk ผู้ดูแลต้องกด `Pull now`, ตรวจ latest commit/SHA ให้ตรงกับ commit ที่ CI ผ่าน แล้วกด `Deploy now`
+- Plesk deployment mode ต้องเป็น manual; `PLESK_CD_ENABLED`, `PLESK_GIT_WEBHOOK_URL`, `PLESK_WEBHOOK_HOST` และ branch `plesk-production` ไม่ใช้
+- Repository public ใช้ HTTPS read-only ได้โดยไม่เก็บ credential; หากเปลี่ยนเป็น private ต้องใช้ deploy key แบบ read-only และห้าม write access
+- Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก deployment target root
+- Deployment action ต้องยืนยัน branch `main` และ SHA จาก checkout หรือ read-only Plesk Git mirror, ปฏิเสธ tracked file ที่หาย/เปลี่ยน type/ถูกแก้บน host, ใช้ lockfile, รัน test/audit/build, สลับ public release แล้วสร้าง Passenger restart markerหลังสำเร็จเท่านั้น
+- หาก Git action ไม่ inherit Node.js environment อนุญาต local build config เฉพาะ public `VITE_*` allowlist; ห้าม loader อ่านหรือส่ง backend Secret และ database/cloud credential
+- หลังผู้ดูแล deploy ต้องรัน external smoke แบบ bounded และหยุด go-live เมื่อ gateway readiness, SPA, security headers, release header หรือ same-origin API ผิด contract
+- FTP/SFTP credential, Plesk password, SSH private key, webhook secret และ GitHub write token ห้ามอยู่ใน repository/Plesk application
 
 #### 26.13.7 Failure, Rollback และ Recovery Flow
 
@@ -3217,13 +3366,85 @@ Acceptance Criteria:
 - ต้องใช้ Plesk hosting เดิมสำหรับ public web และ Cloud Run backend service เดียว ห้ามเพิ่ม Cloud Run frontend service หรือ external load balancer ใน Phase 1 โดยไม่มี cost approval
 - Cloud Run ต้อง scale-to-zero ตาม environment policy; static cache ต้องลด repeated egress และรูป/slip ต้องใช้ GCS lifecycle โดยไม่ duplicate บน Plesk
 - Monthly review ต้องรวม Cloud Run internet egress ที่เกิดจาก Cloud Run -> Plesk proxy response, Logging, Secret Manager, GCS, KMS และ optional data stores
-- Forecast normal-load รวมต้องไม่เกิน 1,000 บาท/เดือนและ Billing Budget threshold 50%, 80%, 90%, 100% ต้องพร้อมก่อนเปิด auto-deploy
+- Forecast normal-load รวมต้องไม่เกิน 1,000 บาท/เดือนและ Billing Budget threshold 50%, 80%, 90%, 100% ต้องพร้อมก่อนเปิด production traffic
 - Go-live ต้องผ่าน `gateway/health/ready`, root SPA, release/security headers, auth provider API, login/OTP/logout, registration, upload, check-in, wallet/vendor QR และ rollback drill ผ่าน public domain
 - Cookie ต้องอยู่ public domain, `Secure` และไม่มี `run.app` Domain; email/QR/callback/object URL ต้องไม่มี `localhost` หรือ `run.app` สำหรับ user-facing production flow
-- Domain/SSL, read-only deploy key, Node settings, webhook protection, client-IP test, backend readiness, private GCS, audit redaction และ cost alert ต้องมีหลักฐานตรวจสอบ
+- Domain/SSL, Plesk manual Git settings, CI-approved commit, Node settings, client-IP test, backend readiness, private GCS, audit redaction และ cost alert ต้องมีหลักฐานตรวจสอบ
 - รายละเอียดค่าตั้งและคำสั่ง operation ให้ยึด `docs/PLESK_WEB_GATEWAY_RUNBOOK.md`
 
-## 27. Definition of Done
+## 27. POS, Inventory, Shift, Payment และ PO Module
+
+สถานะ: `Planned / Not Implemented`
+
+ข้อกำหนดฉบับเต็มให้ยึด `docs/POS_INVENTORY_PRD.md`; หัวข้อนี้เป็น integration
+contract กับระบบ PSEvent เดิม
+
+### 27.1 Scope และ Feature Flags
+
+- POS ต้องเป็น feature ต่อ Event และเปิดแยกจาก Wallet/Coupon/Package เดิม
+- POS ต้องเป็น subsystem แยกจาก Event Management UI และ SSO/Identity แต่ใช้ `eventId`, `organizationId`, permission claim, audit และ notification provider ร่วมกัน
+- Event System ต้องสามารถใช้งาน registration/check-in/report ได้ครบแม้ `POS_ENABLED=false`
+- SSO/Identity เป็นเจ้าของ login/session/step-up auth; POS เป็นเจ้าของ shift/order/payment/inventory และต้องตรวจ scope ของตนเองทุก write
+- Feature flags ขั้นต่ำ: `POS_ENABLED`, `POS_CASH_ENABLED`,
+  `POS_STRIPE_ENABLED`, `POS_PROMPTPAY_ENABLED`, `POS_CARD_ENABLED`,
+  `CARD_SURCHARGE_ENABLED`, `OFFLINE_CASH_SALES_ENABLED`,
+  `INVENTORY_LEDGER_ENABLED`, `PURCHASE_ORDER_ENABLED`,
+  `POS_LINE_ALERT_ENABLED`, `POS_GEO_BACKUP_ENABLED`
+- ทุก flag ต้องปิดโดย default และการมี Secret/config ไม่เปิด feature อัตโนมัติ
+- Backend ต้อง fail closed เมื่อ feature เปิดแต่ provider, permission, index,
+  migration, backup หรือ cost gate ไม่ครบ
+
+### 27.2 Function Relationship
+
+1. Manager เปิดกะ/กำหนด float ให้ cashier และ terminal
+2. Cashier acknowledge float; backend จึงออก active shift capability
+3. Cashier สร้าง order; server snapshot price และ reserve inventory
+4. Cash commit หรือ verified Stripe webhook เปลี่ยน order เป็น paid และสร้าง
+   inventory movement/E-slip แบบ idempotent
+5. E-slip ต้นฉบับอยู่ private GCS; IndexedDB cache cart/slip/outbox เพื่อ recovery
+6. Cashier blind close โดย browserไม่เห็น expected amount ก่อน submit
+7. Server cross-check shift/payment/receipt/inventory แล้วสร้าง finding/manager alert
+8. PO goods receipt สร้าง inventory movement และ AP จาก accepted quantity จริง
+9. Settlement job reconcile Stripe Balance Transaction เพื่อแยก gross/fee/net
+10. POS email receipt/alert ต้องเรียก Notification service ที่ใช้ Brevo เป็น provider หลัก ไม่เรียก provider secret จาก browser/Plesk
+
+Transaction ที่ขั้นใดล้มต้องไม่สร้างผลลัพธ์ซ้ำเมื่อ retry และต้องมีสถานะ unknown/
+reconciliation แทนการเดาว่าล้มเหลว
+
+### 27.3 Data และ Security Boundary
+
+- MongoDB replica set เป็น operational source of truth และใช้ majority write กับ
+  transaction สำคัญ
+- MariaDB เป็น reporting mirror เท่านั้นและห้ามปิด MongoDBจาก POS migration
+- GCS เก็บ receipt image; MongoDB/MariaDB ห้ามเก็บ binary
+- Stripe webhook เป็น payment authority; client/IndexedDB/QR screenshot ไม่ใช่
+- IndexedDB ห้ามเก็บ card data, Secret, full provider payload หรือ PII เกินจำเป็น
+- POS session ต้องผูก Event/vendor/location/device/shift และตรวจ permission ทุก write
+- Money ใช้ integer สตางค์; stock ใช้ immutable movement ledger และ reversal
+- LINE alert ใช้ Messaging API เท่านั้น; LINE Notify ห้ามใช้
+- Email fallback ของ POS alert/receipt ใช้ Brevo Transactional Email API ผ่าน backend เท่านั้น; SMTP เป็น fallback ที่ต้องอนุมัติและ audit
+
+### 27.4 Availability, Backup และ Cost
+
+- Production POS ต้องมี MongoDB 3 data-bearing nodes, automatic election,
+  majority write, daily snapshot, approved PITR window และ restore drill
+- Regional-loss requirement ต้องครอบคลุม application, database, receipt storage,
+  key access และ operator runbook ไม่ใช่ database copy อย่างเดียว
+- Cross-region copy/dual-region/Pub/Sub/dedicated cluster ต้องผ่าน forecast และ
+  cost approval; งบเดิม 1,000 บาทไม่ถือว่ารวม provider เหล่านี้
+- หาก resilience gate ทำไม่ได้ต้องคง `POS_ENABLED=false` หรือบันทึก risk
+  acceptance ที่ระบุขอบเขตอย่างตรงไปตรงมา ห้ามอ้างว่า zero downtime
+
+### 27.5 เอกสารอ้างอิงภายใน
+
+- Product/flow/security/acceptance: `docs/POS_INVENTORY_PRD.md`
+- Object storage: `docs/GCS_OBJECT_STORAGE_RUNBOOK.md`
+- Mongo migration/backup evidence: `docs/MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md`
+- Hybrid reporting mirror: `docs/HYBRID_DB_MIGRATION_PLAN.md`
+- Deployment/Secret: `docs/DEPLOYMENT_RUNBOOK.md` และ
+  `docs/SECRET_MANAGER_RUNBOOK.md`
+
+## 28. Definition of Done
 
 ระบบจะถือว่าพร้อมใช้งาน production เมื่อ:
 
@@ -3245,11 +3466,30 @@ Acceptance Criteria:
 16. GitHub-to-Google Cloud ต้องใช้ WIF แบบ numeric repository/owner binding และ repository ต้องไม่มี service-account JSON key
 17. Deployment Secret ทุกตัวต้องอยู่ Secret Manager แบบ pin version และ routine deploy ต้องไม่ส่ง plaintext Secret ผ่าน env file/CLI/image
 18. Billing Budget, scale-to-zero/max instances, GCS region/lifecycle และ Artifact Registry cleanup ต้องตั้งจริงก่อนเปิด `CD_ENABLED=true`
-19. Plesk Git/Node.js/gateway ต้อง deployจาก CI-approved SHA ผ่าน dedicated `plesk-production` ref และ external smoke โดยไม่ใช้ FTP และไม่มี backend/GCP Secret บน Plesk
+19. Plesk Git/Node.js/gateway ต้องติดตาม `main` และ deployด้วยการกด `Pull now`/`Deploy now` จาก commit ที่ CI ผ่าน พร้อม external smoke โดยไม่ใช้ webhook/FTP และไม่มี backend/GCP Secret บน Plesk
 20. `PUBLIC_WEB_ORIGIN`, provider callback, CORS, Turnstile, cookie และ link generation ต้องใช้ `https://reunion.scicu-alumni.com` ตลอด user-facing flow
 21. Plesk frontend rollback และ Cloud Run backend rollback drill ต้องผ่านแยกกัน พร้อม release ID, RTO และ incident owner
-22. `PLESK_CD_ENABLED` ต้องคง `false` จน Host/security header/client-IP/auth/upload/wallet/cost acceptance ผ่านครบ
+22. Plesk automatic deployment และ webhook ต้องปิดถาวรสำหรับ flow นี้; ผู้ดูแลต้องผ่าน Host/security header/client-IP/auth/upload/wallet/cost acceptance ทุกครั้งก่อนเปิดใช้งาน release
 23. หากเปิด MariaDB ต้องใช้ Plesk target `203.170.190.137` ผ่าน reserved Cloud NAT IP `/32`, authenticated TLS, transport job, least-privilege accounts และห้ามมี DB Secret บน Plesk web gateway
 24. Plesk at-rest/backup encryption evidence, encrypted restore drill, SQL mirror plaintext scan, reconciliation และ total GCP forecastรวม static egress ต้องผ่านก่อน `SQL_ENABLED=true`
+25. Atlas snapshot ต้อง restore ใน isolated environment สำเร็จก่อน MongoDB migration apply และต้องเก็บ snapshot ID, count/index baseline, operator, เวลา และผล verification
+26. Privacy/token migration dry-run หลัง apply ต้องเป็นศูนย์, Mongo index diff ต้องไม่มี create/reconfigure/replacement และ legacy plaintext index candidate ต้องเป็นศูนย์
+27. Registration point และ participant field legacy scope ต้องมี change-record decision เป็น `global` หรือ `current-event`; ห้ามใช้ค่า default ที่ไม่ได้อนุมัติ
+28. Production MongoDB ต้องใช้ `MONGODB_AUTO_INDEX=false`; TTL/index change ทำผ่าน reviewed migration script เท่านั้นและต้องตรวจ `expireAfterSeconds` จากฐานข้อมูลจริง
+29. ห้ามปิด MongoDB จากผล SQL mirror migration; source-of-truth cutover ต้องมี Definition of Done และ rollback ของโครงการแยก
+30. Plesk deployment log ต้องพิสูจน์ source mode, branch และ SHA ที่ตรงกับ Latest commit/CI พร้อมผ่าน tracked-tree integrity verification แม้ deployment target ไม่มี `.git`
+31. SQL migration job ต้องผ่าน job-specific pin validation ก่อน deploy และ change record ต้องมีหลักฐานว่า migration service account ถูกถอนจาก Secret ทั้ง 4 รายการหลังปิด change window
+32. POS/Inventory ทุก feature ต้องคงปิดจน `docs/POS_INVENTORY_PRD.md` ผ่าน architecture, threat-model, accounting/legal และ data-migration approval
+33. Event/POS/SSO boundary ต้องผ่าน integration test ว่า Event registration ทำงานได้เมื่อ POS ปิด, POS write ถูก block เมื่อไม่มี `pos:*` scope และ SSO revoke/session step-up มีผลกับทุก domain
+34. Production email ต้องใช้ `EMAIL_PROVIDER=brevo`, `BREVO_API_KEY` จาก Secret Manager, verified sender และ canary send test ผ่าน; SMTP fallback ต้องมี approval และระบุเหตุผล/owner
+35. Shift assignment/float acknowledgement/blind close ต้องบังคับทั้ง frontend/backend และไม่มี expected amount หลุดก่อน cashier submit
+36. Stripe webhook/idempotency/reconciliation ต้องผ่าน duplicate, out-of-order, delayed success, refund และ unknown-outcome test ก่อน live mode
+37. Order, payment, inventory movement, reservation, receipt, PO, goods receipt และ AP ต้องไม่ duplicate/drift ภายใต้ concurrent/retry/failover test
+38. Canonical E-slip ต้องอยู่ private GCSและกู้ได้เมื่อ IndexedDB ถูกล้าง; local cache/outbox ต้องผ่าน quota, corruption, resume และ purge test
+39. Actual Stripe fee/net ต้องมาจาก Balance Transaction reconciliation และ surcharge/tax/receipt wording ต้องได้รับผู้รับผิดชอบอนุมัติ
+40. MongoDB 3-node replica set, majority write, daily backup, PITR, election test และ isolated restore ต้องผ่านก่อนเปิด POS production
+41. Geo-redundancy ต้องผ่าน checksum/restore/lag/cost drill หรือระบุชัดว่าไม่รองรับ regional-loss; ห้ามกล่าวอ้าง zero downtime โดยไม่มี multi-region application topology
+42. LINE manager alert ต้องใช้ Messaging API/Dashboard พร้อม quota/fallback; ห้ามใช้ LINE Notify
+43. POS/HA/PITR/GCS replication/Stripe/LINE/Plesk รวมต้องมี cost forecast และ budget owner ก่อน go-live
 
-รายละเอียด operation และ migration ให้ยึด `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md`, `docs/PLESK_MARIADB_RUNBOOK.md` และ `docs/DEPLOYMENT_RUNBOOK.md` เป็น runbook หลักตาม component
+รายละเอียด operation และ migration ให้ยึด `docs/CERTIFICATE_VERIFICATION_RUNBOOK.md`, `docs/MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md`, `docs/PLESK_MARIADB_RUNBOOK.md`, `docs/POS_INVENTORY_PRD.md` และ `docs/DEPLOYMENT_RUNBOOK.md` เป็น runbook หลักตาม component

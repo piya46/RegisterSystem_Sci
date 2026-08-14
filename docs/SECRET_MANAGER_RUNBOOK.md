@@ -10,7 +10,7 @@ Backend รองรับ provider ต่อไปนี้แล้ว:
 - `google_secret_manager`: สำหรับ staging/production
 - `file_for_test`: ใช้ได้เฉพาะ `NODE_ENV=test`
 
-Runtime จะโหลด Secret ก่อน `require('./app')` เพื่อให้ OAuth, SMTP, LINE, JWT และโมดูลที่อ่าน `process.env` ตอนเริ่มโปรแกรมได้รับค่าที่โหลดแล้ว จากนั้นเก็บ cache ใน memory 5-15 นาทีและไม่เรียก Secret Manager ต่อ request
+Runtime จะโหลด Secret ก่อน `require('./app')` เพื่อให้ OAuth, Brevo/SMTP fallback, LINE, JWT และโมดูลที่อ่าน `process.env` ตอนเริ่มโปรแกรมได้รับค่าที่โหลดแล้ว จากนั้นเก็บ cache ใน memory 5-15 นาทีและไม่เรียก Secret Manager ต่อ request
 
 Production จะ fail-closed เมื่อ Secret สำคัญหาย, version ไม่ถูก pin, ค่าเป็น placeholder, signing secret สั้นเกินไป หรือมีการใช้ JWT/session/CSRF secret ซ้ำกัน
 
@@ -47,7 +47,8 @@ Core production secrets:
 
 Secrets ตาม feature flag:
 
-- SMTP: `SMTP_USER`, `SMTP_PASS` เมื่อ `MOCK_EMAIL=false`
+- Brevo email: `BREVO_API_KEY` เมื่อ `EMAIL_PROVIDER=brevo` และ `MOCK_EMAIL=false`
+- SMTP fallback: `SMTP_USER`, `SMTP_PASS` เมื่อ `EMAIL_PROVIDER=smtp` และ `MOCK_EMAIL=false`
 - LINE Login: `LINE_LOGIN_CHANNEL_SECRET`
 - LINE webhook/messaging: `LINE_WEBHOOK_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`
 - Field encryption: `DATA_BLIND_INDEX_SECRET`, `DATA_ENCRYPTION_KEYS` หรือ `KMS_WRAPPED_DATA_KEYS`; legacy `DATA_ENCRYPTION_KEY`/`FIELD_ENCRYPTION_KEY` รองรับระหว่าง migration โดยระบุ `FIELD_ENCRYPTION_SECRET_NAME`
@@ -70,7 +71,7 @@ Secrets ตาม feature flag:
 NODE_ENV=production
 SECRET_PROVIDER=google_secret_manager
 SECRET_MANAGER_ENABLED=true
-SECRET_MANAGER_PROJECT_ID=your-production-project
+SECRET_MANAGER_PROJECT_ID=cusa-reunion
 SECRET_MANAGER_PREFIX=psevent/prod
 SECRET_MANAGER_FAIL_CLOSED=true
 SECRET_MANAGER_REQUIRE_PINNED_VERSIONS=true
@@ -105,10 +106,10 @@ SECRET_MANAGER_SECRET_IDS_JSON={"MONGODB_URI":"custom-prod-mongodb-uri"}
 
 ## 6. Rotation Policy
 
-SMTP, LINE token และ integration secret:
+Brevo/SMTP fallback, LINE token และ integration secret:
 
 1. สร้าง version ใหม่
-2. ทดสอบ canary
+2. ทดสอบ canary เช่น `BREVO_CANARY_WRITE=true npm --prefix backend run canary:brevo-email -- --send`
 3. เปลี่ยน pinned version
 4. rolling restart
 5. ตรวจ functional test และ error rate

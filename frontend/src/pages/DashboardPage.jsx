@@ -35,7 +35,7 @@ import IosShareIcon from '@mui/icons-material/IosShare';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents'; // 🌟 [เพิ่ม] ไอคอนถ้วยรางวัลสำหรับ Lucky Draw
 import EventAvailableIcon from '@mui/icons-material/EventAvailable';
 
-import { Link, useLocation, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router";
 import ChangePasswordDialog from "../components/ChangePasswordDialog";
 import { EmptyState } from "../components/FeedbackStates";
 import getAvatarUrl from "../utils/getAvatarUrl";
@@ -392,7 +392,7 @@ export default function DashboardPage({ embedded = false }) {
               {/* 🌟 [เพิ่ม] ปุ่มเข้าหน้า Lucky Draw */}
               <Button
                 component={Link}
-                to={appendQuery("/admin/lucky-draw", eventParams)}
+                to={eventId ? `/admin/events/${eventId}/lucky-draw` : "#"}
                 disabled={!eventId}
                 size="small"
                 variant="contained"
@@ -567,7 +567,7 @@ export default function DashboardPage({ embedded = false }) {
                           <Typography variant="subtitle1" fontWeight={800} display="flex" alignItems="center" gap={1}>
                             <ReceiptLongIcon color="action" /> รายการโอนล่าสุด
                           </Typography>
-                          <Button component={Link} to={appendQuery("/admin/donations", eventParams)} size="small" endIcon={<ArrowForwardIcon />}>ดูทั้งหมด</Button>
+                          <Button component={Link} to={eventId ? `/admin/events/${eventId}/donations` : "#"} disabled={!eventId} size="small" endIcon={<ArrowForwardIcon />}>ดูทั้งหมด</Button>
                         </Box>
                         <TableContainer>
                           <Table size="small">

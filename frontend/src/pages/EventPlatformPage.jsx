@@ -29,7 +29,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import BusinessIcon from "@mui/icons-material/Business";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
@@ -125,6 +125,7 @@ export default function EventPlatformPage({ section = "portal" }) {
   const { user } = useAuth();
   const roles = Array.isArray(user?.role) ? user.role : [user?.role].filter(Boolean);
   const canRunMigration = roles.includes("superadmin") || roles.includes("admin");
+  const canApplyMigration = roles.includes("superadmin");
   const [catalog, setCatalog] = useState({ organizations: [], series: [], events: [], settings: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -294,9 +295,14 @@ export default function EventPlatformPage({ section = "portal" }) {
   const handleRunMigration = async () => {
     const ok = window.confirm("ต้องการเชื่อมข้อมูลเดิมเข้ากับระบบกิจกรรมใหม่หรือไม่? ระบบจะไม่ลบข้อมูลเดิม และจะเติมเฉพาะรายการที่ยังไม่มี eventId");
     if (!ok) return;
+    const confirmation = window.prompt("พิมพ์ MIGRATE_LEGACY_EVENT_DATA เพื่อยืนยัน");
+    if (confirmation !== "MIGRATE_LEGACY_EVENT_DATA") {
+      setMessage({ open: true, severity: "warning", text: "ยกเลิก Migration เนื่องจากข้อความยืนยันไม่ถูกต้อง" });
+      return;
+    }
     setMigrating(true);
     try {
-      const res = await runLegacyEventMigration(false);
+      const res = await runLegacyEventMigration({ apply: true, confirmation });
       const updated = res.data?.data?.updated || {};
       await loadCatalog();
       setMessage({
@@ -370,9 +376,9 @@ export default function EventPlatformPage({ section = "portal" }) {
                       variant="contained"
                       color="warning"
                       onClick={handleRunMigration}
-                      disabled={migrating || migrationTotals.unmapped === 0}
+                      disabled={!canApplyMigration || migrating || migrationTotals.unmapped === 0}
                     >
-                      เชื่อมข้อมูลเดิม
+                      {canApplyMigration ? "เชื่อมข้อมูลเดิม" : "Superadmin เท่านั้น"}
                     </Button>
                   </Stack>
                 </Stack>

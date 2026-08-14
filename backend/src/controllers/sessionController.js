@@ -110,15 +110,10 @@ exports.logout = async (req, res) => {
   const token = req.cookies?.token || req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(400).json({ error: 'No token provided' });
 
-  const { session, tokenHash } = await findSessionByToken(token);
+  const { session } = await findSessionByToken(token);
   if (session) {
     session.revoked = true;
     await session.save();
-  } else {
-    await Session.findOneAndUpdate(
-      { token },
-      { $set: { revoked: true, tokenHash }, $unset: { token: 1 } }
-    );
   }
   clearAuthCookie(res);
   clearCsrfCookie(res);

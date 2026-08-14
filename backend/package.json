@@ -14,14 +14,29 @@
     "migrate:registration-points": "node src/scripts/migrate_registration_points_scope.js",
     "migrate:participant-points": "node src/scripts/migrate_participant_registered_points.js",
     "migrate:participant-fields": "node src/scripts/migrate_participant_fields_scope.js",
+    "audit:event-registration": "node src/scripts/auditEventRegistrationReadiness.js",
+    "seed:event-registration": "node src/scripts/seedEventRegistrationMinimum.js",
     "migrate:certificate-verification": "node src/scripts/migrateCertificateVerificationIds.js",
+    "migrate:guest-tokens": "node src/scripts/migrate_guest_tokens.js",
+    "migrate:admin-session-tokens": "node src/scripts/migrateAdminSessionTokens.js",
+    "migrate:wallets": "node src/scripts/migrate_wallets.js",
+    "migrate:mongo-indexes": "node src/scripts/migrateMongoIndexes.js",
+    "cleanup:mongo-plaintext-indexes": "node src/scripts/cleanupLegacyParticipantIndexes.js",
+    "audit:mongo-security": "node src/scripts/auditMongoSecurityPosture.js",
     "rotate:field-encryption": "node src/scripts/rotateFieldEncryptionKey.js",
     "migrate:sql-schema": "node src/scripts/migrateSqlSchema.js",
+    "audit:sql-primary-cutover": "node src/scripts/auditSqlPrimaryCutoverReadiness.js",
+    "inspect:sql-event-registration-state": "node src/scripts/inspectSqlEventRegistrationState.js",
+    "repair:event-registration-target": "node src/scripts/repairEventRegistrationTargetScope.js",
+    "repair:current-event-cutover": "node src/scripts/repairCurrentEventAfterSqlCutover.js",
+    "repair:sql-event-runtime-configs": "node src/scripts/repairSqlEventRuntimeConfigs.js",
+    "backfill:sql-event-registration": "node src/scripts/backfillSqlEventRegistration.js",
     "backfill:sql-mirror": "node src/scripts/backfillSqlMirror.js",
     "audit:sql-protection": "node src/scripts/auditSqlMirrorProtection.js",
     "replay:sql-mirror": "node src/scripts/replaySqlMirrorDeadLetters.js",
     "verify:sql-transport": "node src/scripts/verifySqlTransport.js",
     "verify:sql-mirror": "node src/scripts/verifySqlMirrorIntegration.js",
+    "canary:brevo-email": "node src/scripts/canaryBrevoEmail.js",
     "estimate:gcs-cost": "node src/scripts/estimateGcsCost.js",
     "configure:gcs-bucket": "node src/scripts/configureGcsBucket.js",
     "cleanup:stored-objects": "node src/scripts/cleanupStoredObjects.js",
@@ -32,7 +47,7 @@
   "license": "ISC",
   "type": "commonjs",
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.22.0 <23"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.21.0",
@@ -66,6 +81,10 @@
     "nodemon": "^3.1.10"
   },
   "overrides": {
+    "brace-expansion": "5.0.8",
+    "googleapis-common": {
+      "gaxios": "7.3.0"
+    },
     "uuid": "^11.1.1"
   }
 }

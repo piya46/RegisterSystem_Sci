@@ -3,7 +3,7 @@ import { Box, Typography, Button, Paper, Stack, Select, MenuItem, FormControl, I
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EmojiEventsIcon from '@mui/icons-material/EmojiEvents';
 import CardGiftcardIcon from '@mui/icons-material/CardGiftcard';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { listPrizes, drawPrize } from '../utils/api';
 import Confetti from 'react-confetti';
 import { eventContextFromSearch, eventContextToParams } from '../utils/eventContext';

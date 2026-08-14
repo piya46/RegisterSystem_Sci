@@ -8,6 +8,7 @@ const {
   generateCertificateVerificationId,
   isCertificateVerificationId,
 } = require('../utils/certificateVerification');
+const { explicitMigrationApply } = require('../utils/migrationMode');
 const { clearSecretCache, hydrateRuntimeSecrets } = require('../utils/secretProvider');
 
 async function duplicateVerificationDocumentIds() {
@@ -99,14 +100,15 @@ async function migrateCertificateVerificationIds({ dryRun = true } = {}) {
 }
 
 async function main() {
-  const dryRun = !process.argv.includes('--apply');
-  if (!dryRun && process.env.CERTIFICATE_VERIFICATION_MIGRATION_WRITE !== 'true') {
-    throw new Error('Applying certificate migration requires CERTIFICATE_VERIFICATION_MIGRATION_WRITE=true');
-  }
+  const apply = explicitMigrationApply({
+    writeFlag: 'CERTIFICATE_VERIFICATION_MIGRATION_WRITE',
+    mongoSafetyGate: true,
+  });
+  const dryRun = !apply;
 
   try {
     await hydrateRuntimeSecrets();
-    await connectDB();
+    await connectDB({ autoIndex: false });
     const stats = await migrateCertificateVerificationIds({ dryRun });
     console.log(JSON.stringify(stats, null, 2));
     if (dryRun) console.log('Dry run only. Use --apply with the write flag during an approved maintenance window.');

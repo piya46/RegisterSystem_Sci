@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const initialReportingMirror = require('./001_initial_reporting_mirror');
 const transactionReversalLookup = require('./002_transaction_reversal_lookup');
+const eventRegistrationPrimarySchema = require('./003_event_registration_primary_schema');
 
-const migrations = [initialReportingMirror, transactionReversalLookup];
+const migrations = [initialReportingMirror, transactionReversalLookup, eventRegistrationPrimarySchema];
 
 function migrationChecksum(migration) {
   return crypto
@@ -15,6 +16,29 @@ function migrationChecksum(migration) {
     .digest('hex');
 }
 
+function assertRestartSafeStatement(statement, migrationId) {
+  if (typeof statement !== 'string' || !statement.trim()) {
+    throw new Error(`SQL migration ${migrationId} contains an empty or non-string statement`);
+  }
+
+  const normalized = statement.replace(/\s+/g, ' ').trim();
+  if (/\b(?:DROP|TRUNCATE)\b|\bDELETE\s+FROM\b|\bRENAME\s+TABLE\b/i.test(normalized)) {
+    throw new Error(`Destructive SQL is not allowed in migration ${migrationId}`);
+  }
+  if (/^CREATE\s+TABLE\b/i.test(normalized) && !/^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b/i.test(normalized)) {
+    throw new Error(`CREATE TABLE must be restart-safe in SQL migration ${migrationId}`);
+  }
+  if (
+    /^CREATE\s+(?:UNIQUE\s+)?INDEX\b/i.test(normalized)
+    && !/^CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\b/i.test(normalized)
+  ) {
+    throw new Error(`CREATE INDEX must be restart-safe in SQL migration ${migrationId}`);
+  }
+  if (/^ALTER\s+TABLE\b/i.test(normalized) && !/\bIF\s+NOT\s+EXISTS\b/i.test(normalized)) {
+    throw new Error(`ALTER TABLE must be restart-safe in SQL migration ${migrationId}`);
+  }
+}
+
 function validateMigrationPlan(plan = migrations) {
   const ids = new Set();
   for (const migration of plan) {
@@ -23,9 +47,7 @@ function validateMigrationPlan(plan = migrations) {
     if (!Array.isArray(migration.statements) || migration.statements.length === 0) {
       throw new Error(`SQL migration ${migration.id} has no statements`);
     }
-    if (migration.statements.some((statement) => /\bDROP\s+(DATABASE|TABLE)\b/i.test(statement))) {
-      throw new Error(`Destructive SQL is not allowed in migration ${migration.id}`);
-    }
+    migration.statements.forEach((statement) => assertRestartSafeStatement(statement, migration.id));
     ids.add(migration.id);
   }
   return true;

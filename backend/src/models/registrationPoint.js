@@ -36,6 +36,10 @@ registrationPointSchema.index(
   { eventId: 1, name: 1 },
   { unique: true, partialFilterExpression: { eventId: { $type: 'objectId' }, enabled: true } }
 );
+registrationPointSchema.index(
+  { name: 1 },
+  { unique: true, partialFilterExpression: { eventId: null, enabled: true } }
+);
 registrationPointSchema.index({ eventYear: 1, enabled: 1, type: 1 });
 registrationPointSchema.index({ allowedStaff: 1, enabled: 1 });
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams } from 'react-router';
 import { Box, Container, Typography, Card, CardContent, Button, CircularProgress, Alert } from '@mui/material';
 import axios from 'axios';
 import QRCode from 'qrcode';
@@ -16,7 +16,7 @@ export default function CertificateDownloadPage() {
     try {
       decodedFragment = decodeURIComponent(fragment);
     } catch {
-      decodedFragment = '';
+      // Invalid fragments fall back to the stored verification ID.
     }
     return pathVerificationId
       || decodedFragment

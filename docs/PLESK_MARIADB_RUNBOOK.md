@@ -28,6 +28,34 @@ Browser -> Plesk web gateway -> Cloud Run backend
                          Plesk MariaDB
 ```
 
+### สถานะตรวจจริง 2026-08-01
+
+การ probe เฉพาะ MariaDB greeting โดย **ไม่ส่ง username/password** พบว่า:
+
+- `203.170.190.137:3306` เข้าถึงได้จาก source Internet ที่ยังไม่ใช่ reserved
+  Cloud NAT IP
+- server protocol ตอบกลับ แต่ `tlsAdvertised=false`
+- Compute Engine API ของ `cusa-reunion` ยังปิด จึงยังไม่มี VPC, Cloud NAT หรือ
+  reserved SQL egress IP จาก pipeline นี้
+- ยังไม่มี production SQL Secret pin และยังไม่มี Cloud Run production/migration
+  job
+
+ผลนี้เป็น production blocker ระดับ critical: ห้ามส่ง database credential,
+ห้ามตั้ง confirmation flag เป็น `true` และห้าม migrate จน hosting provider
+เปิด TLS และจำกัด firewall/database access ให้เฉพาะ reserved `/32`
+
+หลังผู้ให้บริการแก้แล้ว ต้องทดสอบซ้ำ:
+
+```bash
+node scripts/probe-mariadb-tls.js \
+  --host=203.170.190.137 \
+  --port=3306 \
+  --timeout-ms=5000
+```
+
+ผลขั้นต่ำต้องเป็น `reachable=true` และ `tlsAdvertised=true`; ขั้นนี้ยังไม่แทน
+authenticated `verify_identity` transport job
+
 ## 2. Endpoint และขอบเขตข้อมูล
 
 | รายการ | ค่า/นโยบาย |
@@ -131,7 +159,7 @@ Direct VPC/Cloud NAT อาจพร้อมช้าระหว่าง cold
 1. เก็บค่า `SQL_EGRESS_IP` ใน change record
 2. เพิ่ม IP นี้เป็น allow rule ใน Plesk database access และ firewall
 3. ทดสอบว่า IP อื่นเชื่อม `3306` ไม่ได้
-4. เนื่องจาก Cloud Run ใช้ `all-traffic` ให้เพิ่ม reserved IP ใน allowlist ของ MongoDB Atlas/SMTP/external provider ที่จำกัด source IP และทดสอบ GCS/Secret Manager/KMS/LINE/Turnstile connectivity
+4. เนื่องจาก Cloud Run ใช้ `all-traffic` ให้เพิ่ม reserved IP ใน allowlist ของ MongoDB Atlas, Brevo/SMTP fallback และ external provider ที่จำกัด source IP และทดสอบ GCS/Secret Manager/KMS/LINE/Turnstile connectivity
 5. เปลี่ยน reviewed config เป็น `SQL_STATIC_EGRESS_ENABLED=true`
 6. ตั้ง `SQL_NETWORK_ALLOWLIST_CONFIRMED=true` หลังทดสอบ deny/allow และ dependency canary แล้วเท่านั้น
 
@@ -178,7 +206,41 @@ Secret Manager payload ที่ต้อง supply ผ่านไฟล์ loc
 - `SQL_SSL_CA`
 - `SQL_MIRROR_IDENTITY_HASH_SECRET`
 
-จากนั้นรัน `ALLOW_SECRET_UPLOAD=true ./scripts/release.sh secrets staging` และ review เฉพาะ version resource ใน pin file
+จากนั้น sync SQL migration profile โดยไม่เปิด SQL runtime:
+
+```bash
+PROJECT_ID=cusa-reunion \
+SECRET_SYNC_PROFILE=sql-migration \
+ALLOW_SECRET_UPLOAD=true \
+./scripts/release.sh secrets staging
+```
+
+คำสั่งนี้เพิ่ม/pin `SQL_PASSWORD`, `SQL_MIGRATION_PASSWORD`, `SQL_SSL_CA` และ
+`SQL_MIRROR_IDENTITY_HASH_SECRET` พร้อม IAM แยก runtime/migration account แต่ไม่
+เปลี่ยน `SQL_ENABLED` จากนั้น review เฉพาะ version resource ใน pin file
+
+Renderer ต้องตรวจ Secret pin ตามชนิด Cloud Run job ก่อน deploy ด้วย ได้แก่ migration
+password/CA สำหรับ schema job, MongoDB URI/migration password/CA/mirror HMAC สำหรับ
+backfill และ runtime SQL password/CA สำหรับ transport/protection audit การขาด pin ใด
+ต้องหยุดก่อนสร้าง job ไม่รอให้ล้มหลังเริ่ม migration
+
+เมื่อจบ change window ไม่ว่าผล migration สำเร็จหรือล้มเหลว ให้ถอนสิทธิ์ Secret ชั่วคราว
+ทั้งหมดของ migration service account จาก approved operator context:
+
+```bash
+PROJECT_ID=cusa-reunion \
+SECRET_SYNC_PROFILE=sql-migration-cleanup \
+CONFIRM_SQL_MIGRATION_ACCESS_REVOKE=staging \
+ALLOW_SECRET_UPLOAD=true \
+./scripts/release.sh secrets staging
+```
+
+โหมด cleanup ไม่ลบ Secret/version และไม่แก้ pin file แต่ถอน IAM ของ migration account
+จาก `MONGODB_URI`, `SQL_MIGRATION_PASSWORD`, `SQL_MIRROR_IDENTITY_HASH_SECRET` และ
+`SQL_SSL_CA` เท่านั้น ก่อน retry ต้อง sync profile `sql-migration` ใหม่และผ่าน approval
+อีกครั้ง ห้ามปล่อยสิทธิ์ดังกล่าวค้างหลังปิด change window ทั้ง sync และ cleanup ต้อง
+fail หาก migration account มี `secretAccessor`, Secret Manager Admin, Editor หรือ Owner
+ระดับ project เพราะ per-secret cleanup ไม่สามารถทำให้บัญชีดังกล่าวเป็น least privilege ได้
 
 ## 7. Activation Flow
 
@@ -193,8 +255,9 @@ Secret Manager payload ที่ต้อง supply ผ่านไฟล์ loc
 9. เมื่อ `RUN_SQL_MIGRATIONS=true` pipeline ต้อง execute migration job จริงด้วย `--execute-now`, task 1, retry 0 และ advisory lock
 10. รัน backfill แบบ dry-run, validation, apply, rerun และ reconciliation ตาม `HYBRID_DB_MIGRATION_PLAN.md`
 11. รัน `SQL_PROTECTION_AUDIT=true npm run audit:sql-protection` จาก approved Cloud Run/maintenance context; ทุก violation count ต้องเป็นศูนย์
-12. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` เฉพาะหลัง staging canary ผ่าน
-13. สังเกตอย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา production mirror
+12. ถอน migration service account ออกจาก Secret ทั้ง 4 รายการด้วย `sql-migration-cleanup` และเก็บ IAM evidence แม้ migration ล้มเหลว
+13. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` เฉพาะหลัง staging canary ผ่าน
+14. สังเกตอย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา production mirror
 
 Transport check เป็น read-only (`SELECT 1` และ `SHOW SESSION STATUS LIKE 'Ssl_cipher'`) และ output ต้องไม่มี host credential, CA หรือ cipher detail
 
@@ -205,7 +268,7 @@ Transport check เป็น read-only (`SELECT 1` และ `SHOW SESSION STATU
 - Cloud Run revision/job ใช้ Direct VPC egress `all-traffic` และ subnet ที่กำหนด
 - Reserved NAT IP ตรงกับ Plesk allow rule เพียงรายการที่อนุมัติ
 - Connection จาก Cloud Run ผ่าน แต่ source ที่ไม่ allowlist ถูกปฏิเสธ
-- MongoDB, object storage, Secret Manager/KMS, SMTP, LINE/Turnstile และ external integration ที่เปิดใช้ยังผ่านเมื่อ egress ทั้งหมดออก reserved NAT IP
+- MongoDB, object storage, Secret Manager/KMS, Brevo/SMTP fallback, LINE/Turnstile และ external integration ที่เปิดใช้ยังผ่านเมื่อ egress ทั้งหมดออก reserved NAT IP
 - TLS session มี `Ssl_cipher` ไม่ว่าง
 - Certificate identity ตรง DNS/IP SAN และ `rejectUnauthorized=true`
 - Runtime account ทำ CRUD ที่จำเป็นได้แต่ DDL/GRANT ไม่ได้
@@ -232,9 +295,9 @@ Transport check เป็น read-only (`SELECT 1` และ `SHOW SESSION STATU
 
 ## 10. Cost Guardrail
 
-- `SQL_EGRESS_MONTHLY_BUDGET_THB` เริ่มที่ 200 บาท แต่เป็น planning cap ไม่ใช่ hard billing cap
+- `SQL_EGRESS_MONTHLY_BUDGET_THB` เริ่มที่ 250 บาท แต่เป็น planning cap ไม่ใช่ hard billing cap
 - Total project budget ยังเป็น 1,000 บาท/เดือน และ Billing Budget เป็น alert ไม่ใช่การตัดบริการ
-- เมื่อเปิด static egress สคริปต์บังคับ planning allocation `GCS 700 + SQL egress 200 + core reserve 100 <= 1,000` ก่อน provision; หากค่า forecast จริงสูงกว่านี้ต้องลด optional workload หรือขออนุมัติงบ
+- เมื่อเปิด static egress สคริปต์บังคับ planning allocation `GCS 650 + SQL egress 250 + core reserve 100 <= 1,000` ก่อน provision; หากค่า forecast จริงสูงกว่านี้ต้องลด optional workload หรือขออนุมัติงบ
 - Static IP, Cloud Router/NAT processing, network egress และ log ต้องรวมใน monthly review
 - เมื่อเปิด SQL egress ต้องลด budget reserve ของ optional GCS/KMS/Firestore หาก forecast รวมเกิน 1,000 บาท
 - SQL mirror poll/batch และ Cloud Run max instances ต้องคง bounded; ห้ามแก้ให้ polling ถี่ขึ้นโดยไม่มี load/cost proof
@@ -255,7 +318,10 @@ Transport check เป็น read-only (`SELECT 1` และ `SHOW SESSION STATU
 
 ## 12. External Blockers ที่โค้ดแก้แทนไม่ได้
 
-- Hosting provider ต้องเปิด remote MariaDB access ให้ package นี้
+- Hosting provider ต้องเปลี่ยน public remote access ปัจจุบันให้รับเฉพาะ reserved
+  Cloud NAT `/32`
+- Hosting provider ต้องเปิด TLS; probe ล่าสุดวันที่ 2026-08-01 พบ
+  `tlsAdvertised=false`
 - ต้องได้รับ CA chain และ DNS/IP SAN ที่ตรวจสอบได้
 - ต้องได้รับหลักฐาน data-at-rest และ backup encryption
 - ต้องสร้าง/ทดสอบ runtime กับ migration account จริง

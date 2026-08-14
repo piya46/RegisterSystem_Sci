@@ -1,7 +1,7 @@
 import React from "react";
 import { Box, Container, Typography, Paper, Button, Divider, List, ListItem, ListItemText, Alert } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 const policySections = [
   {

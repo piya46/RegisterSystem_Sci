@@ -6,6 +6,16 @@ export function eventContextFromSearch(search = "") {
   return { eventId, eventYear, eventSlug };
 }
 
+export function eventContextFromRouteAndSearch(routeParams = {}, search = "") {
+  const searchContext = eventContextFromSearch(search);
+  return {
+    ...searchContext,
+    eventId: routeParams.eventId || searchContext.eventId,
+    eventSlug: routeParams.eventSlug || searchContext.eventSlug,
+    eventYear: routeParams.eventYear || searchContext.eventYear,
+  };
+}
+
 export function cleanEventContext(context = {}) {
   return Object.entries({
     eventId: context.eventId,

@@ -17,7 +17,7 @@ import AccountCircleIcon from "@mui/icons-material/AccountCircle";
 
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 
 // Theme (copy from AdminPage for consistency)
 const Y = {

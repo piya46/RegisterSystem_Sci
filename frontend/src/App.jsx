@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, useLocation, Navigate } from "react-router";
 import { Box, Typography, CircularProgress, Button } from "@mui/material";
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -41,6 +41,7 @@ const LineCallbackPage = lazy(() => import("./pages/LineCallbackPage"));
 const EventAdminLayout = lazy(() => import("./components/EventAdminLayout"));
 const EventSettingsPage = lazy(() => import("./pages/EventSettingsPage"));
 const EventLayoutsPage = lazy(() => import("./pages/EventLayoutsPage"));
+const ParticipantFieldManager = lazy(() => import("./pages/ParticipantFieldManager"));
 
 class GlobalErrorBoundary extends React.Component {
   constructor(props) {
@@ -133,6 +134,8 @@ function AppFrame() {
                 <Route path="dashboard" element={<DashboardPage embedded />} />
                 <Route path="settings" element={<EventSettingsPage />} />
                 <Route path="layouts" element={<EventLayoutsPage />} />
+                <Route path="registration-fields" element={<ParticipantFieldManager />} />
+                <Route path="registration-points" element={<RegistrationPointPage />} />
                 <Route path="participants" element={<AdminParticipantsPage />} />
                 <Route path="lucky-draw" element={<LuckyDrawPage />} />
                 <Route path="donations" element={<DonationListPage />} />

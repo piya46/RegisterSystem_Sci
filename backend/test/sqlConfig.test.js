@@ -51,6 +51,22 @@ test('SQL remains optional when disabled', () => {
   assert.doesNotThrow(assertSqlConfiguration);
 });
 
+test('SQL primary-store cutover is rejected until application repositories support it', () => {
+  configureSecurePleskSql();
+  process.env.SQL_PRIMARY_STORE = 'true';
+  process.env.SQL_PRIMARY_STORE_ACKNOWLEDGED = 'true';
+
+  assert.throws(assertSqlConfiguration, /not implemented.*MongoDB must remain the primary store/i);
+});
+
+test('event registration SQL primary mode requires SQL to be enabled', () => {
+  process.env.SQL_ENABLED = 'false';
+  process.env.SQL_PRIMARY_STORE = 'false';
+  process.env.SQL_EVENT_REGISTRATION_PRIMARY = 'true';
+
+  assert.throws(assertSqlConfiguration, /SQL_EVENT_REGISTRATION_PRIMARY=true requires SQL_ENABLED=true/);
+});
+
 test('production SQL rejects an unencrypted connection', () => {
   configureSecurePleskSql();
   process.env.SQL_SSL_MODE = 'disabled';

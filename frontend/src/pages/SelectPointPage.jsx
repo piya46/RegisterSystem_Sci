@@ -1,7 +1,7 @@
 // frontend/src/pages/RegistrationPointSelector.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { listEnabledRegistrationPoints, generateKioskToken, generateSelfRegisterLink } from "../utils/api";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router";
 import {
   Box, Card, CardContent, Typography, TextField, MenuItem, Button,
   CircularProgress, Alert, Stack, Avatar, InputAdornment, Container,

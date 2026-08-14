@@ -27,17 +27,30 @@ import PowerSettingsNewIcon from "@mui/icons-material/PowerSettingsNew";
 
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
-import { useLocation, useNavigate } from "react-router-dom";
-import { eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
+import { useLocation, useNavigate, useParams } from "react-router";
+import { eventContextFromRouteAndSearch, eventContextToParams } from "../utils/eventContext";
+
+function canManageEventSetup(user) {
+  const roles = Array.isArray(user?.role) ? user.role : [user?.role].filter(Boolean);
+  return roles.includes("superadmin") || roles.some((role) => ["admin", "org_admin", "event_admin", "event_manager"].includes(role));
+}
 
 export default function ParticipantFieldManager() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { eventId: routeEventId, eventSlug: routeEventSlug, eventYear: routeEventYear } = useParams();
   const theme = useTheme();
-  const eventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const eventContext = useMemo(
+    () => eventContextFromRouteAndSearch(
+      { eventId: routeEventId, eventSlug: routeEventSlug, eventYear: routeEventYear },
+      location.search
+    ),
+    [routeEventId, routeEventSlug, routeEventYear, location.search]
+  );
   const eventParams = useMemo(() => eventContextToParams(eventContext), [eventContext]);
   const hasEventScope = Boolean(eventParams.eventId || eventParams.eventSlug);
+  const backPath = eventParams.eventId ? `/admin/events/${eventParams.eventId}/dashboard` : "/dashboard";
 
   // data
   const [fields, setFields] = useState([]);
@@ -77,8 +90,7 @@ export default function ParticipantFieldManager() {
       navigate("/login", { replace: true });
       return;
     }
-    const isAdmin = Array.isArray(user.role) ? user.role.includes("admin") : user.role === "admin";
-    if (!isAdmin) {
+    if (!canManageEventSetup(user)) {
       navigate("/unauthorized", { replace: true });
       return;
     }
@@ -184,7 +196,7 @@ export default function ParticipantFieldManager() {
           </Typography>
         </Box>
         <Stack direction="row" spacing={2} sx={{ mt: { xs: 2, sm: 0 } }}>
-          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate("/dashboard")} sx={{ borderRadius: 2, textTransform: "none" }}>
+          <Button variant="outlined" startIcon={<ArrowBackIcon />} onClick={() => navigate(backPath)} sx={{ borderRadius: 2, textTransform: "none" }}>
             กลับหน้าหลัก
           </Button>
           <Button 

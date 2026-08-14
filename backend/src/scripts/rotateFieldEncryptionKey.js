@@ -4,21 +4,19 @@ const mongoose = require('mongoose');
 const Participant = require('../models/participant');
 const Donation = require('../models/Donation');
 const { auditSensitiveAccess } = require('../helpers/sensitiveAuditLog');
+const { explicitMigrationApply } = require('../utils/migrationMode');
+const { connectMongoForMigration } = require('../utils/mongoMigrationConnection');
 const {
-  decryptValue,
-  encryptValue,
+  donationSensitiveFields,
   encryptionEnabled,
   isEncryptedValue,
   needsKeyRotation,
   participantBlindIndexes,
   participantSearchTokens,
-  protectDonationPayload,
-  protectParticipantFields,
-  revealDonationObject,
+  participantSensitiveFields,
+  reencryptValue,
   revealParticipantFields,
 } = require('../utils/fieldEncryption');
-
-const DONATION_SENSITIVE_FIELDS = ['firstName', 'lastName', 'address', 'slipUrl'];
 
 function hasEncryptedValues(values) {
   return values.some(isEncryptedValue);
@@ -35,13 +33,14 @@ function hasRotatableValues(values) {
 }
 
 async function rotateParticipants({ apply }) {
-  const participants = await Participant.find({}).select('+secureIndex');
+  const participants = await Participant.find({}).select('+secureIndex +secureSearch');
+  const sensitiveFields = participantSensitiveFields();
   let scanned = 0;
   let changed = 0;
 
   for (const participant of participants) {
     scanned += 1;
-    const fieldValues = Object.values(participant.fields || {});
+    const fieldValues = sensitiveFields.map((field) => participant.fields?.[field]);
     const sensitiveValues = [...fieldValues, participant.specialAssistance];
     if (!hasRotatableValues(sensitiveValues)) continue;
 
@@ -53,14 +52,26 @@ async function rotateParticipants({ apply }) {
     if (!apply) continue;
 
     const plainFields = revealParticipantFields(participant.fields || {});
-    participant.fields = protectParticipantFields(plainFields);
+    const protectedFields = { ...(participant.fields || {}) };
+    for (const field of sensitiveFields) {
+      const value = participant.fields?.[field];
+      if (hasMeaningfulValue(value) && (!isEncryptedValue(value) || needsKeyRotation(value))) {
+        protectedFields[field] = reencryptValue(value);
+      }
+    }
+    participant.fields = protectedFields;
     participant.secureIndex = participantBlindIndexes(plainFields);
     participant.secureSearch = participantSearchTokens(plainFields);
-    participant.specialAssistance = encryptValue(decryptValue(participant.specialAssistance || ''));
+    if (
+      hasMeaningfulValue(participant.specialAssistance)
+      && (!isEncryptedValue(participant.specialAssistance) || needsKeyRotation(participant.specialAssistance))
+    ) {
+      participant.specialAssistance = reencryptValue(participant.specialAssistance);
+      participant.markModified('specialAssistance');
+    }
     participant.markModified('fields');
     participant.markModified('secureIndex');
     participant.markModified('secureSearch');
-    participant.markModified('specialAssistance');
     await participant.save();
   }
 
@@ -69,12 +80,13 @@ async function rotateParticipants({ apply }) {
 
 async function rotateDonations({ apply }) {
   const donations = await Donation.find({});
+  const sensitiveFields = donationSensitiveFields();
   let scanned = 0;
   let changed = 0;
 
   for (const donation of donations) {
     scanned += 1;
-    const sensitiveValues = DONATION_SENSITIVE_FIELDS.map((field) => donation[field]);
+    const sensitiveValues = sensitiveFields.map((field) => donation[field]);
     if (!hasRotatableValues(sensitiveValues)) continue;
 
     if (hasEncryptedValues(sensitiveValues) && !encryptionEnabled()) {
@@ -84,15 +96,10 @@ async function rotateDonations({ apply }) {
     changed += 1;
     if (!apply) continue;
 
-    const plainDonation = revealDonationObject(donation);
-    const protectedDonation = protectDonationPayload({
-      firstName: plainDonation.firstName,
-      lastName: plainDonation.lastName,
-      address: plainDonation.address,
-      slipUrl: plainDonation.slipUrl,
-    });
-    for (const [field, value] of Object.entries(protectedDonation)) {
-      donation[field] = value;
+    for (const field of sensitiveFields) {
+      const value = donation[field];
+      if (!hasMeaningfulValue(value) || (isEncryptedValue(value) && !needsKeyRotation(value))) continue;
+      donation[field] = reencryptValue(value);
       donation.markModified(field);
     }
     await donation.save();
@@ -109,27 +116,32 @@ async function main() {
   const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
   if (!mongoUri) throw new Error('Missing MONGODB_URI');
 
-  const apply = String(process.env.APPLY || '').toLowerCase() === 'true';
-  await mongoose.connect(mongoUri);
+  const apply = explicitMigrationApply({
+    writeFlag: 'FIELD_ENCRYPTION_ROTATION_WRITE',
+    mongoSafetyGate: true,
+  });
+  await connectMongoForMigration(mongoUri);
 
   const [participants, donations] = await Promise.all([
     rotateParticipants({ apply }),
     rotateDonations({ apply }),
   ]);
 
-  await auditSensitiveAccess({
-    action: apply ? 'SENSITIVE_KEY_ROTATION_APPLY' : 'SENSITIVE_KEY_ROTATION_DRY_RUN',
-    purpose: 'field_encryption_key_rotation',
-    resource: 'participants,donations',
-    recordCount: participants.changed + donations.changed,
-    fields: ['participant.fields', 'participant.specialAssistance', 'donation.firstName', 'donation.lastName', 'donation.address', 'donation.slipUrl'],
-    extra: {
-      mode: apply ? 'apply' : 'dry-run',
-      participants,
-      donations,
-      activeKeyId: process.env.DATA_ENCRYPTION_KEY_ID || 'v1',
-    },
-  });
+  if (apply) {
+    await auditSensitiveAccess({
+      action: 'SENSITIVE_KEY_ROTATION_APPLY',
+      purpose: 'field_encryption_key_rotation',
+      resource: 'participants,donations',
+      recordCount: participants.changed + donations.changed,
+      fields: ['participant.fields', 'participant.specialAssistance', 'donation.firstName', 'donation.lastName', 'donation.address', 'donation.slipUrl'],
+      extra: {
+        mode: 'apply',
+        participants,
+        donations,
+        activeKeyId: process.env.DATA_ENCRYPTION_KEY_ID || 'v1',
+      },
+    });
+  }
 
   console.log(JSON.stringify({
     mode: apply ? 'apply' : 'dry-run',

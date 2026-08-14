@@ -7,6 +7,7 @@ const { spawnSync } = require('child_process');
 const dotenv = require('../backend/node_modules/dotenv');
 
 const ROOT = path.resolve(__dirname, '..');
+const APPROVED_PROJECT_ID = 'cusa-reunion';
 const GENERATED_SECRETS = new Set([
   'CSRF_SECRET',
   'DATA_BLIND_INDEX_SECRET',
@@ -18,6 +19,7 @@ const GENERATED_SECRETS = new Set([
   'VENDOR_QR_SECRET',
 ]);
 const EXTERNAL_SECRETS = new Set([
+  'BREVO_API_KEY',
   'GOOGLE_CLIENT_SECRET',
   'GOOGLE_REFRESH_TOKEN',
   'LINE_CHANNEL_ACCESS_TOKEN',
@@ -30,6 +32,18 @@ const EXTERNAL_SECRETS = new Set([
   'SQL_PASSWORD',
   'SQL_SSL_CA',
   'TURNSTILE_SECRET_KEY',
+]);
+const MIGRATION_ACCOUNT_SECRET_NAMES = Object.freeze([
+  'MONGODB_URI',
+  'SQL_MIGRATION_PASSWORD',
+  'SQL_MIRROR_IDENTITY_HASH_SECRET',
+  'SQL_SSL_CA',
+]);
+const FORBIDDEN_MIGRATION_PROJECT_SECRET_ROLES = new Set([
+  'roles/editor',
+  'roles/owner',
+  'roles/secretmanager.admin',
+  'roles/secretmanager.secretAccessor',
 ]);
 
 function fail(message) {
@@ -108,7 +122,7 @@ function grantSecretAccess(projectId, secretId, serviceAccount) {
 }
 
 function revokeSecretAccess(projectId, secretId, serviceAccount) {
-  if (!serviceAccount) return;
+  if (!serviceAccount) return false;
   const member = `serviceAccount:${serviceAccount}`;
   const policyResult = gcloud([
     'secrets', 'get-iam-policy', secretId,
@@ -126,7 +140,7 @@ function revokeSecretAccess(projectId, secretId, serviceAccount) {
       && Array.isArray(binding.members)
       && binding.members.includes(member)
   ));
-  if (!hasBinding) return;
+  if (!hasBinding) return false;
   gcloud([
     'secrets', 'remove-iam-policy-binding', secretId,
     '--project', projectId,
@@ -134,6 +148,35 @@ function revokeSecretAccess(projectId, secretId, serviceAccount) {
     '--role', 'roles/secretmanager.secretAccessor',
     '--quiet',
   ]);
+  return true;
+}
+
+function assertNoBroadMigrationSecretAccess(projectId, migrationAccount) {
+  const member = `serviceAccount:${migrationAccount}`;
+  const policyResult = gcloud([
+    'projects', 'get-iam-policy', projectId,
+    '--format', 'json',
+  ]);
+  let policy;
+  try {
+    policy = JSON.parse(policyResult.stdout || '{}');
+  } catch {
+    fail('Unable to parse project IAM policy while checking migration Secret access');
+  }
+  const forbiddenRoles = (policy.bindings || [])
+    .filter((binding) => (
+      FORBIDDEN_MIGRATION_PROJECT_SECRET_ROLES.has(binding.role)
+      && Array.isArray(binding.members)
+      && binding.members.includes(member)
+    ))
+    .map((binding) => binding.role)
+    .sort();
+  if (forbiddenRoles.length > 0) {
+    fail(
+      `Migration service account has forbidden project-level Secret access: ${forbiddenRoles.join(', ')}. `
+      + 'Remove the broad binding and use per-secret IAM only.'
+    );
+  }
 }
 
 function resolveValue(name, values, keyId) {
@@ -163,11 +206,66 @@ function buildSecretSourceValues(localSecrets, config, invocationEnvironment = {
   };
 }
 
+function buildSecretAccessPlan(values = {}) {
+  const profile = String(values.SECRET_SYNC_PROFILE || '').trim().toLowerCase();
+  if (profile && !['sql-migration', 'sql-migration-cleanup'].includes(profile)) {
+    fail('SECRET_SYNC_PROFILE must be sql-migration or sql-migration-cleanup when set');
+  }
+  const sqlProfileEnabled = profile === 'sql-migration';
+  const cleanupOnly = profile === 'sql-migration-cleanup';
+  const sqlMigrationEnabled = sqlProfileEnabled || String(values.RUN_SQL_MIGRATIONS) === 'true';
+  const sqlBackfillEnabled = sqlProfileEnabled || String(values.RUN_SQL_BACKFILL) === 'true';
+  const migrationAccessNames = new Set([
+    ...((sqlMigrationEnabled || sqlBackfillEnabled)
+      ? ['SQL_MIGRATION_PASSWORD', 'SQL_SSL_CA']
+      : []),
+    ...(sqlBackfillEnabled
+      ? ['MONGODB_URI', 'SQL_MIRROR_IDENTITY_HASH_SECRET']
+      : []),
+  ]);
+  return {
+    cleanupOnly,
+    profile,
+    sqlBackfillEnabled,
+    sqlMigrationEnabled,
+    sqlProfileEnabled,
+    migrationAccessNames: [...migrationAccessNames].sort(),
+    conditionalMigrationNames: [...MIGRATION_ACCOUNT_SECRET_NAMES],
+  };
+}
+
+function revokeInactiveMigrationAccess({
+  projectId,
+  prefix,
+  migrationAccount,
+  migrationAccessNames,
+  processedNames = [],
+  summary,
+}) {
+  const active = new Set(migrationAccessNames);
+  const processed = new Set(processedNames);
+  for (const name of MIGRATION_ACCOUNT_SECRET_NAMES) {
+    if (active.has(name) || processed.has(name)) continue;
+    const secretId = `${prefix}-${normalizeSecretId(name)}`;
+    const describe = gcloud([
+      'secrets', 'describe', secretId,
+      '--project', projectId,
+      '--format', 'value(name)',
+    ], { allowFailure: true });
+    if (describe.status !== 0) {
+      summary.push({ name, iamAction: 'secret_absent' });
+      continue;
+    }
+    const revoked = revokeSecretAccess(projectId, secretId, migrationAccount);
+    summary.push({ name, iamAction: revoked ? 'migration_access_revoked' : 'migration_access_absent' });
+  }
+}
+
 function main() {
   const environment = process.env.DEPLOY_ENVIRONMENT || process.argv[2] || 'staging';
   if (!['staging', 'production'].includes(environment)) fail('DEPLOY_ENVIRONMENT must be staging or production');
   if (process.env.ALLOW_SECRET_UPLOAD !== 'true') {
-    fail('Secret synchronization requires the explicit gate ALLOW_SECRET_UPLOAD=true');
+    fail('Secret synchronization and IAM changes require the explicit gate ALLOW_SECRET_UPLOAD=true');
   }
 
   const configPath = path.join(ROOT, 'deploy', 'environments', `${environment}.env`);
@@ -182,6 +280,7 @@ function main() {
 
   const projectId = String(values.PROJECT_ID || values.GCP_PROJECT_ID || '').trim();
   if (!/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(projectId)) fail('PROJECT_ID is missing or invalid');
+  if (projectId !== APPROVED_PROJECT_ID) fail(`PROJECT_ID must be the approved project ${APPROVED_PROJECT_ID}`);
   const prefix = normalizeSecretId(values.SECRET_MANAGER_PREFIX || `psevent-${environment}`);
   const runtimeAccountName = values.RUNTIME_SERVICE_ACCOUNT || `psevent-runtime-${environment}`;
   const migrationAccountName = values.MIGRATION_SERVICE_ACCOUNT || `psevent-migration-${environment}`;
@@ -191,11 +290,46 @@ function main() {
   const migrationAccount = migrationAccountName.includes('@')
     ? migrationAccountName
     : `${migrationAccountName}@${projectId}.iam.gserviceaccount.com`;
+  assertNoBroadMigrationSecretAccess(projectId, migrationAccount);
+  const accessPlan = buildSecretAccessPlan(values);
+  if (accessPlan.cleanupOnly) {
+    if (String(values.CONFIRM_SQL_MIGRATION_ACCESS_REVOKE || '') !== environment) {
+      fail(`sql-migration-cleanup requires CONFIRM_SQL_MIGRATION_ACCESS_REVOKE=${environment}`);
+    }
+    const summary = [];
+    revokeInactiveMigrationAccess({
+      projectId,
+      prefix,
+      migrationAccount,
+      migrationAccessNames: [],
+      summary,
+    });
+    process.stdout.write(`${JSON.stringify({
+      environment,
+      profile: accessPlan.profile,
+      migrationAccount,
+      secrets: summary,
+    }, null, 2)}\n`);
+    return;
+  }
 
   const { managedRuntimeSecretNames } = require('../backend/src/config/runtimeSecrets');
   const names = new Set(managedRuntimeSecretNames());
-  if (String(values.RUN_SQL_MIGRATIONS) === 'true') names.add('SQL_MIGRATION_PASSWORD');
-  if (values.SQL_SSL_CA_SECRET_NAME) names.add('SQL_SSL_CA');
+  const {
+    migrationAccessNames,
+    conditionalMigrationNames,
+    sqlBackfillEnabled,
+    sqlMigrationEnabled,
+    sqlProfileEnabled,
+  } = accessPlan;
+  if (sqlProfileEnabled) names.add('SQL_PASSWORD');
+  if (sqlMigrationEnabled || sqlBackfillEnabled) names.add('SQL_MIGRATION_PASSWORD');
+  if (sqlBackfillEnabled) names.add('SQL_MIRROR_IDENTITY_HASH_SECRET');
+  if (sqlProfileEnabled || (String(values.SQL_ENABLED) === 'true' && values.SQL_SSL_CA_SECRET_NAME)) {
+    names.add('SQL_SSL_CA');
+  }
+  const migrationAccessSet = new Set(migrationAccessNames);
+  const conditionalMigrationSet = new Set(conditionalMigrationNames);
 
   const rotate = process.env.ROTATE_SECRETS === 'true';
   const keyId = values.DATA_ENCRYPTION_KEY_ID || 'v1';
@@ -245,13 +379,23 @@ function main() {
     } else {
       grantSecretAccess(projectId, secretId, runtimeAccount);
     }
-    if (name === 'SQL_MIGRATION_PASSWORD' || name === 'SQL_SSL_CA') {
+    if (migrationAccessSet.has(name)) {
       grantSecretAccess(projectId, secretId, migrationAccount);
+    } else if (conditionalMigrationSet.has(name)) {
+      revokeSecretAccess(projectId, secretId, migrationAccount);
     }
     const resource = `projects/${projectId}/secrets/${secretId}/versions/${version}`;
     pins[name] = resource;
     summary.push({ name, action, version });
   }
+  revokeInactiveMigrationAccess({
+    projectId,
+    prefix,
+    migrationAccount,
+    migrationAccessNames,
+    processedNames: names,
+    summary,
+  });
 
   const outputPath = process.env.SECRET_VERSIONS_FILE
     || path.join(ROOT, 'deploy', 'secret-versions', `${environment}.json`);
@@ -272,5 +416,6 @@ if (require.main === module) {
 
 module.exports = {
   buildRuntimeValues,
+  buildSecretAccessPlan,
   buildSecretSourceValues,
 };

@@ -7,10 +7,6 @@ const guestTokenSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  token: {
-    type: String,
-    select: false
-  },
   tokenHash: {
     type: String,
     unique: true,

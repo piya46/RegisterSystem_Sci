@@ -19,7 +19,7 @@ async function main() {
   }
   try {
     await hydrateRuntimeSecrets({ requiredNames: ['MONGODB_URI'], managedNames: ['MONGODB_URI'] });
-    await connectDB();
+    await connectDB({ autoIndex: false });
     await initializeObjectStorage();
     const result = await cleanupExpiredStoredObjects({
       limit: integerOption('--limit', 100),

@@ -20,7 +20,7 @@ import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloseIcon from '@mui/icons-material/Close';
 import { getDonationSummary, updateDonation, deleteDonation, createDonation, createIdempotencyKey, getStoredObjectAccess, uploadDonationSlip } from '../utils/api';
 import { downloadCsv } from '../utils/exportCsv';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { EmptyState } from '../components/FeedbackStates';
 
 export default function DonationListPage() {

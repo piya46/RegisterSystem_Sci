@@ -14,9 +14,14 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import useAuth from "../hooks/useAuth";
 import * as api from "../utils/api";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useParams } from "react-router";
 import RegistrationPointDialog from "../components/RegistrationPointDialog";
-import { eventContextFromSearch, eventContextToParams } from "../utils/eventContext";
+import { eventContextFromRouteAndSearch, eventContextToParams } from "../utils/eventContext";
+
+function canManageRegistrationPoints(user) {
+  const roles = Array.isArray(user?.role) ? user.role : [user?.role].filter(Boolean);
+  return roles.includes("superadmin") || roles.some((role) => ["admin", "org_admin", "event_admin", "event_manager"].includes(role));
+}
 
 export default function RegistrationPointPage() {
   const { user, loading } = useAuth();
@@ -31,8 +36,16 @@ export default function RegistrationPointPage() {
   const [headerHover, setHeaderHover] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const eventContext = useMemo(() => eventContextFromSearch(location.search), [location.search]);
+  const { eventId: routeEventId, eventSlug: routeEventSlug, eventYear: routeEventYear } = useParams();
+  const eventContext = useMemo(
+    () => eventContextFromRouteAndSearch(
+      { eventId: routeEventId, eventSlug: routeEventSlug, eventYear: routeEventYear },
+      location.search
+    ),
+    [routeEventId, routeEventSlug, routeEventYear, location.search]
+  );
   const eventParams = useMemo(() => eventContextToParams(eventContext), [eventContext]);
+  const backPath = eventParams.eventId ? `/admin/events/${eventParams.eventId}/dashboard` : "/dashboard";
 
   const fetchData = useCallback(async () => {
     setFetching(true);
@@ -54,10 +67,7 @@ export default function RegistrationPointPage() {
       navigate("/login", { replace: true });
       return;
     }
-    const isAdmin = Array.isArray(user.role)
-      ? user.role.includes("admin")
-      : user.role === "admin";
-    if (!isAdmin) {
+    if (!canManageRegistrationPoints(user)) {
       navigate("/unauthorized", { replace: true });
       return;
     }
@@ -97,7 +107,7 @@ export default function RegistrationPointPage() {
     if (!window.confirm("คุณแน่ใจว่าต้องการลบจุดลงทะเบียนนี้?")) return;
     setBusyId(id);
     try {
-      await api.deleteRegistrationPoint(id);
+      await api.deleteRegistrationPoint(id, eventParams);
       await fetchData();
     } finally {
       setBusyId(null);
@@ -164,7 +174,7 @@ export default function RegistrationPointPage() {
               </Stack>
               <Stack direction="row" spacing={1.2} alignItems="center">
                 <Tooltip title="กลับหน้า Dashboard">
-                  <IconButton onClick={() => navigate("/dashboard")} sx={{ bgcolor: "#fff", border: "1px solid rgba(0,0,0,.06)", "&:hover": { bgcolor: "#fffbe6" } }}><ArrowBackIcon /></IconButton>
+                  <IconButton onClick={() => navigate(backPath)} sx={{ bgcolor: "#fff", border: "1px solid rgba(0,0,0,.06)", "&:hover": { bgcolor: "#fffbe6" } }}><ArrowBackIcon /></IconButton>
                 </Tooltip>
                 <Tooltip title="รีเฟรชข้อมูล">
                   <span>

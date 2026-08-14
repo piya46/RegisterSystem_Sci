@@ -43,12 +43,32 @@ jobs:
       SMTP_SECURE: ${{ vars.SMTP_SECURE || 'false' }}
       SMTP_FROM: ${{ vars.SMTP_FROM }}
       LOGIN_CLIENT_ID: ${{ vars.LOGIN_CLIENT_ID }}
+      LEGACY_EVENT_MIGRATION_WRITE: ${{ vars.LEGACY_EVENT_MIGRATION_WRITE || 'false' }}
       LINE_LOGIN_ENABLED: ${{ vars.LINE_LOGIN_ENABLED || 'false' }}
       LINE_LOGIN_CHANNEL_ID: ${{ vars.LINE_LOGIN_CHANNEL_ID }}
       SQL_DATABASE: ${{ vars.SQL_DATABASE }}
       SQL_USER: ${{ vars.SQL_USER }}
       SQL_MIGRATION_USER: ${{ vars.SQL_MIGRATION_USER }}
+      SQL_ENABLED: ${{ vars.SQL_ENABLED || 'false' }}
+      VERIFY_SQL_TRANSPORT: ${{ vars.VERIFY_SQL_TRANSPORT || 'false' }}
+      SQL_PROVIDER: plesk
+      SQL_HOST: 203.170.190.137
+      SQL_EXPECTED_HOST: 203.170.190.137
+      SQL_PORT: "3306"
+      SQL_SSL_MODE: verify_identity
+      SQL_SSL_CA_SECRET_NAME: SQL_SSL_CA
       SQL_SSL_SERVERNAME: ${{ vars.SQL_SSL_SERVERNAME }}
+      SQL_SSL_IP_SAN_CONFIRMED: ${{ vars.SQL_SSL_IP_SAN_CONFIRMED || 'false' }}
+      SQL_STATIC_EGRESS_ENABLED: ${{ vars.SQL_STATIC_EGRESS_ENABLED || 'false' }}
+      SQL_NETWORK_ALLOWLIST_CONFIRMED: ${{ vars.SQL_NETWORK_ALLOWLIST_CONFIRMED || 'false' }}
+      SQL_AT_REST_ENCRYPTION_CONFIRMED: ${{ vars.SQL_AT_REST_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_BACKUP_ENCRYPTION_CONFIRMED: ${{ vars.SQL_BACKUP_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_PRIMARY_STORE: "false"
+      SQL_MIRROR_ENABLED: ${{ vars.SQL_MIRROR_ENABLED || 'false' }}
+      SQL_MIRROR_REQUIRE_PROTECTED_VALUES: "true"
+      SQL_OUTBOX_ENABLED: ${{ vars.SQL_OUTBOX_ENABLED || 'false' }}
+      SQL_OUTBOX_STRICT: ${{ vars.SQL_OUTBOX_STRICT || 'false' }}
+      RUN_SQL_MIGRATIONS: ${{ vars.RUN_SQL_MIGRATIONS || 'false' }}
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -59,7 +79,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.22.0
           cache: npm
           cache-dependency-path: |
             backend/package-lock.json
@@ -108,12 +128,32 @@ jobs:
       SMTP_SECURE: ${{ vars.SMTP_SECURE || 'false' }}
       SMTP_FROM: ${{ vars.SMTP_FROM }}
       LOGIN_CLIENT_ID: ${{ vars.LOGIN_CLIENT_ID }}
+      LEGACY_EVENT_MIGRATION_WRITE: ${{ vars.LEGACY_EVENT_MIGRATION_WRITE || 'false' }}
       LINE_LOGIN_ENABLED: ${{ vars.LINE_LOGIN_ENABLED || 'false' }}
       LINE_LOGIN_CHANNEL_ID: ${{ vars.LINE_LOGIN_CHANNEL_ID }}
       SQL_DATABASE: ${{ vars.SQL_DATABASE }}
       SQL_USER: ${{ vars.SQL_USER }}
       SQL_MIGRATION_USER: ${{ vars.SQL_MIGRATION_USER }}
+      SQL_ENABLED: ${{ vars.SQL_ENABLED || 'false' }}
+      VERIFY_SQL_TRANSPORT: ${{ vars.VERIFY_SQL_TRANSPORT || 'false' }}
+      SQL_PROVIDER: plesk
+      SQL_HOST: 203.170.190.137
+      SQL_EXPECTED_HOST: 203.170.190.137
+      SQL_PORT: "3306"
+      SQL_SSL_MODE: verify_identity
+      SQL_SSL_CA_SECRET_NAME: SQL_SSL_CA
       SQL_SSL_SERVERNAME: ${{ vars.SQL_SSL_SERVERNAME }}
+      SQL_SSL_IP_SAN_CONFIRMED: ${{ vars.SQL_SSL_IP_SAN_CONFIRMED || 'false' }}
+      SQL_STATIC_EGRESS_ENABLED: ${{ vars.SQL_STATIC_EGRESS_ENABLED || 'false' }}
+      SQL_NETWORK_ALLOWLIST_CONFIRMED: ${{ vars.SQL_NETWORK_ALLOWLIST_CONFIRMED || 'false' }}
+      SQL_AT_REST_ENCRYPTION_CONFIRMED: ${{ vars.SQL_AT_REST_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_BACKUP_ENCRYPTION_CONFIRMED: ${{ vars.SQL_BACKUP_ENCRYPTION_CONFIRMED || 'false' }}
+      SQL_PRIMARY_STORE: "false"
+      SQL_MIRROR_ENABLED: ${{ vars.SQL_MIRROR_ENABLED || 'false' }}
+      SQL_MIRROR_REQUIRE_PROTECTED_VALUES: "true"
+      SQL_OUTBOX_ENABLED: ${{ vars.SQL_OUTBOX_ENABLED || 'false' }}
+      SQL_OUTBOX_STRICT: ${{ vars.SQL_OUTBOX_STRICT || 'false' }}
+      RUN_SQL_MIGRATIONS: ${{ vars.RUN_SQL_MIGRATIONS || 'false' }}
     steps:
       - name: Check out source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -124,7 +164,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 22
+          node-version: 22.22.0
           cache: npm
           cache-dependency-path: |
             backend/package-lock.json

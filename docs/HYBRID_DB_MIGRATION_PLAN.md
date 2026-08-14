@@ -8,13 +8,13 @@
 - SQL ปิดอยู่โดย default (`SQL_ENABLED=false`)
 - เลือก MariaDB บน Plesk เป็น SQL target แล้ว โดย Cloud Run จะเชื่อมปลายทาง `203.170.190.137:3306` ผ่าน reserved static egress; ยังไม่ activate จนกว่า Plesk/TLS/encrypted-backup checklist ผ่าน
 - มี connector `mysql2` รองรับ MariaDB/MySQL, Unix socket, TLS, pool, timeout, daily operation guardrail และ graceful shutdown
-- มี schema migration 16 statements สร้าง 16 tables รวม metadata/checkpoint และ index สำหรับ incremental reversal repair
+- มี schema migration สำหรับ reporting mirror และเพิ่ม event registration primary-ready schema แล้ว ครอบคลุม points, participant fields, registrations, field values, idempotency, sessions, check-in audit, reconciliation และ cutover runs
 - มี repository/mappers สำหรับ 10 domains และไม่ mirror donor PII, participant plaintext fields, address, slip URL หรือ raw LINE user ID; QR/idempotency/verification/receipt identifiers ถูก HMAC ก่อน SQL write
 - มี backfill แบบ plan-only, dry-run, batch, high-watermark, resume checkpoint, idempotent upsert, count และ aggregate checksum comparison
 - DDL และ repository integration ผ่าน MariaDB 12 local จริงแล้ว; fixture integration ถูก rollback และฐานทดสอบถูกลบ
 - มี MongoDB outbox/live mirror worker แบบ feature flag รองรับ coalescing, lock ownership, stale-lock recovery, bounded retry with jitter, dead-letter, audit, TTL retention และ CLI replay
 - มี superadmin status/dead-letter API และ public readiness ที่เปิดเผยเฉพาะสถานะ ไม่เปิด DB endpoint, credential หรือ source record ID
-- ยังไม่ได้ migrate production data, เปิด outbox ใน production หรือ cutover read path
+- ยังไม่ได้ migrate production data, เปิด outbox ใน production หรือ cutover read/write path
 
 ## 2. Source-of-Truth Matrix
 
@@ -27,6 +27,7 @@
 | Vendor/menu | MongoDB | Reporting mirror | Vendor-scoped realtime state เท่านั้น | ต้องมี ownership test |
 | Receipt/counter | MongoDB transaction | Unique/reporting mirror | ไม่ใช้ | ต้องทดสอบ counter concurrency ก่อน |
 | Donation/package | MongoDB | Summary/stock reporting mirror | ไม่ใช้ | ต้องตรวจ stock and amount totals |
+| Event registration cutover tables | MongoDB ระหว่าง backfill | Primary-ready structured tables | ไม่ใช้ | ย้ายเฉพาะหลัง schema, backfill, reconciliation และ runtime repository switch ผ่าน |
 | Secret/key material | Secret Manager/KMS | ห้ามเก็บ | ห้ามเก็บ | ไม่มีการ cutover |
 | Upload/document | Private object storage | เก็บ metadata เท่านั้น | ห้ามเก็บไฟล์ | Signed URL policy |
 
@@ -42,6 +43,19 @@ Initial mirror tables:
 - `donation_summaries`
 - `packages`, `package_items`, `package_variants`
 - `schema_migrations`, `mirror_backfill_checkpoints`
+
+Event registration primary-ready tables:
+
+- `event_runtime_configs`
+- `event_registration_points`
+- `event_participant_fields`
+- `event_registrations`
+- `event_registration_field_values`
+- `event_registration_idempotency_keys`
+- `event_registration_checkins`
+- `event_scoped_registration_sessions`
+- `event_registration_reconciliation_snapshots`
+- `event_registration_cutover_runs`
 
 Schema ใช้ InnoDB, `utf8mb4`, FK, unique key และ check constraint สำหรับ date range, non-negative balance/stock/amount, receipt uniqueness, event relationship และ idempotency
 
@@ -85,6 +99,8 @@ SQL_AT_REST_ENCRYPTION_CONFIRMED=false
 SQL_BACKUP_ENCRYPTION_CONFIRMED=false
 VERIFY_SQL_TRANSPORT=false
 SQL_MIGRATION_WRITE=false
+SQL_REMOTE_MIGRATION_ONLY=true
+SQL_EVENT_REGISTRATION_BACKFILL_WRITE=false
 SQL_BACKFILL_WRITE=false
 SQL_MIRROR_ENABLED=false
 SQL_MIRROR_REQUIRE_PROTECTED_VALUES=true
@@ -117,25 +133,33 @@ npm run migrate:sql-schema
 SQL_MIGRATION_WRITE=true npm run migrate:sql-schema -- --apply
 ```
 
-5. ตรวจ source mapping โดยไม่เขียน SQL:
+5. สำหรับระบบลงทะเบียนอีเวนต์ ให้ตรวจและ backfill ตาราง primary-ready เฉพาะ Event:
+
+```bash
+npm run backfill:sql-event-registration -- --event-id=<mongo-event-id>
+SQL_EVENT_REGISTRATION_BACKFILL_WRITE=true npm run backfill:sql-event-registration -- --apply --event-id=<mongo-event-id>
+```
+
+6. ตรวจ source mapping ของ reporting mirror โดยไม่เขียน SQL:
 
 ```bash
 npm run backfill:sql-mirror -- --domains=organizations,event_series,events
 ```
 
-6. Apply backfill หลัง backup และ approval:
+7. Apply reporting mirror backfill หลัง backup และ approval:
 
 ```bash
 SQL_BACKFILL_WRITE=true npm run backfill:sql-mirror -- --apply --batch-size=100
 ```
 
-7. ตรวจ report ของทุก domain ว่า `sourceCount=processedCount=sqlCount` และ `sourceChecksum=sqlChecksum`
-8. รันซ้ำเพื่อพิสูจน์ idempotency
-9. รัน read-only `SQL_PROTECTION_AUDIT=true npm run audit:sql-protection`; violation count ต้องเป็นศูนย์และต้องใช้ checksum/reconciliation ยืนยัน HMAC ซ้ำ
-10. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` ใน staging หลัง backfill ผ่าน โดย production แนะนำ `SQL_OUTBOX_STRICT=true`
-11. ตรวจ `/api/settings/sql-mirror/status` ด้วย superadmin ว่า queue ไม่มี dead-letter และ lag อยู่ใน threshold
-12. เปิด shadow-read เฉพาะ report/dashboard
-13. สังเกต sync lag และ mismatch อย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา read cutover
+8. ตรวจ report ของทุก domain ว่า `sourceCount=processedCount=sqlCount` และ `sourceChecksum=sqlChecksum`
+9. รันซ้ำเพื่อพิสูจน์ idempotency
+10. รัน read-only `SQL_PROTECTION_AUDIT=true npm run audit:sql-protection`; violation count ต้องเป็นศูนย์และต้องใช้ checksum/reconciliation ยืนยัน HMAC ซ้ำ
+11. ถอนสิทธิ์ Secret ชั่วคราวของ migration service account ด้วย `sql-migration-cleanup` หลังจบ change windowทุกครั้ง และเก็บ IAM policy evidence
+12. เปิด `SQL_MIRROR_ENABLED=true` และ `SQL_OUTBOX_ENABLED=true` ใน staging หลัง backfill ผ่าน โดย production แนะนำ `SQL_OUTBOX_STRICT=true`
+13. ตรวจ `/api/settings/sql-mirror/status` ด้วย superadmin ว่า queue ไม่มี dead-letter และ lag อยู่ใน threshold
+14. เปิด shadow-read เฉพาะ report/dashboard
+15. สังเกต sync lag และ mismatch อย่างน้อยหนึ่ง Event cycle ก่อนพิจารณา read cutover
 
 `--plan-only` แสดง domain/batch โดยไม่เชื่อมฐาน ส่วน dry-run ปกติอ่าน MongoDB และทำ mapping/checksum แต่ไม่เขียน SQL
 
@@ -178,7 +202,7 @@ SQL_BACKFILL_WRITE=true npm run backfill:sql-mirror -- --apply --batch-size=100
 ## 10. Cost Guardrail
 
 - เป้าหมายรวม Google Cloud ส่วนเสริมไม่เกิน 1,000 บาท/เดือน
-- Reserved IP และ Cloud NAT สำหรับ Plesk SQL เป็น opt-in และมี planning cap `SQL_EGRESS_MONTHLY_BUDGET_THB=200`; ต้องรวมกับ Cloud Run/GCS/Logging/Secret Manager/KMS/Firestore ทุกครั้ง
+- Reserved IP และ Cloud NAT สำหรับ Plesk SQL เป็น opt-in และมี planning cap `SQL_EGRESS_MONTHLY_BUDGET_THB=250`; ต้องรวมกับ Cloud Run/GCS/Logging/Secret Manager/KMS/Firestore ทุกครั้ง
 - `SQL_MAX_DAILY_READS` และ `SQL_MAX_DAILY_WRITES` หยุด operation เมื่อเกิน limit ต่อ process
 - Backfill ขนาดใหญ่ต้องทำ batch/resume และอนุมัติ limit ชั่วคราว
 - Cloud SQL เป็น fixed/instance cost ซึ่ง application operation guardrail คุมไม่ได้ทั้งหมด; ห้ามเปิด HA/instance ใหญ่โดยไม่มี budget approval

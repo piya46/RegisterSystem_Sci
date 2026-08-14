@@ -22,6 +22,7 @@ const {
   storeImage,
 } = require('../utils/objectStorage');
 const { clearSecretCache, hydrateRuntimeSecrets } = require('../utils/secretProvider');
+const { explicitMigrationApply } = require('../utils/migrationMode');
 
 const EVENT_MEDIA_FIELDS = [
   { section: 'branding', key: 'logoUrl', field: 'branding.logoUrl', purpose: 'event_media' },
@@ -278,16 +279,17 @@ async function migrateLegacyObjects({ dryRun, limit }) {
 }
 
 async function main() {
-  const dryRun = !process.argv.includes('--apply');
-  if (!dryRun && process.env.OBJECT_STORAGE_MIGRATION_WRITE !== 'true') {
-    throw new Error('Applying object migration requires OBJECT_STORAGE_MIGRATION_WRITE=true');
-  }
+  const apply = explicitMigrationApply({
+    writeFlag: 'OBJECT_STORAGE_MIGRATION_WRITE',
+    mongoSafetyGate: true,
+  });
+  const dryRun = !apply;
   if (!dryRun && objectStorageProvider() !== 'gcs') {
     throw new Error('Applying legacy object migration requires OBJECT_STORAGE_PROVIDER=gcs');
   }
   try {
     await hydrateRuntimeSecrets();
-    await connectDB();
+    await connectDB({ autoIndex: false });
     await initializeKmsDataKeys();
     if (!dryRun) await initializeObjectStorage();
     const result = await migrateLegacyObjects({
