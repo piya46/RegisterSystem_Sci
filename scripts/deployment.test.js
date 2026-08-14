@@ -406,9 +406,10 @@ test('GitHub workflows use OIDC, minimal permissions, and immutable action pins'
   }
 });
 
-test('Plesk web deployment is a guarded manual pull/deploy from main and never uses FTP or webhooks', () => {
+test('Plesk web deployment is a guarded manual release from main and never uses FTP or webhooks', () => {
   const release = read('scripts/plesk-release.sh');
   const sourceVerifier = read('scripts/verify-plesk-source.js');
+  const bundleBuilder = read('scripts/create-plesk-bundle.js');
   const rootRelease = read('scripts/release.sh');
   const smoke = read('scripts/smoke-plesk-gateway.js');
 
@@ -425,6 +426,14 @@ test('Plesk web deployment is a guarded manual pull/deploy from main and never u
   assert.match(release, /VITE_API_BASE_URL=\/api/);
   assert.match(release, /prepare-plesk-public\.js/);
   assert.match(release, /tmp\/restart\.txt/);
+  assert.match(release, /major === 24/);
+  assert.match(release, /create-plesk-bundle\.js/);
+  assert.match(read('hosting/plesk-gateway/package.json'), />=24\.0\.0 <25/);
+  assert.match(read('hosting/plesk-gateway/package.json'), /"diagnose": "node src\/diagnose\.js"/);
+  assert.match(bundleBuilder, /PLESK_BUNDLE_MANIFEST\.json/);
+  assert.match(bundleBuilder, /releases\/\$\{releaseName\}/);
+  assert.match(bundleBuilder, /must not contain \.htaccess/);
+  assert.doesNotMatch(bundleBuilder, /node_modules|\.env/);
   assert.doesNotMatch(release, /\bftp\b|\bftps\b|\bsftp\b|webhook/i);
   assert.match(read('scripts/prepare-plesk-public.js'), /PLESK_INCOMPATIBLE_PUBLIC_FILES = \['\.htaccess'\]/);
   assert.match(read('scripts/prepare-plesk-public.js'), /--rollback/);

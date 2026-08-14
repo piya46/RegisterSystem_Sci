@@ -18,11 +18,12 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
-require_node_22() {
+require_supported_node() {
   node -e '
     const [major, minor] = process.versions.node.split(".").map(Number);
-    process.exit(major === 22 && minor >= 22 ? 0 : 1);
-  ' || die "Plesk Node.js >=22.22.0 <23 is required (found $(node --version))"
+    const supported = (major === 22 && minor >= 22) || major === 24;
+    process.exit(supported ? 0 : 1);
+  ' || die "Plesk requires Node.js 22.22.x or Node.js 24.x LTS (found $(node --version))"
 }
 
 validate_manual_deploy_source() {
@@ -90,12 +91,17 @@ restart_gateway() {
   log "Passenger restart marker updated"
 }
 
+create_bundle() {
+  require_command zip
+  node "$ROOT_DIR/scripts/create-plesk-bundle.js"
+}
+
 plan() {
   printf '%s\n' \
     'Plesk target: reunion.scicu-alumni.com' \
-    'Deployment: manual Pull now, then manual Deploy now' \
+    'Deployment: manual Git deploy, or checksummed File Manager bundle when Git is unavailable' \
     'Git branch: main' \
-    'Runtime: Node.js >=22.22.0 <23 / Production' \
+    'Runtime: Node.js 22.22.x or Node.js 24.x LTS / Production' \
     'Application root: hosting/plesk-gateway' \
     'Document root: hosting/plesk-gateway/public' \
     'Startup file: app.js' \
@@ -114,18 +120,22 @@ Commands:
   verify-source Verify the deployed tree against the selected Plesk Git commit.
   ci      Install and test the gateway without deploying.
   build   Test the gateway, build the frontend, and prepare public files.
+  bundle  Build a checksummed File Manager ZIP for Plesk plans without Git deployment.
   deploy  Build and update the Passenger restart marker.
   rollback Swap to the previous prepared frontend release and restart Passenger.
   smoke   Verify the public Plesk gateway and proxied Cloud Run API.
 
 Plesk Git manual deployment action:
   ./scripts/release.sh plesk deploy
+
+Local File Manager fallback:
+  VITE_CF_TURNSTILE_SITE_KEY=<public-site-key> ./scripts/release.sh plesk bundle
 USAGE
 }
 
 require_command node
 require_command npm
-require_node_22
+require_supported_node
 load_local_public_config
 
 case "$COMMAND" in
@@ -142,6 +152,12 @@ case "$COMMAND" in
     validate_manual_deploy_source
     install_and_test_gateway
     build_frontend
+    ;;
+  bundle)
+    validate_manual_deploy_source
+    install_and_test_gateway
+    build_frontend
+    create_bundle
     ;;
   deploy)
     validate_manual_deploy_source

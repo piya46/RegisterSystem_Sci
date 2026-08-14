@@ -2743,7 +2743,7 @@ Implementation Status:
 103. แก้แล้ว: Deployment contract test เคยผ่านเฉพาะเครื่องที่ติดตั้ง Google Cloud CLI และ `jq` แม้ไม่ได้เรียก Cloud API; เพิ่ม isolated command stubs ภายใน test เพื่อให้ quality gate บน clean Node 22 image ตรวจ logic เดียวกันได้โดยไม่พึ่งเครื่องมือหรือ credential ภายนอก
 104. แก้แล้ว: privacy/key-rotation migration เดิมมีโอกาสเขียน audit หรือ re-encrypt record ที่ไม่ใช่ candidate ในโหมด dry-run; ปัจจุบัน dry-run เป็น zero-write, apply ต้องมี `--apply` และ write flag พร้อมกัน และแก้เฉพาะ candidate ที่ตรวจพบ
 105. แก้แล้ว: SQL migration รุ่นที่สองสร้าง index แบบไม่ restart-safe ขณะที่ MariaDB DDL implicit commit; เปลี่ยนเป็น `CREATE INDEX IF NOT EXISTS` และเพิ่ม contract test ปฏิเสธ DDL destructive/non-idempotent
-106. แก้แล้ว: dependency audit พบ advisory ใน React Router/gaxios/brace-expansion/PostCSS; อัปเกรดและ override เป็นรุ่นแก้ไขแล้ว พร้อมบังคับ runtime `>=22.22.0 <23`, lint/build/test และ full npm audit
+106. แก้แล้ว: dependency audit พบ advisory ใน React Router/gaxios/brace-expansion/PostCSS; อัปเกรดและ override เป็นรุ่นแก้ไขแล้ว พร้อมบังคับ runtime `22.22.x` หรือ `24.x` LTS, lint/build/test และ full npm audit
 107. แก้แล้วในโค้ด/รอ data apply: `dept`, `department` และ `date_year` เคยอยู่ plaintext พร้อม index แม้เป็น quasi-identifier; เพิ่ม application encryption, เปลี่ยน dashboard เป็น authorized decrypt + metadata audit และเตรียม allowlisted index cleanup ที่หยุดทันทีหากยังพบ plaintext
 108. แก้แล้ว: scope migration เดิมตีความการไม่ตั้ง assign flag ว่าเป็น global โดยปริยาย; apply ต้องระบุ `REG_POINT_LEGACY_SCOPE_DECISION` และ `PARTICIPANT_FIELD_LEGACY_SCOPE_DECISION` เป็น `global` หรือ `current-event` ชัดเจน
 109. แก้แล้วในโค้ด/รอ data apply: production ปิด Mongoose auto-index, มี index diff แบบ dry-run, TTL reconfiguration ผ่าน `collMod`, explicit replacement gate และไม่ drop stale index โดย generic script
@@ -3288,7 +3288,7 @@ Acceptance Criteria:
 #### 26.13.1 Architecture และ Ownership
 
 - Canonical origin สำหรับผู้ใช้ต้องเป็น `https://reunion.scicu-alumni.com` ซึ่งผูก Domain/SSL กับ Plesk แล้ว งาน Phase 1 นี้ห้ามเปลี่ยน DNS โดยไม่มี change request แยก
-- Plesk ต้องรัน Node.js `>=22.22.0 <23` application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว
+- Plesk ต้องรัน Node.js `22.22.x` หรือ `24.x` LTS application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว; Hostatom production เลือก `24.19.0`
 - Cloud Run ต้องคงเป็น backend/API compute และเป็น component เดียวที่เข้าถึง MongoDB, Secret Manager, GCS, KMS, Firestore, MariaDB/SQL, Brevo/SMTP fallback และ server-side provider secrets
 - Plesk ห้ามมี Google service-account JSON, ADC token, MongoDB URI, JWT/session/CSRF key, Brevo API key, SMTP password, LINE channel secret, Turnstile secret, KMS plaintext key หรือ database password
 - Cloud Run frontend bundle ใช้เป็น fallback/diagnostic ได้ แต่หลัง go-live ห้ามถือ `run.app` เป็น canonical URL ที่ส่งให้ผู้ใช้
@@ -3329,7 +3329,7 @@ Acceptance Criteria:
 
 #### 26.13.5 Plesk Runtime และ Build Contract
 
-- Plesk Node.js ต้องเป็น `>=22.22.0 <23`, mode `Production`, application root `hosting/plesk-gateway`, document root `hosting/plesk-gateway/public` และ startup file `app.js`
+- Plesk Node.js ต้องเป็น `22.22.x` หรือ `24.x` LTS (`24.19.0` สำหรับ Hostatom), mode `Production` และ startup file `app.js`; Git deploy ใช้ application root `hosting/plesk-gateway`/document root `hosting/plesk-gateway/public` ส่วน File Manager bundle ใช้ immutable versioned application root `releases/psevent-plesk-gateway-<git-sha-12>` และ document root `<Application root>/public`
 - Passenger/Plesk เป็นผู้ inject `PORT`; source, Plesk environment และ deployment action ห้าม hard-code `PORT`
 - `UPSTREAM_ORIGIN` ต้องไม่มี path/query/credential และต้องเปลี่ยนจาก staging ไป production เฉพาะหลัง production acceptance ผ่าน
 - `VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID`, `VITE_LIFF_ID` เป็น public build-time identifiers เท่านั้น ห้ามนำ Secret มาใส่ `VITE_*`
@@ -3337,16 +3337,17 @@ Acceptance Criteria:
 - Public release ต้องสลับ directory แบบไม่เผย partial build, เก็บ previous release อย่างน้อยหนึ่งชุด และมี release ID ที่ตรงกับ Git SHA
 - Rollback metadata ต้อง validate ก่อน swap; metadata เสียหรือ current release ไม่ครบต้อง fail โดยไม่ทำลาย release ที่กำลังให้บริการ
 
-#### 26.13.6 Git และ Manual Deployment Flow
+#### 26.13.6 Git, File Manager Bundle และ Manual Deployment Flow
 
-- Routine deploy ต้องใช้ Plesk Git ไม่ใช้ FTP โดยติดตาม branch `main`
+- Routine deploy ต้องใช้ Plesk Git โดยติดตาม branch `main`; หาก subscription ไม่มี Plesk Git extension อนุญาต checksummed File Manager ZIP ที่สร้างจาก clean/pushed `main` commit และผ่าน CI เป็น controlled fallback โดยห้าม FTP/SFTP
 - GitHub Actions ทำเฉพาะ CI และ Cloud Run deployment; ห้าม pull/deploy Plesk, ห้ามเรียก Plesk webhook และห้ามมี `contents: write` เพื่อเลื่อน Plesk release ref
 - ผู้ดูแลต้องรอ `CI / quality` ของ commit บน `main` ผ่าน และ deploy Cloud Run backend ที่เกี่ยวข้องให้พร้อมก่อนแตะ Plesk
-- ใน Plesk ผู้ดูแลต้องกด `Pull now`, ตรวจ latest commit/SHA ให้ตรงกับ commit ที่ CI ผ่าน แล้วกด `Deploy now`
+- เมื่อมี Git extension ผู้ดูแลต้องกด `Pull now`, ตรวจ latest commit/SHA ให้ตรงกับ commit ที่ CI ผ่าน แล้วกด `Deploy now`; เมื่อไม่มี Git ให้ตรวจ bundle checksum/manifest, extract เป็น versioned directory ใหม่และสลับ application root หลังติดตั้ง dependency สำเร็จ
 - Plesk deployment mode ต้องเป็น manual; `PLESK_CD_ENABLED`, `PLESK_GIT_WEBHOOK_URL`, `PLESK_WEBHOOK_HOST` และ branch `plesk-production` ไม่ใช้
 - Repository public ใช้ HTTPS read-only ได้โดยไม่เก็บ credential; หากเปลี่ยนเป็น private ต้องใช้ deploy key แบบ read-only และห้าม write access
-- Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก deployment target root
+- เมื่อใช้ Git, Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก deployment target root
 - Deployment action ต้องยืนยัน branch `main` และ SHA จาก checkout หรือ read-only Plesk Git mirror, ปฏิเสธ tracked file ที่หาย/เปลี่ยน type/ถูกแก้บน host, ใช้ lockfile, รัน test/audit/build, สลับ public release แล้วสร้าง Passenger restart markerหลังสำเร็จเท่านั้น
+- File Manager bundle builder ต้องยืนยัน clean `main`, ฝัง Git SHA/release manifest, มี SHA-256 checksum, include เฉพาะ gateway runtime/lockfile/frontend build และ exclude `.env`, Secret, development dependency และ `node_modules`; ผู้ดูแลต้องตรวจ checksum ก่อน extract
 - หาก Git action ไม่ inherit Node.js environment อนุญาต local build config เฉพาะ public `VITE_*` allowlist; ห้าม loader อ่านหรือส่ง backend Secret และ database/cloud credential
 - หลังผู้ดูแล deploy ต้องรัน external smoke แบบ bounded และหยุด go-live เมื่อ gateway readiness, SPA, security headers, release header หรือ same-origin API ผิด contract
 - FTP/SFTP credential, Plesk password, SSH private key, webhook secret และ GitHub write token ห้ามอยู่ใน repository/Plesk application
@@ -3466,7 +3467,7 @@ reconciliation แทนการเดาว่าล้มเหลว
 16. GitHub-to-Google Cloud ต้องใช้ WIF แบบ numeric repository/owner binding และ repository ต้องไม่มี service-account JSON key
 17. Deployment Secret ทุกตัวต้องอยู่ Secret Manager แบบ pin version และ routine deploy ต้องไม่ส่ง plaintext Secret ผ่าน env file/CLI/image
 18. Billing Budget, scale-to-zero/max instances, GCS region/lifecycle และ Artifact Registry cleanup ต้องตั้งจริงก่อนเปิด `CD_ENABLED=true`
-19. Plesk Git/Node.js/gateway ต้องติดตาม `main` และ deployด้วยการกด `Pull now`/`Deploy now` จาก commit ที่ CI ผ่าน พร้อม external smoke โดยไม่ใช้ webhook/FTP และไม่มี backend/GCP Secret บน Plesk
+19. Plesk Node.js/gateway ต้องมาจาก `main` commit ที่ CI ผ่าน โดยใช้ manual `Pull now`/`Deploy now` เมื่อมี Git extension หรือ checksummed File Manager bundle เมื่อไม่มี Git พร้อม external smoke โดยไม่ใช้ webhook/FTP/SFTP และไม่มี backend/GCP Secret บน Plesk
 20. `PUBLIC_WEB_ORIGIN`, provider callback, CORS, Turnstile, cookie และ link generation ต้องใช้ `https://reunion.scicu-alumni.com` ตลอด user-facing flow
 21. Plesk frontend rollback และ Cloud Run backend rollback drill ต้องผ่านแยกกัน พร้อม release ID, RTO และ incident owner
 22. Plesk automatic deployment และ webhook ต้องปิดถาวรสำหรับ flow นี้; ผู้ดูแลต้องผ่าน Host/security header/client-IP/auth/upload/wallet/cost acceptance ทุกครั้งก่อนเปิดใช้งาน release

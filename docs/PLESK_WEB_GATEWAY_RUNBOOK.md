@@ -14,20 +14,21 @@ MongoDB, Secret Manager, GCS, KMS, Firestore, Brevo/SMTP fallback และ Mari
 - Public origin: `https://reunion.scicu-alumni.com`
 - Staging backend:
   `https://psevent-staging-841769493273.asia-southeast3.run.app`
-- Production backend: ใช้ URL ของ `psevent-production` หลัง service ผ่าน production
-  smoke testแล้วเท่านั้น
+- Production backend:
+  `https://psevent-production-841769493273.asia-southeast3.run.app`
 - GitHub Actions ห้าม pull, deploy หรือเรียก webhook ของ Plesk
 
-สถานะตรวจจริง 2026-08-01:
+สถานะตรวจจริง 2026-08-15:
 
-- Domain และ HTTPS ตอบสนองแล้ว แต่ `/` ยังเป็นหน้า default ของ Plesk
-- `/gateway/health/ready` และ `/api/participant-auth/providers` ยังตอบ 404 จาก
-  Plesk จึงยังไม่มีหลักฐานว่า Node gateway และ SPA release ทำงานจริง
-- Cloud Run มีเฉพาะ service `psevent-staging` ที่ readiness ผ่าน; ยังไม่มี
-  `psevent-production`
+- Domain และ HTTPS ตอบสนองแล้ว แต่ Plesk Node.js แจ้งว่า application startup file
+  `app.js` ยังไม่มี เพราะยังไม่ได้ติดตั้ง web gateway release
+- Hostatom มี Node.js `24.19.0` ให้ใช้กับระบบนี้ และ subscription นี้ไม่มีเมนู
+  Plesk Git จึงต้องใช้ checksummed File Manager bundle ตามหัวข้อ 3.1
+- Cloud Run production revision พร้อมและ readiness ผ่านแล้วที่ deterministic URL
+  ด้านบน
 - การผ่าน `production-readiness --web` ยืนยันเฉพาะ configuration contract
-  เท่านั้น ต้องกด `Pull now`/`Deploy now` และผ่าน external smoke testก่อนถือว่า
-  public web พร้อมใช้งาน
+  เท่านั้น ต้องติดตั้ง Plesk bundle, restart application และผ่าน external smoke
+  test ก่อนถือว่า public web พร้อมใช้งาน
 
 ## 1. Architecture
 
@@ -36,7 +37,7 @@ Browser
   |
   | HTTPS https://reunion.scicu-alumni.com
   v
-Plesk Node.js >=22.22.0 <23
+Plesk Node.js 22.22.x or 24.x LTS
   |- React SPA/static assets
   |- /gateway/health/* local health
   `- /api, /health, /uploads -> HTTPS proxy
@@ -60,7 +61,7 @@ idempotency, wallet transaction, file validation, email และ database acces
 
 ## 2. Manual Git Contract
 
-Routine deployment ใช้ปุ่มใน Plesk ตามลำดับ:
+เมื่อ subscription มี Plesk Git ให้ routine deployment ใช้ปุ่มใน Pleskตามลำดับ:
 
 1. Merge/push source เข้า `main`
 2. รอ GitHub check `CI / quality` ของ commit นั้นผ่าน
@@ -77,8 +78,8 @@ Routine deployment ใช้ปุ่มใน Plesk ตามลำดับ:
 `PLESK_CD_ENABLED`, `PLESK_GIT_WEBHOOK_URL`, `PLESK_WEBHOOK_HOST` และ
 release branch `plesk-production` ไม่ใช้ในสถาปัตยกรรมนี้
 
-FTP/SFTP ใช้ได้เฉพาะ break-glass incident ที่มีผู้อนุมัติและบันทึกเหตุการณ์
-ห้ามใช้เป็น routine deployment
+หาก subscription ไม่มี Plesk Git ให้ใช้ File Manager bundle ตามหัวข้อ 3.1
+ห้ามใช้ FTP/SFTP เป็น routine deployment
 
 ## 3. Plesk Git Settings
 
@@ -110,7 +111,7 @@ Plesk แยก Git mirror ออกจาก deployment target ดังนั�
 
 สคริปต์จะ:
 
-- ยืนยัน Node.js `>=22.22.0 <23`
+- ยืนยัน Node.js `22.22.x` หรือ `24.x` LTS
 - ยืนยันว่า source/mirror ใช้ `main`
 - ปฏิเสธ tracked file ที่หาย ถูกแทนด้วย symlink หรือถูกแก้บน host แม้ target
   จะไม่มี `.git`
@@ -125,15 +126,57 @@ Plesk แยก Git mirror ออกจาก deployment target ดังนั�
 ถ้า Plesk action หา `node` หรือ `npm` ไม่พบ ให้ผู้ดูแล hosting เปิด Node.js CLI
 สำหรับ subscription ห้ามดาวน์โหลด runtime ที่ไม่ผ่านการควบคุมเข้า repository
 
+### 3.1 File Manager Bundle เมื่อไม่มี Plesk Git
+
+ทางเลือกนี้ใช้ได้เมื่อหน้า subscription ไม่มีเมนู Git เท่านั้น ตัว bundle ยังคง
+ต้องมาจาก clean `main` commit ที่ push แล้วและ `CI / quality` ผ่าน ห้ามแก้ source
+ใน File Manager หลังสร้าง bundle
+
+สร้าง artifact จากเครื่อง operator:
+
+```bash
+VITE_CF_TURNSTILE_SITE_KEY=<public-site-key> \
+./scripts/release.sh plesk bundle
+```
+
+คำสั่งจะตรวจ branch/working tree, รัน gateway test/audit, build frontend และสร้าง:
+
+```text
+.release/psevent-plesk-gateway-<git-sha-12>.zip
+.release/psevent-plesk-gateway-<git-sha-12>.zip.sha256
+```
+
+ก่อน upload ให้ตรวจ checksum จาก directory `.release`:
+
+```bash
+shasum -a 256 -c psevent-plesk-gateway-<git-sha-12>.zip.sha256
+```
+
+จากนั้นใช้ Plesk `File Manager` upload ZIP เข้า
+`/reunion.scicu-alumni.com` และ extract เป็น release directory ใหม่ ห้าม extract
+ทับ release เดิม โดยต้องได้
+`/reunion.scicu-alumni.com/releases/psevent-plesk-gateway-<git-sha-12>/app.js`
+ตรวจ release SHA, path และรายการ hash เพิ่มเติมได้จาก
+`PLESK_BUNDLE_MANIFEST.json` ภายใน release directory
+
+กลับมาหน้า Node.js แล้วตั้งค่าตามหัวข้อ 4 กด `npm`/`NPM install` เพื่อให้ Plesk
+ติดตั้ง production dependencies จาก lockfile แล้วกด `Restart App` การ upload
+bundle ใหม่ต้องเก็บ release directory เดิมไว้จน external smoke ของ release ใหม่
+ผ่านเพื่อ rollback โดยสลับ Application/Document root กลับ release เดิม
+
+ไม่ต้องสร้าง `.htaccess`: Plesk Node.js UI เป็นผู้ตั้ง Passenger ให้ และ gateway
+จัดการ SPA fallback/proxy/security header ใน Node เอง ตัว bundle จะหยุดสร้างทันที
+หากพบ `.htaccess` เพื่อป้องกัน directive ที่ขัดกับ Passenger
+
 ## 4. Plesk Node.js Settings
 
 | Field | Value |
 |---|---|
-| Node.js version | `>=22.22.0 <23` |
+| Node.js version | `24.19.0` บน Hostatom (`22.22.x` หรือ `24.x` LTS รองรับในโค้ด) |
 | Package manager | `npm` |
 | Application mode | `Production` |
-| Application root | `hosting/plesk-gateway` |
-| Document root | `hosting/plesk-gateway/public` |
+| Application root | Git: `hosting/plesk-gateway`; bundle: `releases/psevent-plesk-gateway-<git-sha-12>` |
+| Document root | Git: `hosting/plesk-gateway/public`; bundle: `<Application root>/public` |
 | Startup file | `app.js` |
 | Application URL | `https://reunion.scicu-alumni.com` |
 
@@ -144,7 +187,7 @@ Environment variables บน Plesk:
 ```env
 NODE_ENV=production
 PUBLIC_HOST=reunion.scicu-alumni.com
-UPSTREAM_ORIGIN=https://psevent-staging-841769493273.asia-southeast3.run.app
+UPSTREAM_ORIGIN=https://psevent-production-841769493273.asia-southeast3.run.app
 UPSTREAM_TIMEOUT_MS=30000
 PLESK_EXPECTED_BRANCH=main
 VITE_CF_TURNSTILE_SITE_KEY=<public-site-key>
@@ -169,9 +212,8 @@ MongoDB URI, database credential หรือ Google credential ในไฟล�
 `PUBLIC_HOST` และ `UPSTREAM_ORIGIN` ยังคงต้องตั้งใน Plesk Node.js environment
 สำหรับ runtime
 
-เมื่อ production backend พร้อม ให้เปลี่ยน `UPSTREAM_ORIGIN` เป็น deterministic
-URL ของ `psevent-production` แล้วกด `Deploy now`/restart อีกครั้ง
-ห้ามตั้ง `ALLOW_NON_GOOGLE_UPSTREAM=true` ใน production
+production ต้องใช้ deterministic URL ของ `psevent-production` ด้านบน แล้วกด
+restart อีกครั้ง ห้ามตั้ง `ALLOW_NON_GOOGLE_UPSTREAM=true` ใน production
 
 ## 5. Backend Origin Contract
 
@@ -214,12 +256,11 @@ PROJECT_ID=cusa-reunion ./scripts/release.sh plan production
 
 จากนั้น:
 
-1. เปิด Plesk > `Git`
-2. กด `Pull now`
-3. ตรวจ latest commit/SHA ให้ตรงกับ commit บน `main` ที่ `CI / quality` ผ่าน
-4. กด `Deploy now`
-5. ถ้า additional action ไม่ถูกเรียก ให้เปิด deployment log และรัน action จาก
-   deployment target root ตาม policy ของ hosting
+1. หากมี Plesk Git ให้กด `Pull now`, ตรวจ SHA แล้วกด `Deploy now`
+2. หากไม่มี Plesk Git ให้ upload/extract checksummed ZIP ตามหัวข้อ 3.1
+3. ตั้ง Node.js เป็น `24.19.0`, mode `Production` และ path ตามหัวข้อ 4
+4. กด `npm`/`NPM install` แล้วกด `Restart App`
+5. ตรวจว่า Plesk ไม่แสดงข้อความ `app.js is not found`
 
 หลัง deploy:
 
@@ -286,12 +327,10 @@ root cause
 ## 10. Go-live Checklist
 
 - Domain/SSL valid และไม่มี mixed content
-- Plesk repository URL ถูกต้อง, branch `main`, manual deployment
-- Commit ที่ Pull ตรงกับ commit ที่ CI ผ่าน
-- Node.js `>=22.22.0 <23`, application root, document root และ startup file ถูกต้อง
-- Additional action เรียก `./scripts/release.sh plesk deploy`
-- Deployment log แสดง `Verified checkout` หรือ `Verified plesk-mirror` พร้อม
-  SHA เดียวกับ Latest commit
+- Source เป็น clean `main` commit ที่ push แล้วและ CI ผ่าน
+- ถ้ามี Git: repository/branch/manual mode ถูกต้องและ deployment log แสดง SHA
+- ถ้าไม่มี Git: ZIP checksum และ `PLESK_BUNDLE_MANIFEST.json` ตรงกับ Git SHA
+- Node.js `24.19.0`, application root, document root และ startup file ถูกต้อง
 - ไม่มี backend/GCP/DB Secret บน Plesk
 - Cloud Run backend พร้อมก่อน Plesk deploy
 - Public origin, CORS, Turnstile, callback และ cookie ถูกต้อง
@@ -304,9 +343,11 @@ root cause
 
 | Symptom | Check |
 |---|---|
-| ยังเห็นหน้า default Plesk | กด Deploy now, deployment target, Node document root |
+| `app.js is not found` | extract ZIP ให้มี `<Application root>/app.js` และตรวจ Application root |
+| ยังเห็นหน้า default Plesk | npm install, Restart App, Application/Document root |
 | `/gateway/health/ready` 404 | Node app/Passenger ยังไม่ทำงานหรือ static nginx bypass |
 | `/api` ได้ HTML/404 | gateway ไม่ได้ start หรือ document root ผิด |
+| Passenger แจ้ง application start ไม่สำเร็จ | เปิด domain `Logs`, ค้น Error ID, แล้วรัน script `diagnose` จากแท็บ Run Node.js commands |
 | HTTP 502 | `UPSTREAM_ORIGIN`, Cloud Run readiness, outbound HTTPS/DNS |
 | action หา `npm` ไม่พบ | Node CLI/chroot capability ของ hosting |
 | action แจ้ง Git mirror ไม่พบ | ตรวจชื่อ `RegisterSystem_Sci.git` หรือกำหนด relative `PLESK_GIT_DIR` |
