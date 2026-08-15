@@ -427,6 +427,7 @@ test('Plesk web deployment is a guarded manual release from main and never uses 
   assert.match(release, /prepare-plesk-public\.js/);
   assert.match(release, /tmp\/restart\.txt/);
   assert.match(release, /major === 24/);
+  assert.match(release, /\/opt\/plesk\/node\/24\/bin/);
   assert.match(release, /create-plesk-bundle\.js/);
   assert.match(read('hosting/plesk-gateway/package.json'), />=24\.0\.0 <25/);
   assert.match(read('hosting/plesk-gateway/package.json'), /"diagnose": "node src\/diagnose\.js"/);

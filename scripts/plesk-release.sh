@@ -18,6 +18,20 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
 }
 
+activate_plesk_node_runtime() {
+  if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    return 0
+  fi
+  local candidate
+  for candidate in /opt/plesk/node/24/bin /opt/plesk/node/22/bin; do
+    if [[ -x "$candidate/node" && -x "$candidate/npm" ]]; then
+      export PATH="$candidate:$PATH"
+      log "Activated the Plesk-managed Node.js runtime"
+      return 0
+    fi
+  done
+}
+
 require_supported_node() {
   node -e '
     const [major, minor] = process.versions.node.split(".").map(Number);
@@ -133,6 +147,7 @@ Local File Manager fallback:
 USAGE
 }
 
+activate_plesk_node_runtime
 require_command node
 require_command npm
 require_supported_node

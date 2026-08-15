@@ -22,8 +22,12 @@ MongoDB, Secret Manager, GCS, KMS, Firestore, Brevo/SMTP fallback และ Mari
 
 - Domain และ HTTPS ตอบสนองแล้ว แต่ Plesk Node.js แจ้งว่า application startup file
   `app.js` ยังไม่มี เพราะยังไม่ได้ติดตั้ง web gateway release
-- Hostatom มี Node.js `24.19.0` ให้ใช้กับระบบนี้ และ subscription นี้ไม่มีเมนู
-  Plesk Git จึงต้องใช้ checksummed File Manager bundle ตามหัวข้อ 3.1
+- Hostatom มี Node.js `24.19.0` และ Plesk Git repository
+  `RegisterSystem_Sci.git` ติดตาม branch `main` โดย deployment target เป็น
+  `/reunion.scicu-alumni.com`
+- หน้าจอวันที่ตรวจพบยังแสดง Automatic deployment ต้องเปลี่ยนเป็น Manual
+  deployment ก่อน `Pull now`; checksummed File Manager bundle ตามหัวข้อ 3.1
+  เป็น fallback เท่านั้น
 - Cloud Run production revision พร้อมและ readiness ผ่านแล้วที่ deterministic URL
   ด้านบน
 - การผ่าน `production-readiness --web` ยืนยันเฉพาะ configuration contract
@@ -92,14 +96,25 @@ release branch `plesk-production` ไม่ใช้ในสถาปัตย�
 | Deployment mode | Manual deployment |
 | Deployment target | root ที่มี `scripts`, `frontend`, `backend`, `hosting` |
 
+สำหรับ Hostatom ปัจจุบันให้คลิกคำว่า `automatically` ในส่วน Deployment แล้ว
+เปลี่ยนเป็น `Manual deployment`; target คงเป็น `/reunion.scicu-alumni.com`
+จากนั้นเปิด Repository Settings (ไอคอน sliders), เปิด Additional deployment
+actions และกำหนด action จาก deployment target rootตามหัวข้อด้านล่าง
+
 Repository ปัจจุบันเป็น public จึงไม่ต้องมี deploy credential หากเปลี่ยนเป็น
 private ให้ใช้ deploy key แบบ read-only เท่านั้น ห้ามให้ write access
 
 ตั้ง Additional deployment action จาก deployment target root:
 
 ```bash
+PLESK_EXPECTED_BRANCH=main \
+VITE_CF_TURNSTILE_SITE_KEY=<public-site-key> \
 ./scripts/release.sh plesk deploy
 ```
+
+`VITE_CF_TURNSTILE_SITE_KEY` เป็น public site key จึงใส่ใน action ได้ แต่ห้ามใส่
+Turnstile secret หรือ backend Secret ใด ๆ สคริปต์จะหา Plesk-managed Node.js 24
+จาก `/opt/plesk/node/24/bin` อัตโนมัติเมื่อ Git action ไม่มี `node`/`npm` ใน PATH
 
 Plesk แยก Git mirror ออกจาก deployment target ดังนั้น target อาจไม่มี `.git`
 ซึ่งเป็นพฤติกรรมปกติ สคริปต์จะตรวจ checkout โดยตรงเมื่อมี `.git`; หากไม่มีจะ
