@@ -8,7 +8,7 @@
 - GitHub Actions ขอ short-lived OIDC token และ impersonate deployer service account ผ่าน Workload Identity Federation
 - Canonical public web `reunion.scicu-alumni.com` รัน React SPA และ Node.js same-origin gateway บน Plesk
 - Browser เรียก `/api` ที่ Plesk origin เดียวกัน แล้ว gateway proxy เฉพาะ `/api`, `/health`, `/uploads` ไป Cloud Run backend
-- Cloud Run image ยังมี frontend fallback สำหรับ diagnostic/rollback แต่ไม่ใช่ canonical public origin หลัง Plesk go-live
+- Cloud Run image เป็น backend-only และไม่บรรจุหรือเสิร์ฟ React frontend; request ที่ root ของ `run.app` ต้องคืน JSON 404
 - Artifact Registry เก็บ image แบบ unique tag; deployment ใช้ immutable digest
 - Runtime โหลด Secret Manager version ที่ pin ไว้ผ่าน ADC ของ runtime service account
 - GCS bucket แยก environment, private, regional `asia-southeast3` และ scale-to-zero เป็นค่าเริ่มต้น
@@ -312,7 +312,7 @@ content กับ sibling Git mirror ก่อน build หาก mirror ไม�
 5. รัน SQL migration job เมื่อเปิด gate
 6. บันทึก revision ที่รับ traffic 100%
 7. Deploy digest เป็น candidate `--no-traffic`
-8. ตรวจ live release ID, dependency readiness และ root SPA
+8. ตรวจ live release ID, dependency readiness, public API และยืนยันว่า root ของ Cloud Run คืน backend JSON 404
 9. Route 100% ไป revision ใหม่
 10. ตรวจ canonical URL ซ้ำ
 11. Rollback อัตโนมัติเมื่อ post-promotion smoke test fail

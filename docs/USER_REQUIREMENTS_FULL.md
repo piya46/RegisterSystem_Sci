@@ -3107,7 +3107,7 @@ Acceptance Criteria:
 สถานะเป้าหมาย:
 
 - ใช้ `scripts/release.sh` เป็น deployment entrypoint เดียวของ local operator และ GitHub Actions
-- Canonical public web ต้องรัน React SPA และ same-origin gateway บน Plesk; Cloud Run image ยังมี frontend fallback แต่หน้าที่หลักคือ backend/API และ Google Cloud integration
+- Canonical public web ต้องรัน React SPA และ same-origin gateway บน Plesk; Cloud Run image ต้องเป็น backend-only ไม่มี frontend bundle และรับผิดชอบ API/Google Cloud integration เท่านั้น
 - GitHub ใช้ OIDC Workload Identity Federation โดยไม่มี service-account JSON key
 - ทุก release ผ่าน test, lint, dependency audit, container build, migration gate, candidate smoke test และ post-promotion smoke test
 - Production ต้อง manual dispatch จาก `main`, ผ่าน GitHub Environment approval และ rollback ได้โดยไม่ rebuild image
@@ -3115,7 +3115,7 @@ Acceptance Criteria:
 Acceptance Criteria:
 
 - Container ถูก deploy ด้วย digest `sha256` ไม่ใช่ mutable tag
-- Candidate revision รับ 0% traffic จน `/health/live`, `/health/ready` และ SPA smoke test ผ่าน
+- Candidate revision รับ 0% traffic จน `/health/live`, `/health/ready`, public API smoke และ backend-only root 404 ผ่าน
 - Smoke test หลังรับ traffic ล้มเหลวแล้ว traffic กลับ revision เดิมอัตโนมัติ
 - Secret value ไม่ปรากฏใน Git, GitHub variable, command argument, image layer หรือ deployment artifact
 - Staging และ production ใช้ service account, Secret prefix, bucket และ approval boundary แยกกัน
@@ -3291,7 +3291,7 @@ Acceptance Criteria:
 - Plesk ต้องรัน Node.js `22.22.x` หรือ `24.x` LTS application ที่ประกอบด้วย React SPA และ same-origin gateway หนึ่งตัว; Hostatom production เลือก `24.19.0`
 - Cloud Run ต้องคงเป็น backend/API compute และเป็น component เดียวที่เข้าถึง MongoDB, Secret Manager, GCS, KMS, Firestore, MariaDB/SQL, Brevo/SMTP fallback และ server-side provider secrets
 - Plesk ห้ามมี Google service-account JSON, ADC token, MongoDB URI, JWT/session/CSRF key, Brevo API key, SMTP password, LINE channel secret, Turnstile secret, KMS plaintext key หรือ database password
-- Cloud Run frontend bundle ใช้เป็น fallback/diagnostic ได้ แต่หลัง go-live ห้ามถือ `run.app` เป็น canonical URL ที่ส่งให้ผู้ใช้
+- Cloud Run image ห้ามบรรจุหรือเสิร์ฟ frontend bundle หลัง Plesk go-live; root ของ `run.app` ต้องคืน JSON 404 และห้ามส่ง URL นี้ให้ผู้ใช้
 - เนื่องจาก Phase 1 ไม่ใช้ external HTTPS Load Balancer เพื่อคุมงบ Cloud Run endpoint ยังคง public สำหรับ Plesk upstream; ทุก API จึงต้องรักษา auth/RBAC/CSRF/rate-limit/idempotency ที่ backend และห้ามพึ่ง CORS/Plesk WAF เป็น authorization
 
 #### 26.13.2 Request Routing และ Function Relationship

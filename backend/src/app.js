@@ -239,6 +239,14 @@ app.use('/api/receipts', receiptRoutes);
 
 configureFrontendHosting(app);
 
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    code: 'ROUTE_NOT_FOUND',
+    message: 'ไม่พบเส้นทางที่ร้องขอ',
+  });
+});
+
 app.use((err, req, res, next) => {
   auditLog({
     req,

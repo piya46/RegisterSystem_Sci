@@ -14,6 +14,7 @@
 **/logs
 **/uploads
 backend/test
+frontend
 docs
 deploy
 hosting

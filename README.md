@@ -191,7 +191,7 @@ PROJECT_ID=cusa-reunion ./scripts/release.sh plan staging
 PROJECT_ID=cusa-reunion LOAD_LOCAL_DEPLOY_CONFIG=true ./scripts/release.sh deploy staging
 ```
 
-First-time infrastructure ใช้ `BOOTSTRAP_GCP=true`; การส่ง Secret ขึ้น Secret Manager ต้องใช้ `ALLOW_SECRET_UPLOAD=true` และ production ต้อง pin version/ผ่าน GitHub Environment approval ก่อน deploy `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านเฉพาะค่า non-secret ที่อนุญาต เช่น email provider/sender, SMTP fallback host/from และ OAuth client ID จาก `backend/.env`; secret payload ไม่ถูกนำมาเปิด feature โดยอัตโนมัติ สคริปต์จะ build frontend/backend เป็น Cloud Run service เดียว, deploy image digest แบบไม่รับ traffic, smoke test, promote และ rollback อัตโนมัติเมื่อ post-promotion test ไม่ผ่าน
+First-time infrastructure ใช้ `BOOTSTRAP_GCP=true`; การส่ง Secret ขึ้น Secret Manager ต้องใช้ `ALLOW_SECRET_UPLOAD=true` และ production ต้อง pin version/ผ่าน GitHub Environment approval ก่อน deploy `LOAD_LOCAL_DEPLOY_CONFIG=true` อ่านเฉพาะค่า non-secret ที่อนุญาต เช่น email provider/sender, SMTP fallback host/from และ OAuth client ID จาก `backend/.env`; secret payload ไม่ถูกนำมาเปิด feature โดยอัตโนมัติ สคริปต์จะ build backend-only Cloud Run image, deploy image digest แบบไม่รับ traffic, smoke test, promote และ rollback อัตโนมัติเมื่อ post-promotion test ไม่ผ่าน ส่วน frontend build ถูก deploy แยกไป Plesk
 
 ขั้นตอนตั้ง WIF, GitHub variables, branch protection, Secret rotation, migration และ rollback อยู่ที่ `docs/DEPLOYMENT_RUNBOOK.md` และลำดับ MongoDB security migration อยู่ที่ `docs/MONGODB_PRODUCTION_MIGRATION_RUNBOOK.md`
 

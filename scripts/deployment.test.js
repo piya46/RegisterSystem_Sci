@@ -130,16 +130,19 @@ test('checked-in staging Secret Manager pins are bound to the selected project a
   }
 });
 
-test('container build excludes secrets and runs as a non-root user', () => {
+test('Cloud Run container is backend-only, excludes secrets, and runs as a non-root user', () => {
   const dockerfile = read('Dockerfile');
   const dockerignore = read('.dockerignore');
   assert.match(dockerfile, /npm ci --omit=dev/);
   assert.doesNotMatch(dockerfile, /npm install/);
   assert.match(dockerfile, /USER node/);
+  assert.match(dockerfile, /SERVE_FRONTEND=false/);
+  assert.doesNotMatch(dockerfile, /frontend-build|frontend\/dist|VITE_/);
   assert.doesNotMatch(dockerfile, /COPY .*\.env/);
   assert.match(dockerignore, /\*\*\/\.env/);
   assert.match(dockerignore, /gha-creds-\*\.json/);
   assert.match(dockerignore, /^hosting$/m);
+  assert.match(dockerignore, /^frontend$/m);
   assert.doesNotMatch(dockerignore, /\*\*\* (?:Add|Update|Delete) File:/);
 });
 
@@ -489,7 +492,8 @@ test('runtime renderer emits secret references without secret values', () => {
   assert.match(rendered, /EMAIL_PROVIDER: "brevo"/);
   assert.match(rendered, /BREVO_FROM_EMAIL: "noreply-event@pstpyst\.com"/);
   assert.match(rendered, /DEPLOY_ENVIRONMENT: "staging"/);
-  assert.match(rendered, /SERVE_FRONTEND: "true"/);
+  assert.match(rendered, /SERVE_FRONTEND: "false"/);
+  assert.doesNotMatch(rendered, /FRONTEND_DIST_DIR/);
   assert.match(rendered, /GCS_LOCATION: "asia-southeast3"/);
   assert.match(rendered, /PUBLIC_URL: "https:\/\/reunion\.scicu-alumni\.com"/);
   assert.match(rendered, /OBJECT_STORAGE_PUBLIC_API_ORIGIN: "https:\/\/reunion\.scicu-alumni\.com"/);

@@ -229,17 +229,10 @@ quality_gate() {
 
   if [[ "${CI_DOCKER_BUILD:-false}" == "true" ]]; then
     require_command docker
-    local id site_key google_client_id liff_id
+    local id
     id="$(release_id)"
-    site_key="$(read_public_frontend_value VITE_CF_TURNSTILE_SITE_KEY)"
-    google_client_id="$(read_public_frontend_value VITE_GOOGLE_CLIENT_ID)"
-    liff_id="$(read_public_frontend_value VITE_LIFF_ID)"
-    log "Building the immutable application container"
+    log "Building the immutable backend container"
     docker build \
-      --build-arg VITE_API_BASE_URL=/api \
-      --build-arg "VITE_CF_TURNSTILE_SITE_KEY=$site_key" \
-      --build-arg "VITE_GOOGLE_CLIENT_ID=$google_client_id" \
-      --build-arg "VITE_LIFF_ID=$liff_id" \
       --tag "psevent-ci:${id:0:12}" \
       "$ROOT_DIR"
   fi
@@ -662,19 +655,10 @@ build_and_push() {
   image_tag="${RELEASE_ID}-${build_id}"
   image_reference="$registry/$PROJECT_ID/$ARTIFACT_REPOSITORY/$SERVICE:$image_tag"
   metadata_file="$RELEASE_DIR/build-metadata.json"
-  local site_key google_client_id liff_id
-  site_key="$(read_public_frontend_value VITE_CF_TURNSTILE_SITE_KEY)"
-  google_client_id="$(read_public_frontend_value VITE_GOOGLE_CLIENT_ID)"
-  liff_id="$(read_public_frontend_value VITE_LIFF_ID)"
-  [[ -n "$site_key" ]] || die "VITE_CF_TURNSTILE_SITE_KEY is required for deployment"
 
   gcloud auth configure-docker "$registry" --quiet
-  log "Building and pushing unique release image $image_reference"
+  log "Building and pushing unique backend image $image_reference"
   docker buildx build --platform linux/amd64 --push \
-    --build-arg VITE_API_BASE_URL=/api \
-    --build-arg "VITE_CF_TURNSTILE_SITE_KEY=$site_key" \
-    --build-arg "VITE_GOOGLE_CLIENT_ID=$google_client_id" \
-    --build-arg "VITE_LIFF_ID=$liff_id" \
     --metadata-file "$metadata_file" \
     --tag "$image_reference" "$ROOT_DIR"
   digest="$(jq -r '."containerimage.digest" // empty' "$metadata_file")"
@@ -767,6 +751,9 @@ smoke_test() {
   local expected_release="$2"
   local live_file="$RELEASE_DIR/live.json"
   local ready_file="$RELEASE_DIR/ready.json"
+  local api_file="$RELEASE_DIR/api.json"
+  local root_file="$RELEASE_DIR/root.json"
+  local root_status
   curl --fail --silent --show-error --location \
     --retry 10 --retry-delay 3 --retry-all-errors --max-time 20 \
     "$origin/health/live" --output "$live_file"
@@ -783,8 +770,21 @@ smoke_test() {
     const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
     if (value.ready !== true || value.status !== "ready") process.exit(1);
   ' "$ready_file" || return 1
-  curl --fail --silent --show-error --location --max-time 20 "$origin/" \
-    | grep -Eiq '<!doctype html|<html' || return 1
+  curl --fail --silent --show-error --location --max-time 20 \
+    "$origin/api/participant-auth/providers" --output "$api_file"
+  node -e '
+    const fs = require("fs");
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (value.success !== true || typeof value.data?.email !== "boolean") process.exit(1);
+  ' "$api_file" || return 1
+  root_status="$(curl --silent --show-error --location --max-time 20 \
+    --output "$root_file" --write-out '%{http_code}' "$origin/")"
+  [[ "$root_status" == "404" ]] || return 1
+  node -e '
+    const fs = require("fs");
+    const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (value.success !== false || value.code !== "ROUTE_NOT_FOUND") process.exit(1);
+  ' "$root_file" || return 1
 }
 
 remove_candidate_tag() {
@@ -859,7 +859,7 @@ deploy_release() {
   [[ -n "$new_revision" && -n "$candidate_url" && -n "$service_url" ]] \
     || die "Unable to resolve candidate revision URLs"
 
-  log "Running candidate liveness, dependency readiness, and SPA smoke tests"
+  log "Running candidate liveness, dependency readiness, and backend-only API smoke tests"
   if ! smoke_test "$candidate_url" "$RELEASE_ID"; then
     remove_candidate_tag "$candidate_tag"
     die "Candidate smoke test failed; existing traffic was not changed"
