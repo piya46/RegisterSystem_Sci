@@ -224,6 +224,7 @@ quality_gate() {
   bash -n "$ROOT_DIR/scripts/release.sh" "$ROOT_DIR/scripts/plesk-release.sh" \
     "$ROOT_DIR/deploy-cloudrun.sh" "$ROOT_DIR/deploy-cloudrun-split.sh"
   node "$ROOT_DIR/scripts/scan-secrets.js"
+  node "$ROOT_DIR/scripts/verify-plesk-prebuilt.js"
   node --test "$ROOT_DIR/scripts/"*.test.js
 
   if [[ "${CI_DOCKER_BUILD:-false}" == "true" ]]; then

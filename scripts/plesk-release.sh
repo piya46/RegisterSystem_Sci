@@ -113,7 +113,7 @@ create_bundle() {
 plan() {
   printf '%s\n' \
     'Plesk target: reunion.scicu-alumni.com' \
-    'Deployment: manual Git deploy, or checksummed File Manager bundle when Git is unavailable' \
+    'Deployment: manual Git copy of a CI-verified prebuilt frontend' \
     'Git branch: main' \
     'Runtime: Node.js 22.22.x or Node.js 24.x LTS / Production' \
     'Application root: hosting/plesk-gateway' \
@@ -139,7 +139,7 @@ Commands:
   rollback Swap to the previous prepared frontend release and restart Passenger.
   smoke   Verify the public Plesk gateway and proxied Cloud Run API.
 
-Plesk Git manual deployment action:
+Build-capable Plesk Git action only (not Hostatom restricted chroot):
   ./scripts/release.sh plesk deploy
 
 Local File Manager fallback:

@@ -410,6 +410,7 @@ test('Plesk web deployment is a guarded manual release from main and never uses 
   const release = read('scripts/plesk-release.sh');
   const sourceVerifier = read('scripts/verify-plesk-source.js');
   const bundleBuilder = read('scripts/create-plesk-bundle.js');
+  const prebuiltVerifier = read('scripts/verify-plesk-prebuilt.js');
   const rootRelease = read('scripts/release.sh');
   const smoke = read('scripts/smoke-plesk-gateway.js');
 
@@ -434,6 +435,10 @@ test('Plesk web deployment is a guarded manual release from main and never uses 
   assert.match(bundleBuilder, /PLESK_BUNDLE_MANIFEST\.json/);
   assert.match(bundleBuilder, /releases\/\$\{releaseName\}/);
   assert.match(bundleBuilder, /must not contain \.htaccess/);
+  assert.match(prebuiltVerifier, /git', \['-C', ROOT, 'ls-files'/);
+  assert.match(prebuiltVerifier, /must not contain \.htaccess/);
+  assert.match(prebuiltVerifier, /must not contain source maps/);
+  assert.match(rootRelease, /verify-plesk-prebuilt\.js/);
   assert.doesNotMatch(bundleBuilder, /node_modules|\.env/);
   assert.doesNotMatch(release, /\bftp\b|\bftps\b|\bsftp\b|webhook/i);
   assert.match(read('scripts/prepare-plesk-public.js'), /PLESK_INCOMPATIBLE_PUBLIC_FILES = \['\.htaccess'\]/);

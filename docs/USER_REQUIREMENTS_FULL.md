@@ -2732,7 +2732,7 @@ Implementation Status:
 92. แก้แล้ว: Secret sync เคย grant runtime account อ่าน `SQL_MIGRATION_PASSWORD`; เปลี่ยนเป็นถอน runtime binding และ grant เฉพาะ migration account
 93. แก้แล้ว: GitHub CD เคยไม่มีทางส่ง database/runtime/migration user และ TLS server name ที่ห้าม commit; เพิ่ม protected Environment variable mapping ทั้ง staging/production
 94. แก้แล้ว: การตรวจ endpoint เดิมยอมรับ host ใดก็ได้ถ้า `SQL_HOST` ตรง `SQL_EXPECTED_HOST`; เพิ่ม immutable approved Plesk host `203.170.190.137` ใน application/release guard
-95. ปรับตามข้อกำหนดล่าสุด: ยกเลิก Plesk webhook/automatic deployment ทั้งหมด โดย Plesk ติดตาม `main` และผู้ดูแลต้องกด `Pull now` กับ `Deploy now` เองหลังตรวจว่า commit ผ่าน CI; deployment action ต้องปฏิเสธ branch อื่นและ tracked source ที่ถูกแก้บน host
+95. ปรับตามข้อกำหนดล่าสุด: ยกเลิก Plesk webhook/automatic deployment ทั้งหมด โดย Plesk ติดตาม `main` และผู้ดูแลต้องกด `Pull now` กับ `Deploy now` เองหลังตรวจว่า commit ผ่าน CI; build-capable deployment action ต้องตรวจ branch/source ส่วน restricted Hostatom chroot ต้องปิด action และรับเฉพาะ CI-verified prebuilt artifact
 96. แก้แล้ว: `TRUST_PROXY` validator เคยยอมรับ public CIDR กว้าง เช่น `0.0.0.0/0`; จำกัด explicit CIDR เป็น IPv4 `/32` หรือ IPv6 `/128` เท่านั้นและเพิ่ม regression test
 97. แก้แล้ว: Secret validation ยังไม่ตรวจรูปแบบ SQL CA และไม่ตรวจ mirror HMAC key ซ้ำกับ signing/blind-index key; เพิ่ม PEM validation และ key-separation gate แล้ว
 98. แก้แล้ว: Outbox เคยมอง malformed/plaintext blind index เป็น transient error ทำให้ retry ซ้ำ; เปลี่ยนเป็น permanent dead-letter เพื่อหยุดเขียนและรอ data remediation
@@ -3345,9 +3345,10 @@ Acceptance Criteria:
 - เมื่อมี Git extension ผู้ดูแลต้องกด `Pull now`, ตรวจ latest commit/SHA ให้ตรงกับ commit ที่ CI ผ่าน แล้วกด `Deploy now`; เมื่อไม่มี Git ให้ตรวจ bundle checksum/manifest, extract เป็น versioned directory ใหม่และสลับ application root หลังติดตั้ง dependency สำเร็จ
 - Plesk deployment mode ต้องเป็น manual; `PLESK_CD_ENABLED`, `PLESK_GIT_WEBHOOK_URL`, `PLESK_WEBHOOK_HOST` และ branch `plesk-production` ไม่ใช้
 - Repository public ใช้ HTTPS read-only ได้โดยไม่เก็บ credential; หากเปลี่ยนเป็น private ต้องใช้ deploy key แบบ read-only และห้าม write access
-- เมื่อใช้ Git, Plesk additional deployment action ต้องเรียก `./scripts/release.sh plesk deploy` จาก deployment target root
+- เมื่อ Plesk Git action มี Node.js/npm/core utilities จึงให้ additional deployment action เรียก `./scripts/release.sh plesk deploy`; Hostatom restricted chroot ต้องปิด action และใช้ tracked prebuilt artifact
 - Deployment action ต้องยืนยัน branch `main` และ SHA จาก checkout หรือ read-only Plesk Git mirror, ปฏิเสธ tracked file ที่หาย/เปลี่ยน type/ถูกแก้บน host, ใช้ lockfile, รัน test/audit/build, สลับ public release แล้วสร้าง Passenger restart markerหลังสำเร็จเท่านั้น
 - File Manager bundle builder ต้องยืนยัน clean `main`, ฝัง Git SHA/release manifest, มี SHA-256 checksum, include เฉพาะ gateway runtime/lockfile/frontend build และ exclude `.env`, Secret, development dependency และ `node_modules`; ผู้ดูแลต้องตรวจ checksum ก่อน extract
+- เมื่อ production Plesk Git action อยู่ใน restricted chroot ที่ไม่มี Node.js/npm/core utilities ให้ routine Git deployment ใช้ frontend artifact ที่ build และ commit จาก trusted CI/operator เท่านั้น, CI ต้องยืนยันว่า public artifact ถูก track ครบและไม่มี `.htaccess`/source map/Secret, ปิด Additional deployment action แล้วใช้ Plesk Node.js Toolkit ทำ `NPM install` และ `Restart App`
 - หาก Git action ไม่ inherit Node.js environment อนุญาต local build config เฉพาะ public `VITE_*` allowlist; ห้าม loader อ่านหรือส่ง backend Secret และ database/cloud credential
 - หลังผู้ดูแล deploy ต้องรัน external smoke แบบ bounded และหยุด go-live เมื่อ gateway readiness, SPA, security headers, release header หรือ same-origin API ผิด contract
 - FTP/SFTP credential, Plesk password, SSH private key, webhook secret และ GitHub write token ห้ามอยู่ใน repository/Plesk application

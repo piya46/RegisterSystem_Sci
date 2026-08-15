@@ -26,8 +26,10 @@ MongoDB, Secret Manager, GCS, KMS, Firestore, Brevo/SMTP fallback และ Mari
   `RegisterSystem_Sci.git` ติดตาม branch `main` โดย deployment target เป็น
   `/reunion.scicu-alumni.com`
 - หน้าจอวันที่ตรวจพบยังแสดง Automatic deployment ต้องเปลี่ยนเป็น Manual
-  deployment ก่อน `Pull now`; checksummed File Manager bundle ตามหัวข้อ 3.1
-  เป็น fallback เท่านั้น
+  deployment ก่อน `Pull now`
+- Git additional deployment action รันใน restricted chroot ที่ไม่มี `dirname`
+  และ Node.js จึงต้องปิด action และ deploy frontend artifact ที่ CI ตรวจแล้วจาก Git
+  โดยตรง; checksummed File Manager bundle ตามหัวข้อ 3.1 เป็น fallback เท่านั้น
 - Cloud Run production revision พร้อมและ readiness ผ่านแล้วที่ deterministic URL
   ด้านบน
 - การผ่าน `production-readiness --web` ยืนยันเฉพาะ configuration contract
@@ -98,23 +100,16 @@ release branch `plesk-production` ไม่ใช้ในสถาปัตย�
 
 สำหรับ Hostatom ปัจจุบันให้คลิกคำว่า `automatically` ในส่วน Deployment แล้ว
 เปลี่ยนเป็น `Manual deployment`; target คงเป็น `/reunion.scicu-alumni.com`
-จากนั้นเปิด Repository Settings (ไอคอน sliders), เปิด Additional deployment
-actions และกำหนด action จาก deployment target rootตามหัวข้อด้านล่าง
+จากนั้นเปิด Repository Settings (ไอคอน sliders) และปิด Additional deployment
+actions เพราะ Hostatom chroot ไม่มี build runtime
 
 Repository ปัจจุบันเป็น public จึงไม่ต้องมี deploy credential หากเปลี่ยนเป็น
 private ให้ใช้ deploy key แบบ read-only เท่านั้น ห้ามให้ write access
 
-ตั้ง Additional deployment action จาก deployment target root:
-
-```bash
-PLESK_EXPECTED_BRANCH=main \
-VITE_CF_TURNSTILE_SITE_KEY=<public-site-key> \
-./scripts/release.sh plesk deploy
-```
-
-`VITE_CF_TURNSTILE_SITE_KEY` เป็น public site key จึงใส่ใน action ได้ แต่ห้ามใส่
-Turnstile secret หรือ backend Secret ใด ๆ สคริปต์จะหา Plesk-managed Node.js 24
-จาก `/opt/plesk/node/24/bin` อัตโนมัติเมื่อ Git action ไม่มี `node`/`npm` ใน PATH
+Hostatom ใช้ prebuilt mode: operator ต้อง build frontend ด้วย
+`VITE_API_BASE_URL=/api`, เตรียม `hosting/plesk-gateway/public`, commit artifact
+พร้อม source แล้วผ่าน `CI / quality` ก่อนกด Pull Plesk ห้ามตั้ง Additional
+deployment action เพราะ restricted chroot ไม่มี `dirname`, Node.js และ npm
 
 Plesk แยก Git mirror ออกจาก deployment target ดังนั้น target อาจไม่มี `.git`
 ซึ่งเป็นพฤติกรรมปกติ สคริปต์จะตรวจ checkout โดยตรงเมื่อมี `.git`; หากไม่มีจะ
@@ -124,7 +119,7 @@ Plesk แยก Git mirror ออกจาก deployment target ดังนั�
 `PLESK_GIT_DIR=<relative-read-only-git-dir>` ใน deployment action เท่านั้น
 ห้ามชี้ไป repository ที่ผู้ใช้เว็บเขียนได้
 
-สคริปต์จะ:
+CI/local release script จะ:
 
 - ยืนยัน Node.js `22.22.x` หรือ `24.x` LTS
 - ยืนยันว่า source/mirror ใช้ `main`
@@ -136,10 +131,11 @@ Plesk แยก Git mirror ออกจาก deployment target ดังนั�
 - build frontend ด้วย `VITE_API_BASE_URL=/api`
 - ตัด `.htaccess` ที่อาจปิด Passenger
 - สลับ frontend public directory และเก็บ previous release
-- สร้าง `tmp/restart.txt` หลังทุกขั้นสำเร็จเท่านั้น
+- ตรวจว่า prebuilt public ทุกไฟล์ถูก Git track, ไม่มี `.htaccess`/source map และ
+  metadata ถูกต้อง
 
-ถ้า Plesk action หา `node` หรือ `npm` ไม่พบ ให้ผู้ดูแล hosting เปิด Node.js CLI
-สำหรับ subscription ห้ามดาวน์โหลด runtime ที่ไม่ผ่านการควบคุมเข้า repository
+Plesk ใช้ปุ่ม `NPM install` ของ Node.js Toolkit เพื่อติดตั้ง runtime dependencies
+และ `Restart App` หลัง Deploy ห้ามดาวน์โหลด runtime เข้า repository
 
 ### 3.1 File Manager Bundle เมื่อไม่มี Plesk Git
 
@@ -213,10 +209,9 @@ VITE_LIFF_ID=<public-liff-id-or-empty>
 `VITE_*` เป็น public identifier ไม่ใช่ Secret ส่วน `UPSTREAM_ORIGIN` ต้องเป็น
 HTTPS `run.app` origin ที่ไม่มี path, query หรือ credential
 
-Git deployment action บางแผน hosting ไม่ inherit Node.js environment ตอน build
-หากพบ error ว่าไม่มี Turnstile site key ให้สร้าง `frontend/.env` บน deployment
-target โดยมีเฉพาะ `VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID` และ
-`VITE_LIFF_ID` แล้วเปลี่ยน action เป็น:
+สำหรับ Plesk อื่นที่มี build-capable action แต่ไม่ inherit Node.js environment
+สามารถสร้าง `frontend/.env` บน deployment target โดยมีเฉพาะ
+`VITE_CF_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID` และ `VITE_LIFF_ID` แล้วใช้:
 
 ```bash
 LOAD_LOCAL_PLESK_CONFIG=true ./scripts/release.sh plesk deploy
@@ -225,7 +220,7 @@ LOAD_LOCAL_PLESK_CONFIG=true ./scripts/release.sh plesk deploy
 loader อ่านเฉพาะ allowlist สามค่านี้ ห้ามใส่ backend Secret, password, token,
 MongoDB URI, database credential หรือ Google credential ในไฟล์ดังกล่าว
 `PUBLIC_HOST` และ `UPSTREAM_ORIGIN` ยังคงต้องตั้งใน Plesk Node.js environment
-สำหรับ runtime
+สำหรับ runtime วิธีนี้ไม่ใช้กับ Hostatom ซึ่งต้องปิด Additional deployment action
 
 production ต้องใช้ deterministic URL ของ `psevent-production` ด้านบน แล้วกด
 restart อีกครั้ง ห้ามตั้ง `ALLOW_NON_GOOGLE_UPSTREAM=true` ใน production
@@ -274,7 +269,7 @@ PROJECT_ID=cusa-reunion ./scripts/release.sh plan production
 1. หากมี Plesk Git ให้กด `Pull now`, ตรวจ SHA แล้วกด `Deploy now`
 2. หากไม่มี Plesk Git ให้ upload/extract checksummed ZIP ตามหัวข้อ 3.1
 3. ตั้ง Node.js เป็น `24.19.0`, mode `Production` และ path ตามหัวข้อ 4
-4. กด `npm`/`NPM install` แล้วกด `Restart App`
+4. กด `npm`/`NPM install` แล้วกด `Restart App`; ไม่ต้องมี deployment action
 5. ตรวจว่า Plesk ไม่แสดงข้อความ `app.js is not found`
 
 หลัง deploy:
@@ -343,7 +338,8 @@ root cause
 
 - Domain/SSL valid และไม่มี mixed content
 - Source เป็น clean `main` commit ที่ push แล้วและ CI ผ่าน
-- ถ้ามี Git: repository/branch/manual mode ถูกต้องและ deployment log แสดง SHA
+- ถ้ามี Git: repository/branch/manual mode ถูกต้อง, additional action ปิด และ
+  deployment log แสดง SHA
 - ถ้าไม่มี Git: ZIP checksum และ `PLESK_BUNDLE_MANIFEST.json` ตรงกับ Git SHA
 - Node.js `24.19.0`, application root, document root และ startup file ถูกต้อง
 - ไม่มี backend/GCP/DB Secret บน Plesk
@@ -364,7 +360,7 @@ root cause
 | `/api` ได้ HTML/404 | gateway ไม่ได้ start หรือ document root ผิด |
 | Passenger แจ้ง application start ไม่สำเร็จ | เปิด domain `Logs`, ค้น Error ID, แล้วรัน script `diagnose` จากแท็บ Run Node.js commands |
 | HTTP 502 | `UPSTREAM_ORIGIN`, Cloud Run readiness, outbound HTTPS/DNS |
-| action หา `npm` ไม่พบ | Node CLI/chroot capability ของ hosting |
+| Git action หา `dirname`/`node` ไม่พบ | ปิด Additional deployment action และใช้ tracked prebuilt public |
 | action แจ้ง Git mirror ไม่พบ | ตรวจชื่อ `RegisterSystem_Sci.git` หรือกำหนด relative `PLESK_GIT_DIR` |
 | action แจ้ง tracked file ไม่ตรง commit | กด Pull now ใหม่และตรวจ target; ห้ามแก้ tracked source ผ่าน File Manager |
 | action แจ้งไม่มี Turnstile site key | ตั้ง public `VITE_*` ให้ action หรือใช้ allowlisted `frontend/.env` |

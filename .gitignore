@@ -31,7 +31,5 @@ gha-creds-*.json
 master_plan_full.json
 hosting/plesk-gateway/.release-id
 hosting/plesk-gateway/.release-id-*
-hosting/plesk-gateway/public/*
-!hosting/plesk-gateway/public/.gitkeep
 hosting/plesk-gateway/.public-*
 hosting/plesk-gateway/tmp/
