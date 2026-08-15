@@ -4,8 +4,9 @@ import {
   Box, Typography, Card, CardContent, Button,
   Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, IconButton, Chip,
-  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert, Grid, Fade, Checkbox
+  CircularProgress, Stack, Tooltip, Avatar, LinearProgress, Alert, Fade, Checkbox
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { styled, keyframes } from "@mui/material/styles";
 
 // Icons

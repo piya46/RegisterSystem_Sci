@@ -4,10 +4,11 @@ import {
   Box, Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, TextField, Button, IconButton, Tooltip, CircularProgress,
   Typography, MenuItem, Select, InputLabel, FormControl, Stack, Chip,
-  Snackbar, Alert, Grid, Card, CardContent, InputAdornment, Fade,
+  Snackbar, Alert, Card, CardContent, InputAdornment, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, Divider,
   Autocomplete, Tabs, Tab, Container
 } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import { styled } from '@mui/material/styles';
 import { useLocation, useNavigate, useParams } from 'react-router';
 

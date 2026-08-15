@@ -338,27 +338,44 @@ export default function PreRegistrationPage({ mode = "register" }) {
   const requireAddress = (watch('wantPackage') && watch('pickupMethod') === 'DELIVERY') || watch('membershipOption') === 'existing' || watch('membershipOption') === 'new';
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f7f9fb", pb: 10 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f7f9fb", pb: 10, overflowX: 'hidden' }}>
       {/* Cover / Header */}
       <Box sx={{
         bgcolor: eventInfo?.branding?.primaryColor || '#114b5f',
         color: '#fff',
-        pt: 6, pb: 12,
+        pt: { xs: 4, sm: 6 }, pb: { xs: 10, sm: 12 }, px: 1,
         textAlign: 'center',
         backgroundImage: eventInfo?.branding?.coverImageUrl ? `linear-gradient(rgba(17, 75, 95, 0.9), rgba(17, 75, 95, 0.9)), url(${eventInfo.branding.coverImageUrl})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }}>
         <Container maxWidth="lg">
-          <Typography variant="h3" fontWeight={900}>{eventInfo?.name || "ลงทะเบียนล่วงหน้า"}</Typography>
+          <Typography
+            component="h1"
+            fontWeight={900}
+            sx={{ fontSize: { xs: '2rem', sm: '3rem' }, lineHeight: 1.2, overflowWrap: 'anywhere' }}
+          >
+            {eventInfo?.name || "ลงทะเบียนล่วงหน้า"}
+          </Typography>
           {eventInfo?.eventYear && <Typography variant="h6" sx={{ mt: 1, opacity: 0.9 }}>กิจกรรมประจำปี {eventInfo.eventYear}</Typography>}
         </Container>
       </Box>
 
       {/* Main Form Container */}
-      <Container maxWidth="md" sx={{ mt: -8, position: 'relative', zIndex: 10 }}>
-        <Paper elevation={3} sx={{ p: { xs: 2, md: 4 }, borderRadius: 3 }}>
-          <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4 }}>
+      <Container maxWidth="md" sx={{ mt: -8, position: 'relative', zIndex: 10, px: { xs: 2, sm: 3 } }}>
+        <Paper elevation={3} sx={{ p: { xs: 2, md: 4 }, borderRadius: 1 }}>
+          <Stepper
+            activeStep={activeStep}
+            alternativeLabel
+            sx={{
+              mb: 4,
+              '& .MuiStepLabel-label': {
+                fontSize: { xs: '0.72rem', sm: '0.875rem' },
+                lineHeight: 1.25,
+                whiteSpace: 'normal',
+              },
+            }}
+          >
             {steps.map((label) => (
               <Step key={label}>
                 <StepLabel>{label}</StepLabel>

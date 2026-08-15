@@ -13,7 +13,6 @@ import {
   AccordionDetails,
   AccordionSummary,
   FormControlLabel,
-  Grid,
   IconButton,
   MenuItem,
   Paper,
@@ -29,6 +28,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { useNavigate, useParams } from "react-router";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import BusinessIcon from "@mui/icons-material/Business";

@@ -4,9 +4,10 @@ import useAuth from "../hooks/useAuth";
 import {
   AppBar, Toolbar, Box, Typography, Button, Avatar,
   Stack, Chip, Card, CardContent, Container, Tooltip, Menu, MenuItem, Divider, CssBaseline, Switch, Skeleton, Fade, FormControlLabel,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress, Grid,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, CircularProgress,
   Snackbar, Alert
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 
 // Icons

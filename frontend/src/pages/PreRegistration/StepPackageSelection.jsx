@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Box, Typography, Grid, Card, CardActionArea, CardContent, FormControl, InputLabel, Select, MenuItem, TextField, Alert, FormHelperText, Button, CircularProgress } from '@mui/material';
+import { Box, Typography, Card, CardActionArea, CardContent, FormControl, InputLabel, Select, MenuItem, TextField, Alert, FormHelperText, Button, CircularProgress } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import { Controller, useFormContext } from 'react-hook-form';
 import SizeChart from '../../components/SizeChart';
 import StorefrontIcon from "@mui/icons-material/Storefront";

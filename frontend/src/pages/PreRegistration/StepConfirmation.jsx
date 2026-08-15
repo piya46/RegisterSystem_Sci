@@ -1,5 +1,6 @@
 import React from 'react';
-import { Box, Typography, Paper, Grid, Divider, FormControl, InputLabel, Select, MenuItem, FormHelperText, Alert } from '@mui/material';
+import { Box, Typography, Paper, Divider, FormControl, InputLabel, Select, MenuItem, FormHelperText, Alert } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import { useFormContext, Controller } from 'react-hook-form';
 import Turnstile from '../../components/Turnstile';
 

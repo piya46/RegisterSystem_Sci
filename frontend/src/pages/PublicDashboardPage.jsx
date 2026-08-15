@@ -1,6 +1,7 @@
 // frontend/src/pages/PublicDashboardPage.jsx
 import React, { useCallback, useEffect, useState } from 'react';
-import { Box, Grid, Card, CardContent, Typography, Stack, CircularProgress, Divider, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Tooltip, Avatar, Container } from '@mui/material';
+import { Box, Card, CardContent, Typography, Stack, CircularProgress, Divider, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, IconButton, Tooltip, Avatar, Container } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import PeopleIcon from '@mui/icons-material/People';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import GroupsIcon from '@mui/icons-material/Groups';

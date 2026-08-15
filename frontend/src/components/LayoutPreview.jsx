@@ -1,5 +1,6 @@
 import React from "react";
-import { Box, Chip, Grid, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography, Button, MenuItem } from "@mui/material";
+import { Box, Chip, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Typography, Button, MenuItem } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import { EmptyState } from "./FeedbackStates";
 
 export default function LayoutPreview({ layoutKey, config, event }) {

@@ -5,8 +5,9 @@ import {
   TableHead, TableRow, Paper, IconButton, Switch, Chip, Stack, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, TextField, MenuItem, FormControlLabel, CircularProgress, Snackbar, Alert,
   InputAdornment, LinearProgress, Divider, Avatar, Select, FormControl, InputLabel,
-  useTheme, Grid
+  useTheme
 } from "@mui/material";
+import Grid from "@mui/material/GridLegacy";
 import EditTwoToneIcon from "@mui/icons-material/EditTwoTone";
 import DeleteTwoToneIcon from "@mui/icons-material/DeleteTwoTone";
 import AddCircleOutlineIcon from "@mui/icons-material/AddCircleOutline";

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Box, Typography, TextField, Grid, FormControl, InputLabel, Select, MenuItem, FormHelperText, Alert, Button } from '@mui/material';
+import { Box, Typography, TextField, FormControl, InputLabel, Select, MenuItem, FormHelperText, Alert, Button } from '@mui/material';
+import Grid from '@mui/material/GridLegacy';
 import { Controller, useFormContext } from 'react-hook-form';
 import ReuseRegistrationDialog from './ReuseRegistrationDialog';
 

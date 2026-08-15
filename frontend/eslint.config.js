@@ -26,6 +26,13 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-restricted-imports': ['error', {
+        paths: [{
+          name: '@mui/material',
+          importNames: ['Grid'],
+          message: 'Legacy item/xs Grid props require @mui/material/GridLegacy until the component is migrated to the v7 size API.',
+        }],
+      }],
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
     },
