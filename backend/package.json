@@ -69,7 +69,7 @@
     "multer": "^2.2.0",
     "mysql2": "^3.23.0",
     "node-cron": "^4.2.1",
-    "nodemailer": "^9.0.1",
+    "nodemailer": "^10.0.9",
     "pdfkit": "^0.17.2",
     "pdfkit-table": "^0.1.99",
     "qrcode": "^1.5.4",
